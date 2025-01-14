@@ -15,7 +15,7 @@ use leptonica_plumbing::memory::RefCounted;
 pub(crate) struct Error;
 
 pub trait PixExt {
-    fn render_box(&mut self, boxes: &LepBox, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
+    fn render_box(&mut self, r#box: &LepBox, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
     fn render_boxes(&mut self, boxes: Boxa, width: i32, color: (u8, u8, u8)) -> Result<(), ()>;
     fn render_img(&mut self, src: &mut Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
     fn write(&mut self, path: &CStr) -> Result<(), eyre::Error>;

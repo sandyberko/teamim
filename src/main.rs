@@ -47,29 +47,31 @@ fn main() -> eyre::Result<()> {
     let i = fuzzy_find::find(&consonants, text.trim()).wrap_err("no match")?;
     println!("Found at index {i}");
 
-    let mut text = text.chars().peekable();
-    let teamim = fs::read_to_string("./assets/text/leningrad/teamim/torah.txt")?;
+    let mut chars_iter = text.chars();
+    let mut cur_c = None;
 
     // Boxes
     let boxes = tess
         .get_component_images(capi::TessPageIteratorLevel_RIL_SYMBOL, true)
         .wrap_err("no boxes")?;
-    let mut boxes_iter = boxes.into_iter().peekable();
+    let mut boxes_iter = boxes.into_iter();
+    let mut cur_box: Option<leptonica::Box> = None;
 
     // load glyphs
     let mut shalshelet = leptonica::pix_read(Path::new("./assets/glyphs/shalshelet.tif")).unwrap();
 
+    let teamim = fs::read_to_string("./assets/text/leningrad/teamim/torah.txt")?;
     'teamim: for c_taam in teamim.chars() {
         match c_taam {
             // Ta'am
             // TODO remove non-torah teamim like tzinor
             '\u{0591}'..='\u{05AE}' | '\u{5bd}' => {
-                eprintln!("ta'am on {:?}", text.peek());
-                let last_box = boxes_iter.peek().ok_or_eyre("expected box")?;
-                let geometry = last_box.get_geometry();
+                eprintln!("ta'am on {:?}", cur_c);
+                let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
+                let geometry = cur_box.get_geometry();
                 pix.render_img(&mut shalshelet, geometry.x, geometry.y)
                     .wrap_err("failed to render text")?;
-                pix.render_box(last_box, 3, (255, 0, 0))?;
+                pix.render_box(cur_box, 3, (255, 0, 0))?;
             }
             // TODO Sof Pasuq, Maqaf
             '\u{5c3}' | '\u{5be}' => (),
@@ -79,23 +81,17 @@ fn main() -> eyre::Result<()> {
             _ if c_taam.is_whitespace() => continue,
             // Letter - alef to tav
             ('\u{05d0}'..='\u{05EA}') => {
-                let c = loop {
-                    match text.peek() {
-                        Some(c) if c.is_whitespace() => {
-                            text.next();
-                        }
-                        Some(c) => break *c,
-                        None => bail!("no more text"),
-                    }
-                };
-                boxes_iter.next();
+                cur_c = chars_iter.find(|c| !c.is_whitespace());
+                cur_box = boxes_iter.next();
+
+                let cur_c = cur_c.ok_or_eyre("no text")?;
                 'mismatch: {
-                    if c_taam == c {
+                    if c_taam == cur_c {
                         break 'mismatch;
                     }
 
                     if args.interactive {
-                        println!("expected {c_taam:?}, but recognized {c:?}");
+                        println!("expected {c_taam:?}, but recognized {cur_c:?}");
                         println!(
                             "ignore and [c]ontinue, [s]top but save, [w]rite debug image, [q]uit: "
                         );
@@ -105,20 +101,15 @@ fn main() -> eyre::Result<()> {
                             "c" => break 'mismatch,
                             "s" => break 'teamim,
                             "w" => {
-                                pix.render_box(
-                                    boxes_iter.peek().ok_or_eyre("need box")?,
-                                    3,
-                                    (255, 0, 0),
-                                )?;
+                                pix.render_box(&cur_box.ok_or_eyre("need box")?, 3, (255, 0, 0))?;
                                 pix.write(c"debug.jpg")?;
                             }
                             _ => {}
                         }
                     }
 
-                    bail!("expected {c_taam:?}, but recognized {c:?}");
+                    bail!("expected {c_taam:?}, but recognized {cur_c:?}");
                 }
-                text.next();
             }
             c => bail!("unexpected taaam_c: 0x{:x} {c:?}", c as u32),
         }
