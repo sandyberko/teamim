@@ -7,8 +7,15 @@ pub(crate) struct Location {
     column: usize,
 }
 
+const SEARCH_CHUNK: usize = 32;
+
 pub(crate) fn find(src: &str, text: &str) -> Option<usize> {
-    Some(0)
+    let text = if let Some((idx, _)) = text.char_indices().nth(SEARCH_CHUNK + 1) {
+        &text[..idx]
+    } else {
+        text
+    };
+    src.find(text)
     // let mut best_match = None;
     // let mut best_score = 0.0;
 
