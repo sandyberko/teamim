@@ -5,11 +5,14 @@ edition = "2021"
 default-run = "teamim"
 
 [dependencies]
+ab_glyph = "0.2.29"
 clap = { version = "4.5.26", features = ["derive"] }
 color-eyre = "0.6.3"
 eyre = "0.6.12"
+imageproc = "0.25.0"
 leptess = "0.14.0"
 leptonica-plumbing = "1.4.0"
+phf = { version = "0.11.3", features = ["macros"] }
 strsim = "0.11.1"
 thiserror = "2.0.11"
 

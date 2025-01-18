@@ -1,0 +1,24 @@
+# TODO
+
+- Tesseract with known text
+- create_glyph to build script?
+- UI
+    - cli
+        - output recognized+box
+        - input fixed
+    - egui / web to 
+- Tesseract
+    - Training
+      - more readymade fonts
+      - custom box
+      - wide letters
+- Place Te'amim
+  - prepare teamim/tora.txt
+  - MVP
+  - figure out lines or smth
+  - Maqaf
+  - Sof Pasuq
+- Search
+    - just find for perfect strings
+    - [X] ~~MVP~~ unusably slow
+    - research from there

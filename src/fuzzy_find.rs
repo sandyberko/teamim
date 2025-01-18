@@ -1,11 +1,4 @@
-use std::{io::Write, iter::once};
 
-use strsim::normalized_levenshtein;
-
-pub(crate) struct Location {
-    line: usize,
-    column: usize,
-}
 
 const SEARCH_CHUNK: usize = 32;
 
