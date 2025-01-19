@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Box Edit</title>
+
+    <script src="build/index.js" type="module" async></script>
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <header>
+        <fieldset disabled id="input-fields">
+            <label for="box-input">קובץ זיהוי</label>
+            <input type="file" id="box-input" accept=".box" title="Select a Box file">
+
+            <label for="image-input">תמונה</label>
+            <input type="file" id="image-input" accept="image/*" title="Select an image file">
+
+            <input type="submit" value="Download">
+        </fieldset>
+    </header>
+    <main id="main">
+        <div id="box-container"></div>
+    </main>
+</body>
+
+</html>

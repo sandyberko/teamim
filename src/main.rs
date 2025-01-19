@@ -1,11 +1,12 @@
 mod fuzzy_find;
 mod glyphs;
 mod leptonica_ext;
+mod tesseract_ext;
 
 use std::{
     ffi::{CString, OsStr, OsString},
-    fs::{self, File},
-    io::{stdin, BufRead, BufReader},
+    fs::{self, File, OpenOptions},
+    io::{stdin, BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
 };
 
@@ -33,6 +34,9 @@ struct Args {
 
     #[clap(short, long)]
     corrected: Option<PathBuf>,
+
+    #[clap(short, long)]
+    write_boxes: Option<PathBuf>,
 }
 
 fn main() -> eyre::Result<()> {
@@ -49,8 +53,32 @@ fn main() -> eyre::Result<()> {
             .lines()
             .map(|line| parse_box_line(line?, pix_h));
         place_teamim(&pix, &text, boxes, args.interactive)?;
+    } else if let Some(write_boxes) = args.write_boxes {
+        use tesseract_ext::{Tess, BoundingBox};
+        let mut tess = Tess::new(c"./assets/tessdata", c"stam");
+
+        tess.set_image(&pix);
+        tess.recognize();
+
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&write_boxes)?;
+
+        let mut w = BufWriter::new(file);
+
+        for mut char in tess.results_iter() {
+            let text = char.text();
+            let BoundingBox { left, top, right, bottom } = char.bounding_box();
+            writeln!(&mut w, "{text} {left} {top} {right} {bottom} 0")?;
+        }
+
+        w.flush()?;
+        println!("Wrote to {write_boxes:?}");
     } else {
         let mut tess = TessApi::new(Some("./assets/tessdata"), "stam")?;
+
         tess.set_image(&pix);
 
         // Print
@@ -77,7 +105,7 @@ fn main() -> eyre::Result<()> {
             pix.render_boxes(boxes, width, color)
                 .map_err(|_| eyre!("failed to render boxes"))?;
         }
-    };
+    }
 
     // Output image
     let out_file_name = args.input_image_name.with_file_name(

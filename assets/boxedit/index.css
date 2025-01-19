@@ -1,0 +1,42 @@
+:root {
+    direction: rtl;
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    display: grid;
+    grid-template-rows: auto 1fr;
+}
+
+main {
+    position: relative;
+
+    &>img {
+        position: absolute;
+        z-index: 0;
+    }
+
+    &>#box-container {
+        position: absolute;
+        z-index: 1;
+
+        &>.box {
+            position: absolute;
+            padding: 0;
+            margin: 0;
+            box-sizing: content-box;
+            border: 2px solid rgba(0, 0, 255, .5);
+            box-shadow: none;
+            overflow: visible;
+            background: transparent;
+            font-family: 'Guttman Stam';
+            font-size: 24px;
+            color: red;
+        }
+
+        &[data-hide-text]>.box {
+            color: transparent;
+        }
+    }
+}

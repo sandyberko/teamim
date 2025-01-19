@@ -1,0 +1,13 @@
+{
+  "name": "boxedit",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "watch": "tsc -w"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
