@@ -9,7 +9,7 @@
     - egui / web to 
 - Tesseract
     - Training
-      - explore training from scratch, as in that (Rashi project)[https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md]
+      - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
       - more readymade fonts (in Downloads)
       - custom box
       - wide letters
