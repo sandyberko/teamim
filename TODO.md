@@ -9,9 +9,11 @@
     - egui / web to 
 - Tesseract
     - Training
-      - more readymade fonts
+      - more readymade fonts (in Downloads)
       - custom box
       - wide letters
+      - variable inter-character spacing
+- if Tesseract has text2image, surely it has API for fonts?
 - Place Te'amim
   - prepare teamim/tora.txt
   - MVP
