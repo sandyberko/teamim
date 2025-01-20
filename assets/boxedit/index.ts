@@ -93,21 +93,16 @@ enum Direction {
     BottomLeft = 0b0011,
     Left = 0b0001,
     LeftTop = 0b1001,
-    Inside = 0b1111,
+    Inside = 0b0000,
 }
-// TODO use bitflags
-function getDir(top: boolean, right: boolean, bottom: boolean, left: boolean): Direction {
-    if (top && !right && !bottom && !left) { return Direction.Top; }
-    if (top && right && !bottom && !left) { return Direction.TopRight; }
-    if (!top && right && !bottom && !left) { return Direction.Right; }
-    if (!top && right && bottom && !left) { return Direction.RightBottom; }
-    if (!top && !right && bottom && !left) { return Direction.Bottom; }
-    if (!top && !right && bottom && left) { return Direction.BottomLeft; }
-    if (!top && !right && !bottom && left) { return Direction.Left; }
-    if (top && !right && !bottom && left) { return Direction.LeftTop; }
-    if (!top && !right && !bottom && !left) { return Direction.Inside; }
 
-    throw new Error(`invalid direction ${[top, right, bottom, left]}`);
+function getDir(top: boolean, right: boolean, bottom: boolean, left: boolean): Direction {
+    let dir = 0;
+    if (top) dir |= Direction.Top;
+    if (right) dir |= Direction.Right;
+    if (bottom) dir |= Direction.Bottom;
+    if (left) dir |= Direction.Left;
+    return dir;
 }
 
 function eventDir(event: MouseEvent): Direction {
@@ -132,61 +127,61 @@ cursor.set(Direction.Left, "ew-resize");
 cursor.set(Direction.LeftTop, "nw-resize");
 cursor.set(Direction.Inside, "move");
 
-const handleMouseOver = (event: MouseEvent) => {
-    if (event.target instanceof HTMLInputElement === false) return false;
-    event.target.style.cursor = cursor.get(eventDir(event)) || (() => { throw new Error("invalid cursor") })();
-}
-let prev: { elem: HTMLInputElement, clientX: number, clientY: number, dir: Direction } | null = null;
-function handleMouseDown(event: MouseEvent) {
-    if (event.target instanceof HTMLInputElement === false) return false;
-    prev = {
-        elem: event.target,
-        dir: eventDir(event),
-        clientX: event.clientX,
-        clientY: event.clientY,
-    };
-    boxContainer!.addEventListener("mousemove", handleMouseMove);
-    boxContainer!.addEventListener("mouseup", handleMouseUp);
-}
 function handleMouseMove(event: MouseEvent) {
-    if (prev === null) return false;
-    const dx = event.clientX - prev.clientX, dy = event.clientY - prev.clientY;
-    prev.clientX = event.clientX;
-    prev.clientY = event.clientY;
+    if (event.target instanceof HTMLInputElement === false) return false;
+    const dir = eventDir(event);
+    event.target.style.cursor = cursor.get(dir) || (() => { throw new Error(`invalid cursor ${dir.toString(2)}`); })();
+}
 
-    if ((prev.dir & Direction.Top) != 0) {
-        prev.elem.style.top = prev.elem.offsetTop + dy + 'px';
-        prev.elem.style.height = prev.elem.clientHeight - dy + 'px';
-    }
-    if ((prev.dir & Direction.Right) != 0) {
-        prev.elem.style.width = prev.elem.clientWidth + dx + 'px';
-    }
-    if ((prev.dir & Direction.Bottom) != 0) {
-        prev.elem.style.height = prev.elem.clientHeight + dy + 'px';
-    }
-    if ((prev.dir & Direction.Left) != 0) {
-        prev.elem.style.left = prev.elem.offsetLeft + dx + 'px';
-        prev.elem.style.width = prev.elem.clientWidth - dx + 'px';
-    }
+function handleMouseDown(downEvent: MouseEvent) {
+    if (downEvent.target instanceof HTMLInputElement === false) return false;
+    downEvent.preventDefault();
+
+    const elem = downEvent.target;
+    const dir = eventDir(downEvent) || 0b1111;
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    let prevX = downEvent.clientX, prevY = downEvent.clientY;
+    boxContainer!.addEventListener("mousemove", (moveEvent) => {
+        const dx = moveEvent.clientX - prevX, dy = moveEvent.clientY - prevY;
+        prevX = moveEvent.clientX;
+        prevY = moveEvent.clientY;
+
+        if ((dir & Direction.Top) != 0) {
+            elem.style.top = elem.offsetTop + dy + 'px';
+            elem.style.height = elem.clientHeight - dy + 'px';
+        }
+        if ((dir & Direction.Right) != 0) {
+            elem.style.width = elem.clientWidth + dx + 'px';
+        }
+        if ((dir & Direction.Bottom) != 0) {
+            elem.style.height = elem.clientHeight + dy + 'px';
+        }
+        if ((dir & Direction.Left) != 0) {
+            elem.style.left = elem.offsetLeft + dx + 'px';
+            elem.style.width = elem.clientWidth - dx + 'px';
+        }
+    }, { signal });
+
+    boxContainer!.addEventListener("mouseup", () => controller.abort(), { signal });
 }
-function handleMouseUp(event: MouseEvent) {
-    prev = null;
-    if (event.target instanceof HTMLInputElement === false) return false;
-    boxContainer!.removeEventListener("mousemove", handleMouseMove);
-    boxContainer!.removeEventListener("mouseup", handleMouseUp);
+
+{
+    document.addEventListener("focusin", (event) => {
+        if (event.target instanceof HTMLInputElement === false) return false;
+        event.target.style.zIndex = "2";
+        event.target.addEventListener("mousemove", handleMouseMove);
+        event.target.addEventListener("mousedown", handleMouseDown);
+    });
+    document.addEventListener("focusout", (event) => {
+        if (event.target instanceof HTMLInputElement === false) return false;
+        event.target.style.zIndex = "0";
+        event.target.removeEventListener("mousemove", handleMouseMove);
+        event.target.removeEventListener("mousedown", handleMouseDown);
+    });
 }
-boxContainer.addEventListener("focusin", (event) => {
-    if (event.target instanceof HTMLInputElement === false) return false;
-    event.target.style.zIndex = "2";
-    event.target.addEventListener("mousedown", handleMouseDown);
-    event.target.addEventListener("mouseover", handleMouseOver);
-});
-boxContainer.addEventListener("focusout", (event) => {
-    if (event.target instanceof HTMLInputElement === false) return false;
-    event.target.style.zIndex = "0";
-    event.target.addEventListener("mousedown", handleMouseDown);
-    event.target.removeEventListener("mouseover", handleMouseOver);
-});
 // #endregion
 
 // Visibility

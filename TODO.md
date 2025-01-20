@@ -2,11 +2,13 @@
 
 - Tesseract with known text
 - create_glyph to build script?
+- boxedit
+  - blend mode for overlapping text
 - UI
     - cli
         - output recognized+box
         - input fixed
-    - egui / web to 
+    - egui / web to
 - Tesseract
     - Training
       - more readymade fonts
