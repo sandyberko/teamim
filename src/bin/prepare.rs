@@ -10,8 +10,15 @@ use clap::Parser;
 #[derive(Parser)]
 struct Args {
     input_dir: PathBuf,
+
+    #[arg(short, long)]
+    out: PathBuf,
+
     #[arg(short, long)]
     remove_paragraph_markers: bool,
+
+    #[arg(long)]
+    remove_spaces: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -21,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .write(true)
         .truncate(true)
         .create(true)
-        .open("torah.txt")?;
+        .open(args.out)?;
 
     let mut writer = BufWriter::new(out);
 
@@ -49,15 +56,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             const END: usize = " \u{202c}\r\n".len();
 
             let line = &buf[START..buf.len() - END];
-
             let line = if args.remove_paragraph_markers {
                 line.trim_end_matches(" פ").trim_end_matches(" ס")
             } else {
                 line
             };
 
-            writer.write_all(line.as_bytes())?;
-            writeln!(writer)?;
+            if args.remove_spaces {
+                buf = line.replace(" ", "");
+                writer.write_all(buf.as_bytes())?;
+            } else {
+                writer.write_all(line.as_bytes())?;
+                writeln!(writer)?;
+            }
         }
     }
     writer.flush()?;
