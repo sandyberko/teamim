@@ -4,6 +4,10 @@
     overflow: hidden;
 }
 
+* {
+    transition: opacity .1s;
+}
+
 body {
     display: grid;
     grid-template-rows: auto 1fr;
@@ -33,10 +37,19 @@ main {
             font-family: 'Guttman Stam';
             font-size: 24px;
             color: red;
+            user-select: none;
+
+            &::selection {
+                background-color: transparent;
+            }
         }
 
-        &[data-hide-text]>.box {
+        &[data-view="text-only"]>.box, &[data-view="solo"]>.box {
             color: transparent;
+        }
+
+        &[data-view="solo"]>.box:not(:focus) {
+            opacity: 0;
         }
     }
 }

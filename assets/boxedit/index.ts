@@ -27,11 +27,6 @@ function renderImage(imageData: string) {
     image.src = imageData;
 }
 
-const storedImage = localStorage.getItem(imageStorageKey);
-if (storedImage) {
-    renderImage(storedImage);
-}
-
 document.getElementById("image-input")!.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
     const reader = new FileReader();
@@ -43,29 +38,6 @@ document.getElementById("image-input")!.addEventListener("change", (event) => {
     reader.readAsDataURL(input.files![0]);
 });
 
-// #region Render boxes
-function renderBoxes(text: string) {
-    const boxContainer = document.getElementById("box-container");
-    if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
-    for (const line of text.split("\n")) {
-        const box = line.trim();
-        if (box === "") continue;
-        const [char, left, top, right, bottom] = box.split(" ");
-        const char_input = document.createElement("input");
-        char_input.classList.add("box");
-        char_input.type = "text";
-        char_input.value = char;
-        char_input.style.left = left + 'px';
-        char_input.style.top = top + 'px';
-        char_input.style.width = (parseInt(right) - parseInt(left)) + 'px';
-        char_input.style.height = (parseInt(bottom) - parseInt(top)) + 'px';
-        boxContainer.appendChild(char_input);
-    };
-}
-const storedBoxFile = localStorage.getItem(boxFileStorageKey);
-if (storedBoxFile) {
-    renderBoxes(storedBoxFile);
-}
 document.getElementById("box-input")!.addEventListener("change", (event) => {
     const file = event.target as HTMLInputElement;
     const reader = new FileReader();
@@ -78,9 +50,31 @@ document.getElementById("box-input")!.addEventListener("change", (event) => {
         renderBoxes(text);
     }
 });
-// #endregion
 
-// #region Resize
+// #region Render boxes
+function renderBoxes(text: string) {
+    const boxContainer = document.getElementById("box-container");
+    if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
+    boxContainer.innerHTML = "";
+    for (const line of text.split("\n")) {
+        const box = line.trim();
+        if (box === "") continue;
+        const [char, left, top, right, bottom] = box.split(" ");
+        const boxElem = document.createElement("input");
+        boxElem.classList.add("box");
+        boxElem.type = "text";
+        boxElem.value = char;
+        boxElem.maxLength = 1;
+        boxElem.minLength = 1;
+        boxElem.style.left = left + 'px';
+        boxElem.style.top = top + 'px';
+        boxElem.style.width = (parseInt(right) - parseInt(left)) + 'px';
+        boxElem.style.height = (parseInt(bottom) - parseInt(top)) + 'px';
+        setupKeyboardResize(boxElem);
+        boxContainer.appendChild(boxElem);
+    };
+}
+
 /**
  * Clockwise from top
  */
@@ -116,6 +110,34 @@ function eventDir(event: MouseEvent): Direction {
         event.x - rect.left < 4, // left
     );
 }
+
+function setupKeyboardResize(elem: HTMLInputElement) {
+    let keyboardResizeDir: Direction = Direction.Inside;
+    elem.addEventListener("keydown", (event) => {
+        if (event.ctrlKey) switch (event.key) {
+            case "ArrowUp": event.preventDefault(); keyboardResizeDir = Direction.Top; break;
+            case "ArrowDown": event.preventDefault(); keyboardResizeDir = Direction.Bottom; break;
+            case "ArrowLeft": event.preventDefault(); keyboardResizeDir = Direction.Left; break;
+            case "ArrowRight": event.preventDefault(); keyboardResizeDir = Direction.Right; break;
+        }
+        else {
+            let dx = 0, dy = 0;
+            switch (event.key) {
+                case "ArrowUp": event.preventDefault(); dy = -1; break;
+                case "ArrowDown": event.preventDefault(); dy = 1; break;
+                case "ArrowLeft": event.preventDefault(); dx = -1; break;
+                case "ArrowRight": event.preventDefault(); dx = 1; break;
+            }
+            resizeElem(elem, keyboardResizeDir, dy, dx);
+        }
+    });
+    elem.addEventListener("beforeinput", (event) => {
+        if (event.data && event.data.match(/[\u05d0-\u05ea]/) === null) event.preventDefault();
+    });
+}
+// #endregion
+
+// #region Resize
 const cursor = new Map<Direction, string>();
 cursor.set(Direction.Top, "ns-resize");
 cursor.set(Direction.TopRight, "ne-resize");
@@ -138,7 +160,7 @@ function handleMouseDown(downEvent: MouseEvent) {
     downEvent.preventDefault();
 
     const elem = downEvent.target;
-    const dir = eventDir(downEvent) || 0b1111;
+    const dir = eventDir(downEvent);
 
     const controller = new AbortController();
     const signal = controller.signal;
@@ -149,20 +171,7 @@ function handleMouseDown(downEvent: MouseEvent) {
         prevX = moveEvent.clientX;
         prevY = moveEvent.clientY;
 
-        if ((dir & Direction.Top) != 0) {
-            elem.style.top = elem.offsetTop + dy + 'px';
-            elem.style.height = elem.clientHeight - dy + 'px';
-        }
-        if ((dir & Direction.Right) != 0) {
-            elem.style.width = elem.clientWidth + dx + 'px';
-        }
-        if ((dir & Direction.Bottom) != 0) {
-            elem.style.height = elem.clientHeight + dy + 'px';
-        }
-        if ((dir & Direction.Left) != 0) {
-            elem.style.left = elem.offsetLeft + dx + 'px';
-            elem.style.width = elem.clientWidth - dx + 'px';
-        }
+        resizeElem(elem, dir, dy, dx);
     }, { signal });
 
     boxContainer!.addEventListener("mouseup", () => controller.abort(), { signal });
@@ -172,6 +181,7 @@ function handleMouseDown(downEvent: MouseEvent) {
     document.addEventListener("focusin", (event) => {
         if (event.target instanceof HTMLInputElement === false) return false;
         event.target.style.zIndex = "2";
+        event.target.select();
         event.target.addEventListener("mousemove", handleMouseMove);
         event.target.addEventListener("mousedown", handleMouseDown);
     });
@@ -185,18 +195,21 @@ function handleMouseDown(downEvent: MouseEvent) {
 // #endregion
 
 // Visibility
+const viewAttr = "data-view";
 const imageKey = "1";
 const boxKey = "2";
 const boxTextKey = "3";
+const soloBoxKey = "4";
 
 document.addEventListener("keydown", (event) => {
     switch (event.key) {
         case imageKey:
             if (!image) break;
-            image.style.visibility = "hidden";
+            image.style.opacity = "0";
             break;
-        case boxKey: boxContainer.style.visibility = "hidden"; break;
-        case boxTextKey: boxContainer.setAttribute("data-hide-text", "hide"); break;
+        case boxKey: boxContainer.style.opacity = "0"; break;
+        case boxTextKey: boxContainer.setAttribute(viewAttr, "text-only"); break;
+        case soloBoxKey: boxContainer.setAttribute(viewAttr, "solo"); break;
     }
 });
 document.addEventListener("keyup", (event) => {
@@ -204,10 +217,13 @@ document.addEventListener("keyup", (event) => {
     switch (event.key) {
         case imageKey:
             if (!image) break;
-            image.style.visibility = "visible";
+            image.style.opacity = "1";
             break;
-        case boxKey: boxContainer.style.visibility = "visible"; break;
-        case boxTextKey: boxContainer.removeAttribute("data-hide-text"); break;
+        case boxKey: boxContainer.style.opacity = "1"; break;
+        case boxTextKey:
+        case soloBoxKey:
+            boxContainer.removeAttribute(viewAttr);
+            break;
     }
 });
 
@@ -232,7 +248,36 @@ saveButton.addEventListener("click", async (event) => {
 
         await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
     }
-    
+
     // close the file and write the contents to disk.
     await writableStream.close();
 });
+
+function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number) {
+    if (dir === 0b0000) dir = 0b1111;
+
+    if ((dir & Direction.Top) != 0) {
+        elem.style.top = elem.offsetTop + dy + 'px';
+        elem.style.height = elem.clientHeight - dy + 'px';
+    }
+    if ((dir & Direction.Right) != 0) {
+        elem.style.width = elem.clientWidth + dx + 'px';
+    }
+    if ((dir & Direction.Bottom) != 0) {
+        elem.style.height = elem.clientHeight + dy + 'px';
+    }
+    if ((dir & Direction.Left) != 0) {
+        elem.style.left = elem.offsetLeft + dx + 'px';
+        elem.style.width = elem.clientWidth - dx + 'px';
+    }
+}
+
+const storedImage = localStorage.getItem(imageStorageKey);
+if (storedImage) {
+    renderImage(storedImage);
+}
+
+const storedBoxFile = localStorage.getItem(boxFileStorageKey);
+if (storedBoxFile) {
+    renderBoxes(storedBoxFile);
+}
