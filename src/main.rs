@@ -1,18 +1,18 @@
 mod fuzzy_find;
-mod glyphs;
+mod glyph;
 mod leptonica_ext;
 mod tesseract_ext;
 
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::{self, File, OpenOptions},
-    io::{stdin, BufRead, BufReader, BufWriter, Write},
+    io::{stdin, stdout, BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
 };
 
 use clap::Parser;
 use eyre::{bail, eyre, Context, ContextCompat, OptionExt};
-use glyphs::with_glyph;
+use glyph::{with_glyph, Placement};
 use leptess::{
     capi,
     leptonica::{self, BoxGeometry, Pix},
@@ -47,18 +47,18 @@ fn main() -> eyre::Result<()> {
     let pix_h = pix.get_h();
     pix.convert_to_32()?;
 
-    if let Some(corrected) = args.corrected {
+    if let Some(corrected) = &args.corrected {
         if corrected.extension() != Some(OsStr::new("box")) {
             bail!("expected .box extension, found {corrected:?}");
         }
-        let text = BufReader::new(File::open(&corrected)?)
+        let text = BufReader::new(File::open(corrected)?)
             .lines()
             .map(|line| line?.chars().next().ok_or_eyre("empty line"))
             .collect::<eyre::Result<String>>()?;
         let boxes = BufReader::new(File::open(corrected)?)
             .lines()
             .map(|line| parse_box_line(line?, pix_h, OriginPos::TopLeft));
-        place_teamim(&pix, &text, boxes, args.interactive)?;
+        place_teamim(&pix, &text, boxes, &args)?;
     } else if let Some(write_boxes) = args.write_boxes {
         use tesseract_ext::{BoundingBox, Tess};
         let mut tess = Tess::new(c"./assets/tessdata", c"stam");
@@ -107,7 +107,7 @@ fn main() -> eyre::Result<()> {
             &pix,
             &text,
             boxes.into_iter().map(|r#box| Ok(r#box.get_geometry())),
-            args.interactive,
+            &args,
         )?;
 
         if args.render_boxes {
@@ -137,7 +137,7 @@ fn place_teamim(
     img: &Pix,
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
-    interactive: bool,
+    args: &Args,
 ) -> eyre::Result<()> {
     let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")?;
     let text = text.trim();
@@ -156,13 +156,37 @@ fn place_teamim(
             // TODO remove non-torah teamim
             '\u{0591}'..='\u{05AD}' | '\u{5bd}' => {
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                with_glyph(c_taam, |glyph, name| {
-                    eprintln!("ta'am {name} on {cur_c:?}");
-                    img.render_img(glyph, cur_box.x, cur_box.y)
+                let Some(cur_c) = cur_c else {
+                    bail!("expected char");
+                };
+                with_glyph(c_taam, |glyph| {
+                    eprintln!("ta'am {} on {cur_c:?}", glyph.name);
+
+                    const SCALE_FACTOR: f32 = 0.5;
+                    let pix = glyph.pix.scale(SCALE_FACTOR)?;
+
+                    const TOP_MARGIN: i32 = 7;
+                    let (x, y) = match glyph.placement {
+                        Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 7),
+                        Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
+                    };
+
+                    // debug
+                    let w = pix.get_w().try_into().unwrap();
+                    let h = pix.get_w().try_into().unwrap();
+                    if args.render_boxes {
+                        img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
+                    }
+
+                    // + h ???
+                    img.render_img(&pix, x, y + h)
                 })?
                 .wrap_err("failed to render text")?;
-                img.render_box(cur_box, 3, (0, 255, 0))
-                    .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
+
+                if args.render_boxes {
+                    img.render_box(cur_box, 3, (0, 255, 0))
+                        .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
+                }
             }
             // TODO Sof Pasuq, Maqaf, Paseq
             '\u{5c3}' | '\u{5be}' | '\u{5c0}' => (),
@@ -181,11 +205,12 @@ fn place_teamim(
                         break 'mismatch;
                     }
 
-                    if interactive {
+                    if args.interactive {
                         println!("expected {c_taam:?}, but recognized {cur_c:?}");
-                        println!(
+                        print!(
                             "ignore and [c]ontinue, [s]top but save, [w]rite debug image, [q]uit: "
                         );
+                        stdout().flush()?;
                         let mut buf = String::new();
                         stdin().read_line(&mut buf)?;
                         match buf.trim() {
@@ -233,7 +258,7 @@ fn parse_box_line(line: String, img_h: u32, origin_pos: OriginPos) -> eyre::Resu
             x: left,
             y: top,
             w: right - left,
-            h: bottom  - top,
+            h: bottom - top,
         }),
     }
 }

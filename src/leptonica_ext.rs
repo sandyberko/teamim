@@ -3,7 +3,7 @@ use std::{ffi::CStr, mem};
 use eyre::{bail, ContextCompat};
 use leptess::{
     capi::{
-        boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb, pixRenderBoxaArb,
+        boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb, pixRenderBoxaArb, pixScale,
         pixWriteAutoFormat, PIX_DST, PIX_SRC,
     },
     leptonica::{BoxGeometry, Boxa, Pix},
@@ -14,17 +14,13 @@ use leptonica_plumbing::memory::RefCounted;
 #[error("Generic Leptonica error")]
 pub(crate) struct Error;
 
-pub trait PixExt {
-    fn render_box(
-        &self,
-        geom: &BoxGeometry,
-        width: i32,
-        color: (u8, u8, u8),
-    ) -> Result<(), Error>;
+pub trait PixExt: Sized {
+    fn render_box(&self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
     fn render_boxes(&self, boxes: Boxa, width: i32, color: (u8, u8, u8)) -> Result<(), ()>;
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
     fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
     fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
+    fn scale(&self, factor: f32) -> eyre::Result<Self>;
 }
 
 impl PixExt for Pix {
@@ -66,6 +62,7 @@ impl PixExt for Pix {
         }
     }
 
+    /// ⚠️ `y` should be the bottom of the `src` image!
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error> {
         let pixd = *self.raw.as_ref();
         let pixs: *mut _ = *src.raw.as_ref();
@@ -113,5 +110,16 @@ impl PixExt for Pix {
             let _ = mem::replace(&mut self.raw, raw);
             Ok(())
         }
+    }
+
+    fn scale(&self, factor: f32) -> eyre::Result<Self> {
+        let result = unsafe { pixScale(*self.raw.as_ref(), factor, factor) };
+        if result.is_null() {
+            bail!("scale failed");
+        }
+
+        let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(result) };
+        let raw = unsafe { RefCounted::new(plumbing_pix) };
+        Ok(Self { raw })
     }
 }

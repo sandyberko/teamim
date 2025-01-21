@@ -2,6 +2,8 @@
 
 - Tesseract with known text
 - create_glyph to build script?
+- save glyphs as Pix masks
+- detect font size of image?
 - boxedit
   - blend mode for overlapping text
   - limit input to 1
@@ -22,12 +24,10 @@
       - variable inter-character spacing
 - if Tesseract has text2image, surely it has API for fonts?
 - Place Te'amim
-  - prepare teamim/tora.txt
-  - MVP
   - figure out lines or smth
   - Maqaf
   - Sof Pasuq
 - Search
     - just find for perfect strings
-    - [X] ~~MVP~~ unusably slow
+    - trie? suffix tree? n-grams?
     - research from there

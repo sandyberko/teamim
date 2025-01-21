@@ -11,7 +11,7 @@ use leptess::{
         TessPageIteratorLevel_RIL_SYMBOL, TessResultIterator, TessResultIteratorGetUTF8Text,
         TessResultIteratorNext,
     },
-    leptonica::{self, BoxGeometry},
+    leptonica,
 };
 
 pub struct Tess {
