@@ -15,9 +15,12 @@
     - egui / web to
 - Tesseract
     - Training
-      - more readymade fonts
+      - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
+      - more readymade fonts (in Downloads)
       - custom box
       - wide letters
+      - variable inter-character spacing
+- if Tesseract has text2image, surely it has API for fonts?
 - Place Te'amim
   - prepare teamim/tora.txt
   - MVP
