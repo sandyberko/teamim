@@ -51,14 +51,13 @@ fn main() -> eyre::Result<()> {
         if corrected.extension() != Some(OsStr::new("box")) {
             bail!("expected .box extension, found {corrected:?}");
         }
-        // let text = fs::read_to_string(corrected.with_extension("txt"))?;
         let text = BufReader::new(File::open(&corrected)?)
             .lines()
             .map(|line| line?.chars().next().ok_or_eyre("empty line"))
             .collect::<eyre::Result<String>>()?;
         let boxes = BufReader::new(File::open(corrected)?)
             .lines()
-            .map(|line| parse_box_line(line?, pix_h));
+            .map(|line| parse_box_line(line?, pix_h, OriginPos::TopLeft));
         place_teamim(&pix, &text, boxes, args.interactive)?;
     } else if let Some(write_boxes) = args.write_boxes {
         use tesseract_ext::{BoundingBox, Tess};
@@ -141,7 +140,9 @@ fn place_teamim(
     interactive: bool,
 ) -> eyre::Result<()> {
     let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")?;
-    let i = fuzzy_find::find(&consonants, text.trim()).wrap_err("no match")?;
+    let text = text.trim();
+    let i =
+        fuzzy_find::find(&consonants, text).wrap_err_with(|| format!("no match for {text:?}"))?;
     println!("Found at index {i}");
 
     let mut chars_iter = text.chars();
@@ -207,7 +208,12 @@ fn place_teamim(
     Ok(())
 }
 
-fn parse_box_line(line: String, img_h: u32) -> eyre::Result<BoxGeometry> {
+enum OriginPos {
+    BottomLeft,
+    TopLeft,
+}
+
+fn parse_box_line(line: String, img_h: u32, origin_pos: OriginPos) -> eyre::Result<BoxGeometry> {
     let mut parts = line.split(' ');
     let _char = parts.next().ok_or_eyre("failed to parse char")?;
     let left = parts.next().ok_or_eyre("failed to parse left")?.parse()?;
@@ -215,9 +221,19 @@ fn parse_box_line(line: String, img_h: u32) -> eyre::Result<BoxGeometry> {
     let right: i32 = parts.next().ok_or_eyre("failed to parse right")?.parse()?;
     let top: i32 = parts.next().ok_or_eyre("failed to parse top")?.parse()?;
     let img_h = img_h as i32;
-    let w = right - left;
-    let h = top - bottom;
-    let x = left;
-    let y = img_h - top;
-    Ok(BoxGeometry { x, y, w, h })
+
+    match origin_pos {
+        OriginPos::BottomLeft => Ok(BoxGeometry {
+            x: left,
+            y: img_h - top,
+            w: right - left,
+            h: top - bottom,
+        }),
+        OriginPos::TopLeft => Ok(BoxGeometry {
+            x: left,
+            y: top,
+            w: right - left,
+            h: bottom  - top,
+        }),
+    }
 }
