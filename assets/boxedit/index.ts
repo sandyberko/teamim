@@ -210,3 +210,29 @@ document.addEventListener("keyup", (event) => {
         case boxTextKey: boxContainer.removeAttribute("data-hide-text"); break;
     }
 });
+
+const saveButton = document.getElementById("save");
+if (saveButton instanceof HTMLInputElement === false) throw new Error("where download button?");
+saveButton.addEventListener("click", async (event) => {
+    // create a new handle
+    const newHandle = await window.showSaveFilePicker();
+
+    // create a FileSystemWritableFileStream to write to
+    const writableStream = await newHandle.createWritable();
+
+    // write our file
+    for (const box of boxContainer.childNodes) {
+        if (box instanceof HTMLInputElement === false) continue;
+
+        const char = box.value;
+        const left = box.offsetLeft;
+        const bottom = box.offsetTop + box.offsetHeight;
+        const right = box.offsetLeft + box.offsetWidth;
+        const top = box.offsetTop;
+
+        await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+    }
+    
+    // close the file and write the contents to disk.
+    await writableStream.close();
+});

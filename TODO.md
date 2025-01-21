@@ -4,6 +4,10 @@
 - create_glyph to build script?
 - boxedit
   - blend mode for overlapping text
+  - limit input to 1
+  - move & resize with arrow keys
+  - fix layer keys to not write to input
+  - save name `.box`
 - UI
     - cli
         - output recognized+box

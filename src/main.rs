@@ -48,13 +48,20 @@ fn main() -> eyre::Result<()> {
     pix.convert_to_32()?;
 
     if let Some(corrected) = args.corrected {
-        let text = fs::read_to_string(corrected.with_extension("txt"))?;
-        let boxes = BufReader::new(File::open(corrected.with_extension("box"))?)
+        if corrected.extension() != Some(OsStr::new("box")) {
+            bail!("expected .box extension, found {corrected:?}");
+        }
+        // let text = fs::read_to_string(corrected.with_extension("txt"))?;
+        let text = BufReader::new(File::open(&corrected)?)
+            .lines()
+            .map(|line| line?.chars().next().ok_or_eyre("empty line"))
+            .collect::<eyre::Result<String>>()?;
+        let boxes = BufReader::new(File::open(corrected)?)
             .lines()
             .map(|line| parse_box_line(line?, pix_h));
         place_teamim(&pix, &text, boxes, args.interactive)?;
     } else if let Some(write_boxes) = args.write_boxes {
-        use tesseract_ext::{Tess, BoundingBox};
+        use tesseract_ext::{BoundingBox, Tess};
         let mut tess = Tess::new(c"./assets/tessdata", c"stam");
 
         tess.set_image(&pix);
@@ -70,7 +77,12 @@ fn main() -> eyre::Result<()> {
 
         for mut char in tess.results_iter() {
             let text = char.text();
-            let BoundingBox { left, top, right, bottom } = char.bounding_box();
+            let BoundingBox {
+                left,
+                top,
+                right,
+                bottom,
+            } = char.bounding_box();
             writeln!(&mut w, "{text} {left} {top} {right} {bottom} 0")?;
         }
 
