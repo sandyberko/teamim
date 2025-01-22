@@ -15,3 +15,6 @@ leptonica-plumbing = "1.4.0"
 phf = { version = "0.11.3", features = ["macros"] }
 strsim = "0.11.1"
 thiserror = "2.0.11"
+
+[lints.clippy]
+pedantic = "warn"

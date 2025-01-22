@@ -7,6 +7,7 @@ use std::{
 
 use clap::Parser;
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Parser)]
 struct Args {
     input_dir: PathBuf,
@@ -58,10 +59,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            const START: usize = "\u{202b}\u{a0}\u{a0}".len();
-            const END: usize = " \u{202c}\r\n".len();
+            let start = const { "\u{202b}\u{a0}\u{a0}".len() };
+            let end = const { " \u{202c}\r\n".len() };
 
-            let line = &buf[START..buf.len() - END];
+            let line = &buf[start..buf.len() - end];
             let line = if args.remove_paragraph_markers {
                 line.trim_end_matches(" פ").trim_end_matches(" ס")
             } else {

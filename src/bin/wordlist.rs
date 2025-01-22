@@ -26,7 +26,7 @@ fn main() -> eyre::Result<()> {
     }
 
     for word in set {
-        println!("{}", word);
+        println!("{word}");
     }
 
     Ok(())

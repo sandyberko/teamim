@@ -16,7 +16,7 @@ pub(crate) struct Error;
 
 pub trait PixExt: Sized {
     fn render_box(&self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
-    fn render_boxes(&self, boxes: Boxes, width: i32, color: (u8, u8, u8)) -> Result<(), ()>;
+    fn render_boxes(&self, boxes: Boxes, width: i32, color: (u8, u8, u8)) -> eyre::Result<()>;
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
     fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
     fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
@@ -29,13 +29,13 @@ impl PixExt for Pix {
         boxes: Boxes,
         width: i32,
         (rval, gval, bval): (u8, u8, u8),
-    ) -> Result<(), ()> {
+    ) -> eyre::Result<()> {
         let result =
             unsafe { pixRenderBoxaArb(*self.raw.as_ref(), boxes.0, width, rval, gval, bval) };
         if result == 0 {
             Ok(())
         } else {
-            Err(())
+            bail!("Failed to render boxes")
         }
     }
 
@@ -56,8 +56,8 @@ impl PixExt for Pix {
 
     /// ⚠️ `y` should be the bottom of the `src` image!
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error> {
-        let pixd = *self.raw.as_ref();
-        let pixs: *mut _ = *src.raw.as_ref();
+        let pix_dest = *self.raw.as_ref();
+        let pix_source: *mut _ = *src.raw.as_ref();
 
         let y = y
             .checked_sub_unsigned(src.get_h())
@@ -65,13 +65,13 @@ impl PixExt for Pix {
 
         let result = unsafe {
             pixRasterop(
-                pixd,
+                pix_dest,
                 x,
                 y,
                 src.get_w().try_into().unwrap(),
                 src.get_h().try_into().unwrap(),
                 (PIX_SRC & PIX_DST).try_into().unwrap(),
-                pixs,
+                pix_source,
                 0,
                 0,
             )
@@ -96,12 +96,12 @@ impl PixExt for Pix {
         let result = unsafe { pixConvertTo32(*self.raw.as_ref()) };
         if result.is_null() {
             bail!("Failed to convert to 32")
-        } else {
-            let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(result) };
-            let raw = unsafe { RefCounted::new(plumbing_pix) };
-            let _ = mem::replace(&mut self.raw, raw);
-            Ok(())
         }
+
+        let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(result) };
+        let raw = unsafe { RefCounted::new(plumbing_pix) };
+        let _ = mem::replace(&mut self.raw, raw);
+        Ok(())
     }
 
     fn scale(&self, factor: f32) -> eyre::Result<Self> {

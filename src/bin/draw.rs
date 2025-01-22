@@ -26,7 +26,7 @@ fn main() -> eyre::Result<()> {
     assert_eq!(depth, 8);
     let data = pix.raw.get_data();
     let data_size: usize = (width * height).try_into().unwrap();
-    let data = unsafe { slice::from_raw_parts_mut(data as *mut u8, data_size) };
+    let data = unsafe { slice::from_raw_parts_mut(data.cast::<u8>(), data_size) };
     let img = GrayImage::from_raw(width, height, data.to_vec()).ok_or_eyre("error")?;
 
     // Load a custom font (ensure the .ttf file exists)

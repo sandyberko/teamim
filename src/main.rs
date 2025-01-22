@@ -53,7 +53,7 @@ fn main() -> eyre::Result<()> {
             .collect::<eyre::Result<String>>()?;
         let boxes = BufReader::new(File::open(corrected)?).lines().map(|line| {
             Ok(into_geometry(
-                parse_box_line(line?)?,
+                parse_box_line(&line?)?,
                 pix_h,
                 OriginPos::TopLeft,
             ))
@@ -68,8 +68,7 @@ fn main() -> eyre::Result<()> {
 
         if args.render_boxes {
             let boxes = tess.get_component_images(PageIteratorLevel::Symbol, true)?;
-            pix.render_boxes(boxes, 2, (0, 255, 0))
-                .map_err(|_| eyre!("failed to render boxes"))?;
+            pix.render_boxes(boxes, 2, (0, 255, 0))?;
         }
 
         let file = OpenOptions::new()
@@ -132,7 +131,7 @@ fn main() -> eyre::Result<()> {
         .into_iter()
         .collect::<OsString>(),
     );
-    println!("Writing to {:?}", out_file_name);
+    println!("Writing to {out_file_name:?}");
     pix.write(&CString::new(out_file_name.into_os_string().into_encoded_bytes()).unwrap())?;
     Ok(())
 }
@@ -194,8 +193,7 @@ fn place_teamim(
                             .rev()
                             .skip(40)
                             .find(|(_, c)| c.is_whitespace())
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
+                            .map_or(0, |(i, _)| i);
                         let before = &teamim[start..i_taam];
 
                         let next = i_iter.clone().next().unwrap_or(teamim.len());
@@ -251,7 +249,10 @@ fn place_taam(
     glyph
         .pix
         .try_with(|pix| {
-            eprintln!("ta'am {} on {cur_c:?}, placed {:?}", glyph.name, glyph.placement);
+            eprintln!(
+                "ta'am {} on {cur_c:?}, placed {:?}",
+                glyph.name, glyph.placement
+            );
 
             let scale_factor = if glyph.placement == Placement::After {
                 0.4
@@ -260,11 +261,11 @@ fn place_taam(
             };
             let pix = pix.scale(scale_factor)?;
 
-            const TOP_MARGIN: i32 = 4;
+            let top_margin = 4;
             let (x, y) = match glyph.placement {
-                Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 9),
-                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
-                Placement::After => (cur_box.x - cur_box.w - 5, cur_box.y - TOP_MARGIN),
+                Placement::Top => (cur_box.x, cur_box.y - top_margin - 9),
+                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - top_margin),
+                Placement::After => (cur_box.x - cur_box.w - 5, cur_box.y - top_margin),
             };
 
             // debug
@@ -285,7 +286,9 @@ fn place_taam(
     Ok(())
 }
 
+#[derive(Copy, Clone, Debug)]
 enum OriginPos {
+    #[expect(unused)]
     BottomLeft,
     TopLeft,
 }
@@ -300,7 +303,7 @@ fn into_geometry(
     img_h: u32,
     origin_pos: OriginPos,
 ) -> BoxGeometry {
-    let img_h = img_h as i32;
+    let img_h: i32 = img_h.try_into().unwrap();
     match origin_pos {
         OriginPos::BottomLeft => BoxGeometry {
             x: left,
@@ -317,7 +320,7 @@ fn into_geometry(
     }
 }
 
-fn parse_box_line(line: String) -> eyre::Result<BoundingBox> {
+fn parse_box_line(line: &str) -> eyre::Result<BoundingBox> {
     let mut parts = line.split(' ');
     let _char = parts.next().ok_or_eyre("failed to parse char")?;
     Ok(BoundingBox {

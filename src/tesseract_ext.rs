@@ -79,7 +79,7 @@ impl Tess {
             TessBaseAPIGetComponentImages(
                 self.raw.as_ptr(),
                 level as _,
-                text_only as _,
+                text_only.into(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             )
@@ -129,13 +129,13 @@ impl<'tess> Iterator for ResultIter<'tess> {
     type Item = ResultItem<'tess>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.is_first {
+        if self.is_first {
+            self.is_first = false;
+        } else {
             let has_next = unsafe { TessResultIteratorNext(self.raw.as_ptr(), self.level) };
             if has_next != 1 {
                 return None;
             }
-        } else {
-            self.is_first = false;
         }
         Some(ResultItem {
             raw: self.raw,
@@ -154,9 +154,7 @@ pub struct ResultItem<'tess> {
 impl ResultItem<'_> {
     pub fn text<'s>(&self) -> &'s str {
         let cstr = unsafe { TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level) };
-        if cstr.is_null() {
-            panic!("failed to get text");
-        }
+        assert!(!cstr.is_null(), "failed to get text");
         unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
     }
     pub fn bounding_box(&self) -> BoundingBox {
