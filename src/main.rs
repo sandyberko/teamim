@@ -152,66 +152,66 @@ fn place_teamim(
 
     let mut chars_iter = text.chars();
     let mut cur_c = None;
+    let mut cur_line = 0usize;
+    let mut cur_col = 0usize;
     let mut boxes_iter = boxes.into_iter();
     let mut cur_box: Option<BoxGeometry> = None;
     let teamim = fs::read_to_string("./assets/text/leningrad/teamim/torah.txt")?;
-    'teamim: for c_taam in teamim.chars() {
+    let mut teamim_iter = teamim.char_indices();
+    'teamim: while let Some((i_taam, c_taam)) = teamim_iter.next() {
         match c_taam {
             // Ta'am
-            // TODO remove non-torah teamim
-            '\u{0591}'..='\u{05AD}' | '\u{5bd}' => {
-                let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                let Some(cur_c) = cur_c else {
-                    bail!("expected char");
-                };
-                with_glyph(c_taam, |glyph| {
-                    eprintln!("ta'am {} on {cur_c:?}", glyph.name);
-
-                    const SCALE_FACTOR: f32 = 0.5;
-                    let pix = glyph.pix.scale(SCALE_FACTOR)?;
-
-                    const TOP_MARGIN: i32 = 7;
-                    let (x, y) = match glyph.placement {
-                        Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 7),
-                        Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
-                    };
-
-                    // debug
-                    let w = pix.get_w().try_into().unwrap();
-                    let h = pix.get_w().try_into().unwrap();
-                    if args.render_boxes {
-                        img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
-                    }
-
-                    // + h ???
-                    img.render_img(&pix, x, y + h)
-                })?
-                .wrap_err("failed to render text")?;
-
-                if args.render_boxes {
-                    img.render_box(cur_box, 3, (0, 255, 0))
-                        .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
-                }
-            }
+            '\u{0591}'..='\u{05AD}' | '\u{5bd}' => place_taam(
+                img,
+                args,
+                cur_c.ok_or_eyre("expected char")?,
+                cur_box.as_ref().ok_or_eyre("expected box")?,
+                c_taam,
+            )?,
             // TODO Sof Pasuq, Maqaf, Paseq
             '\u{5c3}' | '\u{5be}' | '\u{5c0}' => (),
-            '\n' => continue,
+            '\n' => {
+                cur_line += 1;
+                cur_col = 0;
+                continue;
+            }
             // Niqqud
             ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' => continue,
             _ if c_taam.is_whitespace() => continue,
             // Letter - alef to tav
             ('\u{05d0}'..='\u{05EA}') => {
+                cur_col += 1;
                 cur_c = chars_iter.find(|c| !c.is_whitespace());
                 cur_box = boxes_iter.next().transpose()?;
 
-                let cur_c = cur_c.ok_or_eyre("no text")?;
+                let Some(cur_c) = cur_c else { break 'teamim };
                 'mismatch: {
                     if c_taam == cur_c {
                         break 'mismatch;
                     }
 
+                    let message = {
+                        let i_iter = teamim_iter.clone().map(|(i, _)| i);
+                        let start = teamim[..i_taam]
+                            .char_indices()
+                            .rev()
+                            .skip(40)
+                            .find(|(_, c)| c.is_whitespace())
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        let before = &teamim[start..i_taam];
+
+                        let next = i_iter.clone().next().unwrap_or(teamim.len());
+                        let end = i_iter.clone().nth(30).unwrap_or(next);
+                        let after = &teamim[next..end];
+                        format!(
+                            "expected {c_taam:?}, but recognized {cur_c:?} at {cur_line}:{cur_col}:\n\
+                            ... {before}[{c_taam}]{after} ..."
+                        )
+                    };
+
                     if args.interactive {
-                        println!("expected {c_taam:?}, but recognized {cur_c:?}");
+                        println!("{message}");
                         print!(
                             "ignore and [c]ontinue, [s]top but save, [w]rite debug image, [q]uit: "
                         );
@@ -229,13 +229,52 @@ fn place_teamim(
                         }
                     }
 
-                    bail!("expected {c_taam:?}, but recognized {cur_c:?}");
+                    bail!("{message}");
                 }
             }
-            c => bail!("unexpected taaam_c: 0x{:x} {c:?}", c as u32),
+            c => bail!(
+                "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
+                c as u32
+            ),
         }
     }
     Ok(())
+}
+
+fn place_taam(
+    img: &Pix,
+    args: &Args,
+    cur_c: char,
+    cur_box: &BoxGeometry,
+    c_taam: char,
+) -> Result<(), eyre::Error> {
+    with_glyph(c_taam, |glyph| {
+        eprintln!("ta'am {} on {cur_c:?}", glyph.name);
+
+        const SCALE_FACTOR: f32 = 0.5;
+        let pix = glyph.pix.scale(SCALE_FACTOR)?;
+
+        const TOP_MARGIN: i32 = 7;
+        let (x, y) = match glyph.placement {
+            Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 7),
+            Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
+        };
+
+        // debug
+        let w = pix.get_w().try_into().unwrap();
+        let h = pix.get_w().try_into().unwrap();
+        if args.render_boxes {
+            img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
+        }
+
+        // + h ???
+        img.render_img(&pix, x, y + h)
+    })?
+    .wrap_err("failed to render text")?;
+    Ok(if args.render_boxes {
+        img.render_box(cur_box, 3, (0, 255, 0))
+            .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
+    })
 }
 
 enum OriginPos {

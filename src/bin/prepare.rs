@@ -19,6 +19,12 @@ struct Args {
 
     #[arg(long)]
     remove_spaces: bool,
+
+    #[arg(long)]
+    remove_cgj: bool,
+
+    #[arg(long)]
+    replace_emet: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -62,8 +68,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                 line
             };
 
-            if args.remove_spaces {
-                buf = line.replace(" ", "");
+            if args.remove_spaces || args.remove_cgj || args.replace_emet {
+                buf = line.to_owned();
+                if args.remove_cgj {
+                    buf = buf.replace('\u{34f}', "");
+                }
+                if args.replace_emet {
+                    // zinor to zarqa
+                    buf = buf.replace('\u{5ae}', "\u{0598}");
+                }
+                if args.remove_spaces {
+                    buf = buf.replace(' ', "");
+                } else {
+                    buf.push('\n');
+                }
                 writer.write_all(buf.as_bytes())?;
             } else {
                 writer.write_all(line.as_bytes())?;

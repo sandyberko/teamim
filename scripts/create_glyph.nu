@@ -28,7 +28,7 @@ let teamim = [
     {name: "oleh",          char: "\u{05AB}"},
     {name: "iluy",          char: "\u{05AC}"},
     {name: "dehi",          char: "\u{05AD}"},
-    # {name: "tzinor",        char: "\u{05AE}"},
+    # {name: "zinor",        char: "\u{05AE}"},
     # ---
     {name: "meteg",         char: "\u{05BD}"},
     {name: "maqaf",         char: "\u{05BE}"},

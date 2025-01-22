@@ -65,6 +65,7 @@ glyph!(YERAH_BEN_YOMO, "yerah_ben_yomo", Placement::Bottom);
 glyph!(OLEH, "oleh", Placement::Bottom);
 glyph!(ILUY, "iluy", Placement::Bottom);
 glyph!(DEHI, "dehi", Placement::Bottom);
+// glyph!(ZINOR, "zinor", Placement::Top);
 glyph!(METEG, "meteg", Placement::Bottom);
 glyph!(MAQAF, "maqaf", Placement::Bottom);
 glyph!(SOF_PASUQ, "sof_pasuq", Placement::Bottom);
@@ -99,7 +100,7 @@ static GLYPHS: Map<char, LocalKey<LazyCell<Glyph>>> = phf_map! {
     '\u{05AB}' => OLEH,
     '\u{05AC}' => ILUY,
     '\u{05AD}' => DEHI,
-    // '\u{05AE}' !("tzinor,
+    // '\u{05AE}' => ZINOR,
     // ---
     '\u{05BD}' => METEG,
     '\u{05BE}' => MAQAF,
