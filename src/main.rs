@@ -13,12 +13,9 @@ use std::{
 use clap::Parser;
 use eyre::{bail, eyre, Context, ContextCompat, OptionExt};
 use glyph::{with_glyph, Placement};
-use leptess::{
-    capi,
-    leptonica::{self, BoxGeometry, Pix},
-    tesseract::TessApi,
-};
+use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::PixExt;
+use tesseract_ext::{BoundingBox, PageIteratorLevel, Tess};
 
 #[derive(Parser)]
 struct Args {
@@ -55,16 +52,26 @@ fn main() -> eyre::Result<()> {
             .lines()
             .map(|line| line?.chars().next().ok_or_eyre("empty line"))
             .collect::<eyre::Result<String>>()?;
-        let boxes = BufReader::new(File::open(corrected)?)
-            .lines()
-            .map(|line| parse_box_line(line?, pix_h, OriginPos::TopLeft));
+        let boxes = BufReader::new(File::open(corrected)?).lines().map(|line| {
+            Ok(into_geometry(
+                parse_box_line(line?)?,
+                pix_h,
+                OriginPos::TopLeft,
+            ))
+        });
         place_teamim(&pix, &text, boxes, &args)?;
     } else if let Some(write_boxes) = args.write_boxes {
         use tesseract_ext::{BoundingBox, Tess};
-        let mut tess = Tess::new(c"./assets/tessdata", c"stam");
+        let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
         tess.set_image(&pix);
-        tess.recognize();
+        tess.recognize()?;
+
+        if args.render_boxes {
+            let boxes = tess.get_component_images(PageIteratorLevel::Symbol, true)?;
+            pix.render_boxes(boxes, 2, (0, 255, 0))
+                .map_err(|_| eyre!("failed to render boxes"))?;
+        }
 
         let file = OpenOptions::new()
             .write(true)
@@ -74,45 +81,43 @@ fn main() -> eyre::Result<()> {
 
         let mut w = BufWriter::new(file);
 
-        for mut char in tess.results_iter() {
+        for char in tess.results_iter() {
             let text = char.text();
             let BoundingBox {
                 left,
-                top,
-                right,
                 bottom,
+                right,
+                top,
             } = char.bounding_box();
-            writeln!(&mut w, "{text} {left} {top} {right} {bottom} 0")?;
+            writeln!(&mut w, "{text} {left} {bottom} {right} {top} 0")?;
         }
 
         w.flush()?;
         println!("Wrote to {write_boxes:?}");
     } else {
-        let mut tess = TessApi::new(Some("./assets/tessdata"), "stam")?;
+        let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
         tess.set_image(&pix);
+        tess.recognize()?;
 
         // Print
-        let text = tess.get_utf8_text()?;
+        let text = tess.get_text()?;
         println!("=== Text ===");
         println!("{text}");
         println!("=== End Text ===");
 
         // Boxes
         let boxes = tess
-            .get_component_images(capi::TessPageIteratorLevel_RIL_SYMBOL, true)
-            .wrap_err("no boxes")?;
-
-        place_teamim(
-            &pix,
-            &text,
-            boxes.into_iter().map(|r#box| Ok(r#box.get_geometry())),
-            &args,
-        )?;
+            .results_iter()
+            .map(|r| Ok(into_geometry(r.bounding_box(), pix_h, OriginPos::TopLeft)));
+        place_teamim(&pix, text.as_str()?, boxes, &args)?;
 
         if args.render_boxes {
             let width = 2;
             let color = (0, 255, 0);
+            let boxes = tess
+                .get_component_images(PageIteratorLevel::Symbol, true)
+                .wrap_err("no boxes")?;
             pix.render_boxes(boxes, width, color)
                 .map_err(|_| eyre!("failed to render boxes"))?;
         }
@@ -238,27 +243,40 @@ enum OriginPos {
     TopLeft,
 }
 
-fn parse_box_line(line: String, img_h: u32, origin_pos: OriginPos) -> eyre::Result<BoxGeometry> {
-    let mut parts = line.split(' ');
-    let _char = parts.next().ok_or_eyre("failed to parse char")?;
-    let left = parts.next().ok_or_eyre("failed to parse left")?.parse()?;
-    let bottom: i32 = parts.next().ok_or_eyre("failed to parse bottom")?.parse()?;
-    let right: i32 = parts.next().ok_or_eyre("failed to parse right")?.parse()?;
-    let top: i32 = parts.next().ok_or_eyre("failed to parse top")?.parse()?;
+fn into_geometry(
+    BoundingBox {
+        left,
+        bottom,
+        right,
+        top,
+    }: BoundingBox,
+    img_h: u32,
+    origin_pos: OriginPos,
+) -> BoxGeometry {
     let img_h = img_h as i32;
-
     match origin_pos {
-        OriginPos::BottomLeft => Ok(BoxGeometry {
+        OriginPos::BottomLeft => BoxGeometry {
             x: left,
             y: img_h - top,
             w: right - left,
             h: top - bottom,
-        }),
-        OriginPos::TopLeft => Ok(BoxGeometry {
+        },
+        OriginPos::TopLeft => BoxGeometry {
             x: left,
             y: top,
             w: right - left,
             h: bottom - top,
-        }),
+        },
     }
+}
+
+fn parse_box_line(line: String) -> eyre::Result<BoundingBox> {
+    let mut parts = line.split(' ');
+    let _char = parts.next().ok_or_eyre("failed to parse char")?;
+    Ok(BoundingBox {
+        left: parts.next().ok_or_eyre("failed to parse left")?.parse()?,
+        bottom: parts.next().ok_or_eyre("failed to parse bottom")?.parse()?,
+        right: parts.next().ok_or_eyre("failed to parse right")?.parse()?,
+        top: parts.next().ok_or_eyre("failed to parse top")?.parse()?,
+    })
 }

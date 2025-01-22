@@ -4,6 +4,8 @@
 - create_glyph to build script?
 - save glyphs as Pix masks
 - detect font size of image?
+- TryInto & TryFrom for BoundingBox
+- remove leptess, depend on *-sys instead
 - boxedit
   - blend mode for overlapping text
   - limit input to 1

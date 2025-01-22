@@ -59,7 +59,7 @@ function renderBoxes(text: string) {
     for (const line of text.split("\n")) {
         const box = line.trim();
         if (box === "") continue;
-        const [char, left, top, right, bottom] = box.split(" ");
+        const [char, left, bottom, right, top] = box.split(" ");
         const boxElem = document.createElement("input");
         boxElem.classList.add("box");
         boxElem.type = "text";

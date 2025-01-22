@@ -11,10 +11,12 @@
 body {
     display: grid;
     grid-template-rows: auto 1fr;
+    height: 100%;
 }
 
 main {
     position: relative;
+    overflow: scroll;
 
     &>img {
         position: absolute;
