@@ -6,11 +6,13 @@
 - detect font size of image?
 - TryInto & TryFrom for BoundingBox
 - remove leptess, depend on *-sys instead
+- box file origin bottom-left for training
 - boxedit
+  - try non-input boxes again for overflow and more
   - blend mode for overlapping text
-  - limit input to 1
-  - move & resize with arrow keys
-  - fix layer keys to not write to input
+  - display focused resize direction
+    - use corners for resize, so all arrows work
+  - view/hide imgage etc. checkboxes
   - save name `.box`
 - UI
     - cli

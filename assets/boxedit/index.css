@@ -31,23 +31,28 @@ main {
             position: absolute;
             padding: 0;
             margin: 0;
-            box-sizing: content-box;
-            border: 2px solid rgba(0, 0, 255, .5);
+            border: 0;
+            outline: 2px solid rgba(0, 0, 255, .5);
             box-shadow: none;
-            overflow: visible;
+            overflow: visible !important;
             background: transparent;
             font-family: 'Guttman Stam';
             font-size: 24px;
             color: red;
             user-select: none;
 
+            &:focus {
+                outline-color: rgba(255, 0, 0, .5);
+            }
+
             &::selection {
                 background-color: transparent;
             }
         }
 
-        &[data-view="text-only"]>.box, &[data-view="solo"]>.box {
-            color: transparent;
+        &[data-view="text-only"]>.box,
+        &[data-view="solo"]>.box {
+            color: transparent !important;
         }
 
         &[data-view="solo"]>.box:not(:focus) {

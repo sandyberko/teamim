@@ -60,17 +60,9 @@ function renderBoxes(text: string) {
         const box = line.trim();
         if (box === "") continue;
         const [char, left, bottom, right, top] = box.split(" ");
-        const boxElem = document.createElement("input");
-        boxElem.classList.add("box");
-        boxElem.type = "text";
-        boxElem.value = char;
-        boxElem.maxLength = 1;
-        boxElem.minLength = 1;
-        boxElem.style.left = left + 'px';
-        boxElem.style.top = top + 'px';
-        boxElem.style.width = (parseInt(right) - parseInt(left)) + 'px';
-        boxElem.style.height = (parseInt(bottom) - parseInt(top)) + 'px';
-        setupKeyboardResize(boxElem);
+        const width = parseInt(right) - parseInt(left);
+        const height = parseInt(bottom) - parseInt(top);
+        const boxElem = newBox(char, left, top, width, height);
         boxContainer.appendChild(boxElem);
     };
 }
@@ -88,6 +80,21 @@ enum Direction {
     Left = 0b0001,
     LeftTop = 0b1001,
     Inside = 0b0000,
+}
+
+function newBox(char: string, left: string, top: string, width: number, height: number) {
+    const boxElem = document.createElement("input");
+    boxElem.classList.add("box");
+    boxElem.type = "text";
+    boxElem.value = char;
+    boxElem.maxLength = 1;
+    boxElem.minLength = 1;
+    boxElem.style.left = left + 'px';
+    boxElem.style.top = top + 'px';
+    boxElem.style.width = width + 'px';
+    boxElem.style.height = height + 'px';
+    setupKeyboardResize(boxElem);
+    return boxElem;
 }
 
 function getDir(top: boolean, right: boolean, bottom: boolean, left: boolean): Direction {
@@ -111,14 +118,40 @@ function eventDir(event: MouseEvent): Direction {
     );
 }
 
+const hebrewLetterRegex = /[\u05d0-\u05ea]/;
 function setupKeyboardResize(elem: HTMLInputElement) {
     let keyboardResizeDir: Direction = Direction.Inside;
+
     elem.addEventListener("keydown", (event) => {
+        if (event.key === "Delete") {
+            event.preventDefault();
+            elem.remove();
+            return true;
+        };
+        if (event.key === "=") {
+            event.preventDefault();
+            const newBoxElemt = newBox(
+                "",
+                elem.offsetLeft - elem.offsetWidth - 10 + "",
+                elem.offsetTop.toString(), elem.offsetWidth,
+                elem.offsetHeight
+            );
+            elem.after(newBoxElemt);
+            newBoxElemt.focus();
+            return true;
+        }
+
+        const toggleDirFocus = (dir: Direction) => {
+            event.preventDefault();
+            if (dir === keyboardResizeDir) keyboardResizeDir = Direction.Inside;
+            else keyboardResizeDir = dir;
+        };
+
         if (event.ctrlKey) switch (event.key) {
-            case "ArrowUp": event.preventDefault(); keyboardResizeDir = Direction.Top; break;
-            case "ArrowDown": event.preventDefault(); keyboardResizeDir = Direction.Bottom; break;
-            case "ArrowLeft": event.preventDefault(); keyboardResizeDir = Direction.Left; break;
-            case "ArrowRight": event.preventDefault(); keyboardResizeDir = Direction.Right; break;
+            case "ArrowUp": toggleDirFocus(Direction.Top); break;
+            case "ArrowDown": toggleDirFocus(Direction.Bottom); break;
+            case "ArrowLeft": toggleDirFocus(Direction.Left); break;
+            case "ArrowRight": toggleDirFocus(Direction.Right); break;
         }
         else {
             let dx = 0, dy = 0;
@@ -132,7 +165,7 @@ function setupKeyboardResize(elem: HTMLInputElement) {
         }
     });
     elem.addEventListener("beforeinput", (event) => {
-        if (event.data && event.data.match(/[\u05d0-\u05ea]/) === null) event.preventDefault();
+        if (event.data && event.data.match(hebrewLetterRegex) === null) event.preventDefault();
     });
 }
 // #endregion
@@ -178,14 +211,14 @@ function handleMouseDown(downEvent: MouseEvent) {
 }
 
 {
-    document.addEventListener("focusin", (event) => {
+    boxContainer.addEventListener("focusin", (event) => {
         if (event.target instanceof HTMLInputElement === false) return false;
         event.target.style.zIndex = "2";
         event.target.select();
         event.target.addEventListener("mousemove", handleMouseMove);
         event.target.addEventListener("mousedown", handleMouseDown);
     });
-    document.addEventListener("focusout", (event) => {
+    boxContainer.addEventListener("focusout", (event) => {
         if (event.target instanceof HTMLInputElement === false) return false;
         event.target.style.zIndex = "0";
         event.target.removeEventListener("mousemove", handleMouseMove);
@@ -228,13 +261,14 @@ document.addEventListener("keyup", (event) => {
 });
 
 const saveButton = document.getElementById("save");
-if (saveButton instanceof HTMLInputElement === false) throw new Error("where download button?");
+if (saveButton instanceof HTMLInputElement === false) throw new Error("where save button?");
+let outputFile: FileSystemFileHandle | null = null;
 saveButton.addEventListener("click", async (event) => {
     // create a new handle
-    const newHandle = await window.showSaveFilePicker();
+    if (!outputFile) outputFile = await window.showSaveFilePicker();
 
     // create a FileSystemWritableFileStream to write to
-    const writableStream = await newHandle.createWritable();
+    const writableStream = await outputFile.createWritable();
 
     // write our file
     for (const box of boxContainer.childNodes) {
