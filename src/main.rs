@@ -1,5 +1,4 @@
 mod fuzzy_find;
-mod glyph;
 mod leptonica_ext;
 mod tesseract_ext;
 
@@ -12,9 +11,9 @@ use std::{
 
 use clap::Parser;
 use eyre::{bail, eyre, Context, ContextCompat, OptionExt};
-use glyph::{with_glyph, Placement};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::PixExt;
+use teamim::glyph::{Placement, GLYPHS};
 use tesseract_ext::{BoundingBox, PageIteratorLevel, Tess};
 
 #[derive(Parser)]
@@ -161,15 +160,13 @@ fn place_teamim(
     'teamim: while let Some((i_taam, c_taam)) = teamim_iter.next() {
         match c_taam {
             // Ta'am
-            '\u{0591}'..='\u{05AD}' | '\u{5bd}' => place_taam(
+            '\u{0591}'..='\u{05AD}' | '\u{5bd}' | '\u{5be}' | '\u{5c0}' | '\u{5c3}' => place_taam(
                 img,
                 args,
                 cur_c.ok_or_eyre("expected char")?,
                 cur_box.as_ref().ok_or_eyre("expected box")?,
                 c_taam,
             )?,
-            // TODO Sof Pasuq, Maqaf, Paseq
-            '\u{5c3}' | '\u{5be}' | '\u{5c0}' => (),
             '\n' => {
                 cur_line += 1;
                 cur_col = 0;
@@ -248,33 +245,44 @@ fn place_taam(
     cur_box: &BoxGeometry,
     c_taam: char,
 ) -> Result<(), eyre::Error> {
-    with_glyph(c_taam, |glyph| {
-        eprintln!("ta'am {} on {cur_c:?}", glyph.name);
+    let Some(glyph) = GLYPHS.get(&c_taam) else {
+        bail!("no glyph for {c_taam:?} {:x}", c_taam as u32);
+    };
+    glyph
+        .pix
+        .try_with(|pix| {
+            eprintln!("ta'am {} on {cur_c:?}, placed {:?}", glyph.name, glyph.placement);
 
-        const SCALE_FACTOR: f32 = 0.5;
-        let pix = glyph.pix.scale(SCALE_FACTOR)?;
+            let scale_factor = if glyph.placement == Placement::After {
+                0.4
+            } else {
+                0.5
+            };
+            let pix = pix.scale(scale_factor)?;
 
-        const TOP_MARGIN: i32 = 7;
-        let (x, y) = match glyph.placement {
-            Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 7),
-            Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
-        };
+            const TOP_MARGIN: i32 = 4;
+            let (x, y) = match glyph.placement {
+                Placement::Top => (cur_box.x, cur_box.y - TOP_MARGIN - 9),
+                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - TOP_MARGIN),
+                Placement::After => (cur_box.x - cur_box.w - 5, cur_box.y - TOP_MARGIN),
+            };
 
-        // debug
-        let w = pix.get_w().try_into().unwrap();
-        let h = pix.get_w().try_into().unwrap();
-        if args.render_boxes {
-            img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
-        }
+            // debug
+            let w = pix.get_w().try_into().unwrap();
+            let h = pix.get_w().try_into().unwrap();
+            if args.render_boxes {
+                img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
+            }
 
-        // + h ???
-        img.render_img(&pix, x, y + h)
-    })?
-    .wrap_err("failed to render text")?;
-    Ok(if args.render_boxes {
+            // + h ???
+            img.render_img(&pix, x, y + h)
+        })?
+        .wrap_err("failed to render text")?;
+    if args.render_boxes {
         img.render_box(cur_box, 3, (0, 255, 0))
             .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
-    })
+    }
+    Ok(())
 }
 
 enum OriginPos {

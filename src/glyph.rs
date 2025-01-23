@@ -1,22 +1,28 @@
-use eyre::eyre;
 use std::{cell::LazyCell, thread::LocalKey};
 
 use leptess::leptonica::Pix;
 use phf::{phf_map, Map};
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
     Top,
     Bottom,
+    After,
 }
 
+#[derive(Clone, Copy)]
 pub struct Glyph {
     pub name: &'static str,
     pub placement: Placement,
-    pub pix: Pix,
+    pub pix: &'static LocalKey<LazyCell<Pix>>,
 }
 
 impl Glyph {
-    const fn new(name: &'static str, placement: Placement, pix: Pix) -> Self {
+    const fn new(
+        name: &'static str,
+        placement: Placement,
+        pix: &'static LocalKey<LazyCell<Pix>>,
+    ) -> Self {
         Self {
             name,
             placement,
@@ -26,51 +32,61 @@ impl Glyph {
 }
 
 macro_rules! glyph {
-    ($var:ident, $name:expr, $placement:expr) => {
+    ($name:expr, $placement:expr) => {{
         thread_local! {
-            static $var: LazyCell<Glyph> = LazyCell::new(|| {
+            static PIX: LazyCell<Pix> = LazyCell::new(|| {
                 let buf = include_bytes!(concat!("../assets/glyphs/", $name, ".tif"));
-                let pix = leptess::leptonica::pix_read_mem(buf).expect(concat!("failed to load ", $name));
-                Glyph::new($name, $placement, pix)
+                leptess::leptonica::pix_read_mem(buf)
+                    .expect(concat!("failed to load ", $name))
             });
         }
-    };
+        Glyph::new($name, $placement, &PIX)
+    }};
 }
 
-glyph!(ETNAHTA, "etnahta", Placement::Bottom);
-glyph!(SEGOL, "segol", Placement::Bottom);
-glyph!(SHALSHELET, "shalshelet", Placement::Bottom);
-glyph!(ZAQUEF_QATAN, "zaquef_qatan", Placement::Bottom);
-glyph!(ZAQUEF_GADOL, "zaquef_gadol", Placement::Bottom);
-glyph!(TIPEHA, "tipeha", Placement::Bottom);
-glyph!(REVIA, "revia", Placement::Bottom);
-glyph!(ZARQA, "zarqa", Placement::Bottom);
-glyph!(PASHTA, "pashta", Placement::Top);
-glyph!(YETIV, "yetiv", Placement::Bottom);
-glyph!(TEVIR, "tevir", Placement::Bottom);
-glyph!(GERESH, "geresh", Placement::Bottom);
-glyph!(GERESH_MUQDAM, "geresh_muqdam", Placement::Bottom);
-glyph!(GERSHAYIM, "gershayim", Placement::Bottom);
-glyph!(QARNEY_PARA, "qarney_para", Placement::Bottom);
-glyph!(TELISHA_GEDOLA, "telisha_gedola", Placement::Bottom);
-glyph!(PAZER, "pazer", Placement::Bottom);
-glyph!(MUNAH, "munah", Placement::Bottom);
-glyph!(MAHAPAKH, "mahapakh", Placement::Bottom);
-glyph!(MERKHA, "merkha", Placement::Bottom);
-glyph!(MERKHA_KEFULA, "merkha_kefula", Placement::Bottom);
-glyph!(DARGA, "darga", Placement::Bottom);
-glyph!(QADMA, "qadma", Placement::Bottom);
-glyph!(TELISHA_KETANA, "telisha_ketana", Placement::Bottom);
-glyph!(YERAH_BEN_YOMO, "yerah_ben_yomo", Placement::Bottom);
-glyph!(OLEH, "oleh", Placement::Bottom);
-glyph!(ILUY, "iluy", Placement::Bottom);
-glyph!(DEHI, "dehi", Placement::Bottom);
-// glyph!(ZINOR, "zinor", Placement::Top);
-glyph!(METEG, "meteg", Placement::Bottom);
-glyph!(MAQAF, "maqaf", Placement::Bottom);
-glyph!(SOF_PASUQ, "sof_pasuq", Placement::Bottom);
+// keisarim
+// sof_pasuq is meteg
+pub static ETNAHTA: Glyph = glyph!("etnahta", Placement::Bottom);
 
-static GLYPHS: Map<char, LocalKey<LazyCell<Glyph>>> = phf_map! {
+// melakim
+pub static SEGOL: Glyph = glyph!("segol", Placement::Top);
+pub static SHALSHELET: Glyph = glyph!("shalshelet", Placement::Top);
+pub static ZAQUEF_QATAN: Glyph = glyph!("zaquef_qatan", Placement::Top);
+pub static ZAQUEF_GADOL: Glyph = glyph!("zaquef_gadol", Placement::Top);
+pub static TIPEHA: Glyph = glyph!("tipeha", Placement::Bottom);
+
+// sheni'im
+pub static REVIA: Glyph = glyph!("revia", Placement::Top);
+pub static PASHTA: Glyph = glyph!("pashta", Placement::Top);
+pub static ZARQA: Glyph = glyph!("zarqa", Placement::Top);
+pub static YETIV: Glyph = glyph!("yetiv", Placement::Bottom);
+pub static TEVIR: Glyph = glyph!("tevir", Placement::Bottom);
+
+// shalishim
+pub static PAZER: Glyph = glyph!("pazer", Placement::Top);
+pub static QARNEY_PARA: Glyph = glyph!("qarney_para", Placement::Top);
+pub static TELISHA_GEDOLA: Glyph = glyph!("telisha_gedola", Placement::Top);
+pub static GERESH: Glyph = glyph!("geresh", Placement::Top);
+pub static GERESH_MUQDAM: Glyph = glyph!("geresh_muqdam", Placement::Top);
+pub static GERSHAYIM: Glyph = glyph!("gershayim", Placement::Top);
+
+// meshartim
+pub static MUNAH: Glyph = glyph!("munah", Placement::Bottom);
+pub static MERKHA: Glyph = glyph!("merkha", Placement::Bottom);
+pub static MAHAPAKH: Glyph = glyph!("mahapakh", Placement::Bottom);
+pub static DARGA: Glyph = glyph!("darga", Placement::Bottom);
+pub static QADMA: Glyph = glyph!("qadma", Placement::Top);
+pub static TELISHA_KETANA: Glyph = glyph!("telisha_ketana", Placement::Top);
+pub static MERKHA_KEFULA: Glyph = glyph!("merkha_kefula", Placement::Bottom);
+pub static YERAH_BEN_YOMO: Glyph = glyph!("yerah_ben_yomo", Placement::Bottom);
+
+pub static METEG: Glyph = glyph!("meteg", Placement::Bottom);
+pub static MAQAF: Glyph = glyph!("maqaf", Placement::After);
+pub static PASEQ: Glyph = glyph!("paseq", Placement::After);
+
+pub static SOF_PASUQ: Glyph = glyph!("sof_pasuq", Placement::After);
+
+pub static GLYPHS: Map<char, Glyph> = phf_map! {
     '\u{0591}' => ETNAHTA,
     '\u{0592}' => SEGOL,
     '\u{0593}' => SHALSHELET,
@@ -97,21 +113,11 @@ static GLYPHS: Map<char, LocalKey<LazyCell<Glyph>>> = phf_map! {
     '\u{05A8}' => QADMA,
     '\u{05A9}' => TELISHA_KETANA,
     '\u{05AA}' => YERAH_BEN_YOMO,
-    '\u{05AB}' => OLEH,
-    '\u{05AC}' => ILUY,
-    '\u{05AD}' => DEHI,
-    // '\u{05AE}' => ZINOR,
     // ---
     '\u{05BD}' => METEG,
     '\u{05BE}' => MAQAF,
     // ---
+    '\u{05C0}' => PASEQ,
     '\u{05C3}' => SOF_PASUQ,
 
 };
-
-pub(crate) fn with_glyph<T>(c: char, f: impl FnOnce(&Glyph) -> T) -> eyre::Result<T> {
-    let Some(glyph) = GLYPHS.get(&c) else {
-        return Err(eyre!("no glyph for {c:?}"));
-    };
-    Ok(glyph.with(|glyph| f(glyph)))
-}
