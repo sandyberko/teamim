@@ -10,7 +10,7 @@ use std::{
 };
 
 use clap::Parser;
-use eyre::{bail, eyre, Context, ContextCompat, OptionExt};
+use eyre::{bail, Context, ContextCompat, OptionExt};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::PixExt;
 use teamim::glyph::{Placement, GLYPHS};
@@ -79,8 +79,7 @@ fn main() -> eyre::Result<()> {
             ))
         });
         place_teamim(&pix, &text, boxes, &args)?;
-    } else if let Some(write_boxes) = args.write_boxes {
-        use tesseract_ext::{BoundingBox, Tess};
+    } else {
         let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
         tess.set_image(&pix);
@@ -91,53 +90,40 @@ fn main() -> eyre::Result<()> {
             pix.render_boxes(boxes, 2, (0, 255, 0))?;
         }
 
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&write_boxes)?;
-
-        let mut w = BufWriter::new(file);
-
-        for char in tess.results_iter() {
-            let text = char.text();
-            let BoundingBox {
-                left,
-                bottom,
-                right,
-                top,
-            } = char.bounding_box();
-            writeln!(&mut w, "{text} {left} {bottom} {right} {top} 0")?;
-        }
-
-        w.flush()?;
-        println!("Wrote to {write_boxes:?}");
-    } else {
-        let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
-
-        tess.set_image(&pix);
-        tess.recognize()?;
-
         // Print
         let text = tess.get_text()?;
         println!("=== Text ===");
         println!("{text}");
         println!("=== End Text ===");
 
-        // Boxes
-        let boxes = tess
-            .results_iter()
-            .map(|r| Ok(into_geometry(r.bounding_box(), pix_h, OriginPos::TopLeft)));
-        place_teamim(&pix, text.as_str()?, boxes, &args)?;
+        if let Some(write_boxes) = args.write_boxes {
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&write_boxes)?;
 
-        if args.render.debug_boxes {
-            let width = 2;
-            let color = (0, 255, 0);
+            let mut w = BufWriter::new(file);
+
+            for char in tess.results_iter() {
+                let text = char.text();
+                let BoundingBox {
+                    left,
+                    bottom,
+                    right,
+                    top,
+                } = char.bounding_box();
+                writeln!(&mut w, "{text} {left} {bottom} {right} {top} 0")?;
+            }
+
+            w.flush()?;
+            println!("Wrote to {write_boxes:?}");
+        } else {
+            // Boxes
             let boxes = tess
-                .get_component_images(PageIteratorLevel::Symbol, true)
-                .wrap_err("no boxes")?;
-            pix.render_boxes(boxes, width, color)
-                .map_err(|_| eyre!("failed to render boxes"))?;
+                .results_iter()
+                .map(|r| Ok(into_geometry(r.bounding_box(), pix_h, OriginPos::TopLeft)));
+            place_teamim(&pix, text.as_str()?, boxes, &args)?;
         }
     }
 
