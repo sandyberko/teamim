@@ -1,8 +1,7 @@
-
-
 const SEARCH_CHUNK: usize = 32;
 
-pub(crate) fn find(src: &str, text: &str) -> Option<usize> {
+#[must_use]
+pub fn find(src: &str, text: &str) -> Option<usize> {
     let text = if let Some((idx, _)) = text.char_indices().nth(SEARCH_CHUNK + 1) {
         &text[..idx]
     } else {

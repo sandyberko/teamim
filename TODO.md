@@ -1,5 +1,8 @@
 # TODO
 
+- TypeScript pedantic
+- deduplicate `lib` and `main`
+- fix the horrible inefficiencies of everything in `lib`. maybe just use some native UI?
 - check placement of `Placement::After` te'amim, especially on lamed, nun and the like
 - check what's up with zinor. is there a text that correctly uses zarqa instead?
 - remove other _ta'amei emet_. see [Wikipedia](https://he.wikipedia.org/wiki/%D7%98%D7%A2%D7%9E%D7%99_%D7%94%D7%9E%D7%A7%D7%A8%D7%90)

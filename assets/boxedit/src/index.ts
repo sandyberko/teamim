@@ -290,6 +290,21 @@ saveButton.addEventListener("click", async (event) => {
     await writableStream.close();
 });
 
+function getBoxes() {
+    if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
+    return Array.from(boxContainer.childNodes)
+        .map((box) => {
+            if (box instanceof HTMLInputElement === false) throw new Error("invalid box");
+            const char = box.value;
+            const left = box.offsetLeft;
+            const bottom = box.offsetTop + box.offsetHeight;
+            const right = box.offsetLeft + box.offsetWidth;
+            const top = box.offsetTop;
+            return `${char} ${left} ${bottom} ${right} ${top} 0`;
+        })
+        .join("\n");
+}
+
 function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number) {
     if (dir === 0b0000) dir = 0b1111;
 
@@ -309,15 +324,50 @@ function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number)
     }
 }
 
-document.getElementById("recognize")!.addEventListener("click", async (event) => { 
+document.getElementById("recognize")!.addEventListener("click", async (event) => {
     // get image from input
     const imageData = imageInput.files![0];
     const response = await fetch("/recognize", {
         method: "POST",
         body: imageData
     });
+    if (response.status === 400) {
+        imageInput.focus();
+        alert("❌ Empty image");
+    }
+    if (!response.ok) { throw new Error("Failed to recognize"); }
     const text = await response.text();
     renderBoxes(text);
+});
+document.getElementById("render-teamim")!.addEventListener("click", async (event) => {
+    const body = getBoxes();
+    const response = await fetch("/renderTeamim", {
+        method: "POST",
+        body,
+    });
+    console.log("response", response);
+    // parse error
+    if (response.status === 400) {
+        const error = await response.json();
+        if (typeof error === "string") {
+            alert(error);
+        } else {
+            const { boxNumber, expected } = error;
+            const box = boxContainer.childNodes[boxNumber];
+            if (box instanceof HTMLInputElement === false) throw new Error("where box?");
+            box.focus();
+            box.select();
+            // blink box
+            box.animate([{ backgroundColor: "red" }, { backgroundColor: "white" }], {
+                duration: 1000,
+                iterations: 5,
+            });
+            box.setCustomValidity(expected);
+            box.reportValidity();
+        }
+    } if (response.status === 200) {
+        alert("✅ All good!");
+    }
 });
 
 const storedImage = localStorage.getItem(imageStorageKey);

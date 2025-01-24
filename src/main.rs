@@ -1,5 +1,3 @@
-mod fuzzy_find;
-
 use std::{
     ffi::{CString, OsStr},
     fs::{self, File, OpenOptions},
@@ -11,9 +9,13 @@ use clap::Parser;
 use eyre::{bail, Context, ContextCompat, OptionExt};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use teamim::{
+    fuzzy_find,
     glyph::{Placement, GLYPHS},
+    into_geometry,
     leptonica_ext::PixExt,
+    parse_box_line,
     tesseract_ext::{BoundingBox, PageIteratorLevel, Tess},
+    OriginPos,
 };
 
 #[derive(Parser)]
@@ -71,14 +73,10 @@ fn main() -> eyre::Result<()> {
             .lines()
             .map(|line| line?.chars().next().ok_or_eyre("empty line"))
             .collect::<eyre::Result<String>>()?;
-        let boxes = BufReader::new(File::open(corrected)?).lines().map(|line| {
-            Ok(into_geometry(
-                parse_box_line(&line?)?,
-                pix_h,
-                OriginPos::TopLeft,
-            ))
-        });
-        place_teamim(&pix, &text, boxes, &args)?;
+        let boxes = BufReader::new(File::open(corrected)?)
+            .lines()
+            .map(|line| Ok(into_geometry(parse_box_line(&line?)?, OriginPos::TopLeft)));
+        place_teamim(&pix, &args, &text, boxes)?;
     } else {
         let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
@@ -122,8 +120,8 @@ fn main() -> eyre::Result<()> {
             // Boxes
             let boxes = tess
                 .results_iter()
-                .map(|r| Ok(into_geometry(r.bounding_box(), pix_h, OriginPos::TopLeft)));
-            place_teamim(&pix, text.as_str()?, boxes, &args)?;
+                .map(|r| Ok(into_geometry(r.bounding_box(), OriginPos::TopLeft)));
+            place_teamim(&pix, &args, text.as_str()?, boxes)?;
         }
     }
 
@@ -135,9 +133,9 @@ fn main() -> eyre::Result<()> {
 
 fn place_teamim(
     img: &Pix,
+    args: &Args,
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
-    args: &Args,
 ) -> eyre::Result<()> {
     let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")?;
     let text = text.trim();
@@ -286,49 +284,4 @@ fn place_taam(
             .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
     }
     Ok(())
-}
-
-#[derive(Copy, Clone, Debug)]
-enum OriginPos {
-    #[expect(unused)]
-    BottomLeft,
-    TopLeft,
-}
-
-fn into_geometry(
-    BoundingBox {
-        left,
-        bottom,
-        right,
-        top,
-    }: BoundingBox,
-    img_h: u32,
-    origin_pos: OriginPos,
-) -> BoxGeometry {
-    let img_h: i32 = img_h.try_into().unwrap();
-    match origin_pos {
-        OriginPos::BottomLeft => BoxGeometry {
-            x: left,
-            y: img_h - top,
-            w: right - left,
-            h: top - bottom,
-        },
-        OriginPos::TopLeft => BoxGeometry {
-            x: left,
-            y: top,
-            w: right - left,
-            h: bottom - top,
-        },
-    }
-}
-
-fn parse_box_line(line: &str) -> eyre::Result<BoundingBox> {
-    let mut parts = line.split(' ');
-    let _char = parts.next().ok_or_eyre("failed to parse char")?;
-    Ok(BoundingBox {
-        left: parts.next().ok_or_eyre("failed to parse left")?.parse()?,
-        bottom: parts.next().ok_or_eyre("failed to parse bottom")?.parse()?,
-        right: parts.next().ok_or_eyre("failed to parse right")?.parse()?,
-        top: parts.next().ok_or_eyre("failed to parse top")?.parse()?,
-    })
 }
