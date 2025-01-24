@@ -12,7 +12,7 @@ use leptonica_plumbing::memory::RefCounted;
 
 #[derive(Debug, thiserror::Error)]
 #[error("Generic Leptonica error")]
-pub(crate) struct Error;
+pub struct Error;
 
 pub trait PixExt: Sized {
     fn render_box(&self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;

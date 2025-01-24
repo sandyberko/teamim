@@ -152,11 +152,13 @@ pub struct ResultItem<'tess> {
 }
 
 impl ResultItem<'_> {
+    #[must_use]
     pub fn text<'s>(&self) -> &'s str {
         let cstr = unsafe { TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level) };
         assert!(!cstr.is_null(), "failed to get text");
         unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
     }
+    #[must_use]
     pub fn bounding_box(&self) -> BoundingBox {
         let mut r#box = BoundingBox::default();
         let err = unsafe {

@@ -7,11 +7,14 @@ default-run = "teamim"
 [workspace]
 members = ["crates/*"]
 
+[workspace.dependencies]
+eyre = "0.6.12"
+
 [dependencies]
 ab_glyph = "0.2.29"
 clap = { version = "4.5.26", features = ["derive"] }
 color-eyre = "0.6.3"
-eyre = "0.6.12"
+eyre = { workspace = true }
 imageproc = "0.25.0"
 leptess = "0.14.0"
 leptonica-plumbing = "1.4.0"
@@ -20,4 +23,7 @@ strsim = "0.11.1"
 thiserror = "2.0.11"
 
 [lints.clippy]
-pedantic = "warn"
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_safety_doc = "allow"
+missing_panics_doc = "allow"

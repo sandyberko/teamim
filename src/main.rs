@@ -1,6 +1,4 @@
 mod fuzzy_find;
-mod leptonica_ext;
-mod tesseract_ext;
 
 use std::{
     ffi::{CString, OsStr},
@@ -12,9 +10,11 @@ use std::{
 use clap::Parser;
 use eyre::{bail, Context, ContextCompat, OptionExt};
 use leptess::leptonica::{self, BoxGeometry, Pix};
-use leptonica_ext::PixExt;
-use teamim::glyph::{Placement, GLYPHS};
-use tesseract_ext::{BoundingBox, PageIteratorLevel, Tess};
+use teamim::{
+    glyph::{Placement, GLYPHS},
+    leptonica_ext::PixExt,
+    tesseract_ext::{BoundingBox, PageIteratorLevel, Tess},
+};
 
 #[derive(Parser)]
 struct Args {

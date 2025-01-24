@@ -27,7 +27,10 @@ function renderImage(imageData: string) {
     image.src = imageData;
 }
 
-document.getElementById("image-input")!.addEventListener("change", (event) => {
+const imageInput = document.getElementById("image-input");
+if (imageInput instanceof HTMLInputElement === false) throw new Error("where image input?");
+
+imageInput.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -305,6 +308,17 @@ function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number)
         elem.style.width = elem.clientWidth - dx + 'px';
     }
 }
+
+document.getElementById("recognize")!.addEventListener("click", async (event) => { 
+    // get image from input
+    const imageData = imageInput.files![0];
+    const response = await fetch("/recognize", {
+        method: "POST",
+        body: imageData
+    });
+    const text = await response.text();
+    renderBoxes(text);
+});
 
 const storedImage = localStorage.getItem(imageStorageKey);
 if (storedImage) {
