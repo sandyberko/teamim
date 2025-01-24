@@ -3,7 +3,7 @@ mod leptonica_ext;
 mod tesseract_ext;
 
 use std::{
-    ffi::{CString, OsStr, OsString},
+    ffi::{CString, OsStr},
     fs::{self, File, OpenOptions},
     io::{stdin, stdout, BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
@@ -18,28 +18,48 @@ use tesseract_ext::{BoundingBox, PageIteratorLevel, Tess};
 
 #[derive(Parser)]
 struct Args {
-    input_image_name: PathBuf,
-    #[clap(short, long)]
-    print: bool,
+    /// Input image file
+    input: PathBuf,
 
-    #[clap(short('b'), long)]
-    render_boxes: bool,
-
-    #[clap(short, long)]
-    interactive: bool,
-
+    /// Corrected box file
     #[clap(short, long)]
     corrected: Option<PathBuf>,
 
+    /// Output image file name
+    #[clap(short, long)]
+    output: PathBuf,
+
+    /// Write recognized boxes to file
     #[clap(short, long)]
     write_boxes: Option<PathBuf>,
+
+    #[clap(flatten)]
+    render: RenderArgs,
+
+    /// Print recognized text
+    #[clap(short, long)]
+    print: bool,
+
+    #[clap(short, long)]
+    interactive: bool,
+}
+
+#[derive(Parser)]
+struct RenderArgs {
+    /// Render boxes to image
+    #[clap(short('b'), long)]
+    debug_boxes: bool,
+
+    /// Render `Placement::After` te'amim like maqaf
+    #[clap(long)]
+    enable_after: bool,
 }
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
-    let mut pix = leptonica::pix_read(&args.input_image_name)?;
+    let mut pix = leptonica::pix_read(&args.input)?;
     let pix_h = pix.get_h();
     pix.convert_to_32()?;
 
@@ -66,7 +86,7 @@ fn main() -> eyre::Result<()> {
         tess.set_image(&pix);
         tess.recognize()?;
 
-        if args.render_boxes {
+        if args.render.debug_boxes {
             let boxes = tess.get_component_images(PageIteratorLevel::Symbol, true)?;
             pix.render_boxes(boxes, 2, (0, 255, 0))?;
         }
@@ -110,7 +130,7 @@ fn main() -> eyre::Result<()> {
             .map(|r| Ok(into_geometry(r.bounding_box(), pix_h, OriginPos::TopLeft)));
         place_teamim(&pix, text.as_str()?, boxes, &args)?;
 
-        if args.render_boxes {
+        if args.render.debug_boxes {
             let width = 2;
             let color = (0, 255, 0);
             let boxes = tess
@@ -121,18 +141,9 @@ fn main() -> eyre::Result<()> {
         }
     }
 
-    // Output image
-    let out_file_name = args.input_image_name.with_file_name(
-        [
-            args.input_image_name.file_stem().unwrap(),
-            OsStr::new(".out."),
-            args.input_image_name.extension().unwrap(),
-        ]
-        .into_iter()
-        .collect::<OsString>(),
-    );
-    println!("Writing to {out_file_name:?}");
-    pix.write(&CString::new(out_file_name.into_os_string().into_encoded_bytes()).unwrap())?;
+    println!("Writing to {:?}", args.output);
+    let output = CString::new(args.output.into_os_string().into_encoded_bytes())?;
+    pix.write(&output)?;
     Ok(())
 }
 
@@ -246,6 +257,11 @@ fn place_taam(
     let Some(glyph) = GLYPHS.get(&c_taam) else {
         bail!("no glyph for {c_taam:?} {:x}", c_taam as u32);
     };
+
+    if !args.render.enable_after && glyph.placement == Placement::After {
+        return Ok(());
+    }
+
     glyph
         .pix
         .try_with(|pix| {
@@ -271,7 +287,7 @@ fn place_taam(
             // debug
             let w = pix.get_w().try_into().unwrap();
             let h = pix.get_w().try_into().unwrap();
-            if args.render_boxes {
+            if args.render.debug_boxes {
                 img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
             }
 
@@ -279,7 +295,7 @@ fn place_taam(
             img.render_img(&pix, x, y + h)
         })?
         .wrap_err("failed to render text")?;
-    if args.render_boxes {
+    if args.render.debug_boxes {
         img.render_box(cur_box, 3, (0, 255, 0))
             .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
     }
