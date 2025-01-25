@@ -95,7 +95,7 @@ pub fn place_teamim(
     let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")
         .wrap_err("failed to read consonants")?;
     let text = text.trim();
-    let n = fuzzy_find::find(&consonants, text).ok_or(PlaceError::NotFound)?;
+    let mut n = fuzzy_find::find(&consonants, text).ok_or(PlaceError::NotFound)?;
 
     let mut chars_iter = text.chars().enumerate();
     let mut cur_c: Option<(usize, char)> = None;
@@ -105,10 +105,14 @@ pub fn place_teamim(
     let mut cur_box: Option<BoxGeometry> = None;
     let teamim = fs::read_to_string("./assets/text/leningrad/teamim/torah.txt")
         .wrap_err("failed to read teamim")?;
-    'teamim: for (_, c_taam) in teamim.char_indices().skip(n) {
+    let teamim = teamim.char_indices().skip(n);
+    'teamim: for (_, c_taam) in teamim {
         match c_taam {
             // Ta'am
             '\u{0591}'..='\u{05AD}' | '\u{5bd}' | '\u{5be}' | '\u{5c0}' | '\u{5c3}' => {
+                if n > 0 {
+                    continue;
+                }
                 let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
                 // place_taam(img, options, cur_c, cur_box, c_taam)?;
@@ -124,6 +128,10 @@ pub fn place_teamim(
             // Letter - alef to tav
             ('\u{05d0}'..='\u{05EA}') => {
                 cur_col += 1;
+                if n > 0 {
+                    n -= 1;
+                    continue;
+                }
                 cur_c = chars_iter.find(|(_, c)| !c.is_whitespace());
                 cur_box = boxes_iter.next().transpose()?;
 

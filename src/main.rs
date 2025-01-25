@@ -62,7 +62,6 @@ fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
     let mut pix = leptonica::pix_read(&args.input)?;
-    let pix_h = pix.get_h();
     pix.convert_to_32()?;
 
     if let Some(corrected) = &args.corrected {

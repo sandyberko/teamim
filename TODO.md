@@ -6,10 +6,9 @@
 - check placement of `Placement::After` te'amim, especially on lamed, nun and the like
 - check what's up with zinor. is there a text that correctly uses zarqa instead?
 - remove other _ta'amei emet_. see [Wikipedia](https://he.wikipedia.org/wiki/%D7%98%D7%A2%D7%9E%D7%99_%D7%94%D7%9E%D7%A7%D7%A8%D7%90)
-- Tesseract with known text
 - create_glyph to build script?
 - optimize glyphs
-  - save as Pix masks
+  - save as Pix 1bit masks?
   - resize per set of images
 - detect font size of image?
 - TryInto & TryFrom for BoundingBox
@@ -19,17 +18,16 @@
   - compare with text and show mistakes
   - try non-input boxes again for overflow and more
   - blend mode for overlapping text
-  - display focused resize direction
+  - display keyboard resize direction
     - use corners for resize, so all arrows work
   - view/hide imgage etc. checkboxes
   - save name `.box`
-- Tesseract
-    - Training
-      - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
-      - more readymade fonts (in Downloads)
-      - custom box
-      - wide letters
-      - variable inter-character spacing
+- Training
+  - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
+  - more readymade fonts (in Downloads)
+  - custom box
+  - wide letters
+  - variable inter-character spacing
 - if Tesseract has text2image, surely it has API for fonts?
 - Search
     - just find for perfect strings
