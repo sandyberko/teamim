@@ -108,13 +108,13 @@ pub fn place_teamim(
     let mut cur_col = 0usize;
     let mut boxes_iter = boxes.into_iter();
     let mut cur_box: Option<BoxGeometry> = None;
-    let teamim = fs::read_to_string("./assets/text/leningrad/teamim/torah.txt")
+    let teamim = fs::read_to_string("./assets/text/mam/teamim/torah.txt")
         .wrap_err("failed to read teamim")?;
     let teamim = teamim.char_indices().skip(n);
     'teamim: for (_, c_taam) in teamim {
         match c_taam {
             // Ta'am
-            '\u{0591}'..='\u{05AD}' | '\u{5bd}' | '\u{5be}' | '\u{5c0}' | '\u{5c3}' => {
+            '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
                 if n > 0 {
                     continue;
                 }
@@ -122,13 +122,22 @@ pub fn place_teamim(
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
                 place_taam(&img, options, cur_c, cur_box, c_taam)?;
             }
+            // text seems to mistakenly use tzinor instead of zarqa
+            '\u{05AE}' => {
+                if n > 0 {
+                    continue;
+                }
+                let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
+                let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
+                place_taam(&img, options, cur_c, cur_box, '\u{0598}')?;
+            }
             '\n' => {
                 cur_line += 1;
                 cur_col = 0;
                 continue;
             }
             // Niqqud
-            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' => continue,
+            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' => continue,
             _ if c_taam.is_whitespace() => continue,
             // Letter - alef to tav
             ('\u{05d0}'..='\u{05EA}') => {

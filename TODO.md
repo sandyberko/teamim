@@ -8,6 +8,7 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- process-mam: handle `lp-paseq` and such
 - TypeScript pedantic
 - deduplicate `lib` and `main`
 - fix the horrible inefficiencies of everything in `lib`. maybe just use some native UI?

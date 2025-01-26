@@ -1,30 +1,35 @@
+[workspace]
+members = ["crates/*"]
+
+[workspace.dependencies]
+eyre = "0.6.12"
+color-eyre = "0.6.3"
+thiserror = "2.0.11"
+clap = { version = "4.5.26", features = ["derive"] }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_safety_doc = "allow"
+missing_panics_doc = "allow"
+
 [package]
 name = "teamim"
 version = "0.1.0"
 edition = "2021"
 default-run = "teamim"
 
-[workspace]
-members = ["crates/*"]
-
-[workspace.dependencies]
-eyre = "0.6.12"
-thiserror = "2.0.11"
-
 [dependencies]
 ab_glyph = "0.2.29"
-clap = { version = "4.5.26", features = ["derive"] }
-color-eyre = "0.6.3"
+clap = { workspace = true }
 eyre = { workspace = true }
+color-eyre = { workspace = true }
 imageproc = "0.25.0"
 leptess = "0.14.0"
 leptonica-plumbing = "1.4.0"
 phf = { version = "0.11.3", features = ["macros"] }
 strsim = "0.11.1"
-thiserror = {workspace = true}
+thiserror = { workspace = true }
 
-[lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-missing_errors_doc = "allow"
-missing_safety_doc = "allow"
-missing_panics_doc = "allow"
+[lints]
+workspace = true
