@@ -4,7 +4,7 @@
 - detect font size of image?
 - save final image
 - fix stars
-- release build
+- [x] release build
 - boxedit: recognize cached image
 
 ## Optimization
@@ -40,3 +40,6 @@
     - just find for perfect strings
     - trie? suffix tree? n-grams?
     - research from there
+
+## Long term
+- License, attribution (MAM, tesseract)

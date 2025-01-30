@@ -1,2 +1,2 @@
 [env]
-VCPKGRS_DYNAMIC = "true"
+# VCPKGRS_DYNAMIC = "true"
