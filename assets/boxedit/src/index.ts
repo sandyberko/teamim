@@ -47,15 +47,15 @@ document.getElementById("box-input")!.addEventListener("change", (event) => {
     reader.readAsText(file.files![0], 'UTF-8');
     reader.onload = function (event) {
         const text = event.target?.result as string;
-
-        localStorage.setItem(boxFileStorageKey, text);
-
         renderBoxes(text);
     }
 });
 
 // #region Render boxes
 function renderBoxes(text: string) {
+    // cache boxes
+    localStorage.setItem(boxFileStorageKey, text);
+
     const boxContainer = document.getElementById("box-container");
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
     boxContainer.innerHTML = "";

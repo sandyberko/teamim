@@ -1,5 +1,13 @@
 # TODO
 
+## Necessary
+- detect font size of image?
+- save final image
+- fix stars
+- release build
+- boxedit: recognize cached image
+
+## Optimization
 - TypeScript pedantic
 - deduplicate `lib` and `main`
 - fix the horrible inefficiencies of everything in `lib`. maybe just use some native UI?
@@ -10,12 +18,11 @@
 - optimize glyphs
   - save as Pix 1bit masks?
   - resize per set of images
-- detect font size of image?
 - TryInto & TryFrom for BoundingBox
 - remove leptess, depend on *-sys instead
 - box file origin bottom-left for training
 - boxedit
-  - compare with text and show mistakes
+  - diff
   - try non-input boxes again for overflow and more
   - blend mode for overlapping text
   - display keyboard resize direction
