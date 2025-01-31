@@ -340,10 +340,12 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
     renderBoxes(text);
 });
 document.getElementById("render-teamim")!.addEventListener("click", async (event) => {
-    const body = getBoxes();
+    const formData = new FormData();
+    formData.append("image", imageInput.files![0]);
+    formData.append("boxes", getBoxes());
     const response = await fetch("/renderTeamim", {
         method: "POST",
-        body,
+        body: formData,
     });
     console.log("response", response);
     // parse error
@@ -365,8 +367,13 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
             box.setCustomValidity(expected);
             box.reportValidity();
         }
-    } if (response.status === 200) {
-        alert("✅ All good!");
+    } else if (response.status !== 200) {
+        throw new Error("Failed to recognize");
+    } else {
+        if (image === null) throw new Error("where image?");
+        const img = await response.blob();
+        const url = URL.createObjectURL(img);
+        image.src = url;
     }
 });
 

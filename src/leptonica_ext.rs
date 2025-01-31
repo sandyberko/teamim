@@ -1,4 +1,8 @@
-use std::{ffi::CStr, mem};
+use core::slice;
+use std::{
+    ffi::CStr,
+    mem::{self, MaybeUninit},
+};
 
 use eyre::{bail, ContextCompat};
 use leptess::{
@@ -21,6 +25,7 @@ pub trait PixExt: Sized {
     fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
     fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
     fn scale(&self, factor: f32) -> eyre::Result<Self>;
+    fn copy_to_png(&self) -> eyre::Result<Buf>;
 }
 
 impl PixExt for Pix {
@@ -114,8 +119,43 @@ impl PixExt for Pix {
         let raw = unsafe { RefCounted::new(plumbing_pix) };
         Ok(Self { raw })
     }
+
+    fn copy_to_png(&self) -> eyre::Result<Buf> {
+        let mut buf_ptr = MaybeUninit::uninit();
+        let mut buf_size = MaybeUninit::uninit();
+        let result = unsafe {
+            capi::pixWriteMemPng(
+                buf_ptr.as_mut_ptr(),
+                buf_size.as_mut_ptr(),
+                *self.raw.as_ref(),
+                0.0,
+            )
+        };
+        if result != 0 {
+            bail!("pixWriteMemPng failed");
+        }
+        let ptr = unsafe { buf_ptr.assume_init() };
+        let len = unsafe { buf_size.assume_init() };
+        Ok(Buf { ptr, len })
+    }
 }
 
+pub struct Buf {
+    ptr: *mut u8,
+    len: usize,
+}
+impl Drop for Buf {
+    fn drop(&mut self) {
+        unsafe { capi::free(self.ptr.cast()) }
+    }
+}
+impl AsRef<[u8]> for Buf {
+    fn as_ref(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+// TODO check safety
+unsafe impl Send for Buf {}
 // custom bindings
 
 use leptess::capi;

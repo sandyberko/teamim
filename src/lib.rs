@@ -8,7 +8,7 @@ use std::{fmt::Write, fs};
 use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
 use leptess::leptonica::{self, BoxGeometry, Pix};
-use leptonica_ext::PixExt;
+use leptonica_ext::{Buf, PixExt};
 use tesseract_ext::{BoundingBox, Tess};
 use thiserror::Error;
 
@@ -82,16 +82,21 @@ pub enum PlaceError {
     NotFound,
     #[error("Mismatch at box {0}")]
     Mismatch(MismatchError),
+    #[error("Pix error: {0}")]
+    Pix(#[from] leptess::leptonica::PixError),
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
 
 pub fn place_teamim(
-    img: &(),
+    img: &[u8],
     options: PlaceOptions,
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
-) -> Result<(), PlaceError> {
+) -> Result<Buf, PlaceError> {
+    let mut img = leptonica::pix_read_mem(img)?;
+    img.convert_to_32()?;
+
     let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")
         .wrap_err("failed to read consonants")?;
     let text = text.trim();
@@ -115,7 +120,7 @@ pub fn place_teamim(
                 }
                 let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                // place_taam(img, options, cur_c, cur_box, c_taam)?;
+                place_taam(&img, options, cur_c, cur_box, c_taam)?;
             }
             '\n' => {
                 cur_line += 1;
@@ -158,7 +163,7 @@ pub fn place_teamim(
             }
         }
     }
-    Ok(())
+    Ok(img.copy_to_png()?)
 }
 
 fn place_taam(

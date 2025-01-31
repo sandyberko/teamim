@@ -2,18 +2,18 @@ use std::path::PathBuf;
 
 use axum::{
     body::Bytes,
-    http::StatusCode,
+    extract::{multipart::MultipartError, Multipart},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
-use eyre::OptionExt;
 use serde::Serialize;
 use teamim::{
     into_geometry, parse_box_line, place_teamim, MismatchError, OriginPos, PlaceError, PlaceOptions,
 };
 use thiserror::Error;
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -39,8 +39,8 @@ async fn main() {
         .route("/renderTeamim", post(post_render_teamim))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
-        .fallback_service(ServeDir::new(boxedit_dir.join("assets")))
-        .layer(TraceLayer::new_for_http());
+        .fallback_service(ServeDir::new(boxedit_dir.join("assets")));
+    // .layer(TraceLayer::new_for_http());
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("[::1]:3000").await.unwrap();
@@ -92,35 +92,80 @@ struct MismatchErrorDef {
 struct Helper(#[serde(with = "MismatchErrorDef")] MismatchError);
 
 #[derive(Error, Debug)]
-#[error(transparent)]
-struct RenderTeamimError(#[from] PlaceError);
-
-impl From<eyre::Report> for RenderTeamimError {
-    fn from(err: eyre::Report) -> Self {
-        Self(err.into())
-    }
+enum RenderTeamimError {
+    #[error(transparent)]
+    Place(#[from] PlaceError),
+    #[error(transparent)]
+    Multipart(#[from] MultipartError),
+    #[error("missing image field")]
+    MissingImageField,
+    #[error("missing box field")]
+    MissingBoxesField,
 }
 
 impl IntoResponse for RenderTeamimError {
     fn into_response(self) -> Response {
-        match self.0 {
-            PlaceError::NotFound => (StatusCode::BAD_REQUEST, Json("Not found")).into_response(),
-            PlaceError::Mismatch(e) => (StatusCode::BAD_REQUEST, Json(Helper(e))).into_response(),
-            PlaceError::Other(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(e.to_string())).into_response()
+        match self {
+            RenderTeamimError::Place(err) => match err {
+                PlaceError::NotFound => {
+                    (StatusCode::BAD_REQUEST, Json("Not found")).into_response()
+                }
+                PlaceError::Mismatch(e) => {
+                    (StatusCode::BAD_REQUEST, Json(Helper(e))).into_response()
+                }
+                PlaceError::Other(e) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(e.to_string())).into_response()
+                }
+                PlaceError::Pix(pix_error) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, pix_error.to_string()).into_response()
+                }
+            },
+            RenderTeamimError::MissingImageField => {
+                (StatusCode::BAD_REQUEST, "missing image field").into_response()
             }
+            RenderTeamimError::MissingBoxesField => {
+                (StatusCode::BAD_REQUEST, "missing box field").into_response()
+            }
+            RenderTeamimError::Multipart(e) => e.into_response(),
         }
     }
 }
 
-async fn post_render_teamim(boxes: String) -> Result<(), RenderTeamimError> {
+async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, RenderTeamimError> {
+    let image = {
+        let image_field = data
+            .next_field()
+            .await?
+            .ok_or(RenderTeamimError::MissingImageField)?;
+        if image_field.name().is_none_or(|name| name != "image") {
+            return Err(RenderTeamimError::MissingImageField);
+        }
+        image_field.bytes().await?
+    };
+    let boxes = {
+        let boxes_field = data
+            .next_field()
+            .await?
+            .ok_or(RenderTeamimError::MissingBoxesField)?;
+        if boxes_field.name().is_none_or(|name| name != "boxes") {
+            return Err(RenderTeamimError::MissingBoxesField);
+        }
+        boxes_field.text().await?
+    };
+
     let text = boxes
         .lines()
-        .map(|line| line.chars().next().ok_or_eyre("empty line"))
-        .collect::<eyre::Result<String>>()?;
+        .flat_map(|line| line.chars().next())
+        .collect::<String>();
     let boxes = boxes
         .lines()
         .map(|line| Ok(into_geometry(parse_box_line(line)?, OriginPos::TopLeft)));
-    place_teamim(&(), PlaceOptions::default(), &text, boxes).map_err(RenderTeamimError)?;
-    Ok(())
+    let image = place_teamim(&image, PlaceOptions::default(), &text, boxes)?;
+    let headers = [(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(mime::IMAGE_PNG.as_ref()),
+    )]
+    .into_iter()
+    .collect::<HeaderMap>();
+    Ok((headers, Bytes::from_owner(image)))
 }
