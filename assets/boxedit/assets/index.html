@@ -12,16 +12,20 @@
 
 <body>
     <header>
-        <fieldset disabled id="input-fields">
-            <label for="box-input">קובץ זיהוי</label>
-            <input type="file" id="box-input" accept=".box" title="Select a Box file">
-
-            <label for="image-input">תמונה</label>
-            <input type="file" id="image-input" accept="image/*" title="Select an image file">
-
-            <input id="recognize" type="submit" value="🔍">
-            <input id="render-teamim" type="submit" value="✍️">
-            <input id="save" type="submit" value="💾">
+        <fieldset>
+            <legend>תמונה</legend>
+            <input type="file" id="image-input" accept="image/*" title="בחר תמונה">
+            <a id="save-image" download="image.png" title="שמור תמונה">💾</a>
+        </fieldset>
+        <fieldset>
+            <legend>קובץ זיהוי</legend>
+            <input type="file" id="box-input" accept=".box" title="בחר קובץ זיהוי">
+            <input id="save-box" type="submit" value="💾" title="שמור קובץ זיהוי">
+        </fieldset>
+        <fieldset>
+            <legend>זיהוי וציור</legend>
+            <input id="recognize" type="submit" value="🔍" title="הרץ זיהוי">
+            <input id="render-teamim" type="submit" value="✍️" title="צייר טעמים">
         </fieldset>
     </header>
     <main id="main">

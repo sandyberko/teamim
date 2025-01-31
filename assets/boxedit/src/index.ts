@@ -1,5 +1,3 @@
-document.getElementById("input-fields")!.removeAttribute("disabled");
-
 const imageStorageKey = "image";
 const boxFileStorageKey = "boxfile";
 
@@ -30,6 +28,10 @@ function renderImage(imageData: string) {
 const imageInput = document.getElementById("image-input");
 if (imageInput instanceof HTMLInputElement === false) throw new Error("where image input?");
 
+const imageSaveButton = document.getElementById("save-image");
+if (imageSaveButton instanceof HTMLAnchorElement === false) throw new Error("where save button?");
+
+
 imageInput.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
     const reader = new FileReader();
@@ -37,6 +39,10 @@ imageInput.addEventListener("change", (event) => {
         const imageData = event.target?.result as string;
         localStorage.setItem(imageStorageKey, imageData);
         renderImage(imageData);
+
+        // reset box and save button
+        boxContainer.innerHTML = "";
+        imageSaveButton.href = "";
     }
     reader.readAsDataURL(input.files![0]);
 });
@@ -263,10 +269,10 @@ document.addEventListener("keyup", (event) => {
     }
 });
 
-const saveButton = document.getElementById("save");
-if (saveButton instanceof HTMLInputElement === false) throw new Error("where save button?");
+const saveBoxButton = document.getElementById("save-box");
+if (saveBoxButton instanceof HTMLInputElement === false) throw new Error("where save button?");
 let outputFile: FileSystemFileHandle | null = null;
-saveButton.addEventListener("click", async (event) => {
+saveBoxButton.addEventListener("click", async (event) => {
     // create a new handle
     if (!outputFile) outputFile = await window.showSaveFilePicker();
 
@@ -339,6 +345,7 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
     const text = await response.text();
     renderBoxes(text);
 });
+
 document.getElementById("render-teamim")!.addEventListener("click", async (event) => {
     const formData = new FormData();
     formData.append("image", imageInput.files![0]);
@@ -347,12 +354,11 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
         method: "POST",
         body: formData,
     });
-    console.log("response", response);
     // parse error
     if (response.status === 400) {
         const error = await response.json();
-        if (typeof error === "string") {
-            alert(error);
+        if (typeof error === "string" && error === "Not found") {
+            alert("טקסט לא נמצא, נסה לתקן טעויות זיהוי ולהריץ שוב");
         } else {
             const { boxNumber, expected } = error;
             const box = boxContainer.childNodes[boxNumber];
@@ -374,6 +380,7 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
         const img = await response.blob();
         const url = URL.createObjectURL(img);
         image.src = url;
+        imageSaveButton.href = url;
     }
 });
 
