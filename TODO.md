@@ -8,6 +8,7 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- Paseq glyph is empty?
 - fix the whole `process-mam` thing
 - process-mam: handle `lp-paseq` and such
 - embed texts, cache other things

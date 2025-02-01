@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
 
-    <title>Box Edit</title>
+    <title>טעמים</title>
 
     <script src="build/index.js" type="module" async></script>
     <link rel="stylesheet" href="index.css">
@@ -31,6 +31,61 @@
     <main id="main">
         <div id="box-container"></div>
     </main>
+    <table id="legend">
+        <caption>מקרא</caption>
+        <thead>
+            <tr>
+                <th id="keys" scope="col">מקשים</th>
+                <th id="action" scope="col">פעולה</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <th scope="rowgroup" headers="keys action" colspan="2">תצוגה</td>
+            </tr>
+            <tr>
+                <td><kbd>1</kbd></td>
+                <td>טקסט+ריבועים</td>
+            </tr>
+            <tr>
+                <td><kbd>2</kbd></td>
+                <td>תמונה</td>
+            </tr>
+            <tr>
+                <td><kbd>3</kbd></td>
+                <td>תמונה וריבועים</td>
+            </tr>
+            <tr>
+                <td><kbd>4</kbd></td>
+                <td>ריבוע נבחר</td>
+            </tr>
+        </tbody>
+        <tbody>
+            <tr>
+                <th scope="rowgroup" headers="keys action" colspan="2">עריכה</td>
+            </tr>
+            <tr>
+                <td><kbd>Tab ⭾</kbd></td>
+                <td>ריבוע הבא</td>
+            </tr>
+            <tr>
+                <td><kbd>Shift</kbd>+<kbd>Tab ⭾</kbd></td>
+                <td>ריבוע קודם</td>
+            </tr>
+            <tr>
+                <td><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></td>
+                <td>הזז ריבוע</td>
+            </tr>
+            <tr>
+                <td><kbd>+ =</kbd></td>
+                <td>ריבוע חדש אחרי הנבחר</td>
+            </tr>
+            <tr>
+                <td><kbd>Delete</kbd></td>
+                <td>מחק ריבוע</td>
+            </tr>
+        </tbody>
+    </table>
 </body>
 
 </html>

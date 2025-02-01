@@ -174,7 +174,10 @@ function setupKeyboardResize(elem: HTMLInputElement) {
         }
     });
     elem.addEventListener("beforeinput", (event) => {
-        if (event.data && event.data.match(hebrewLetterRegex) === null) event.preventDefault();
+        if (event.data && event.data.match(hebrewLetterRegex) === null) {
+            event.preventDefault();
+            alert("אותיות עבריות בלבד. האם המקלדת על עברית?")
+        }
     });
 }
 // #endregion

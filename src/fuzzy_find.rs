@@ -1,4 +1,4 @@
-const SEARCH_CHUNK: usize = 32;
+const SEARCH_CHUNK: usize = 16;
 
 #[must_use]
 pub fn find(src: &str, snippet: &str) -> Option<usize> {
