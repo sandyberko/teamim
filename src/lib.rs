@@ -97,7 +97,7 @@ pub fn place_teamim(
     let mut img = leptonica::pix_read_mem(img)?;
     img.convert_to_32()?;
 
-    let consonants = fs::read_to_string("./assets/text/leningrad/consonants/torah.txt")
+    let consonants = fs::read_to_string("./assets/text/mam/consonants/torah.txt")
         .wrap_err("failed to read consonants")?;
     let text = text.trim();
     let mut n = fuzzy_find::find(&consonants, text).ok_or(PlaceError::NotFound)?;
@@ -110,15 +110,19 @@ pub fn place_teamim(
     let mut cur_box: Option<BoxGeometry> = None;
     let teamim = fs::read_to_string("./assets/text/mam/teamim/torah.txt")
         .wrap_err("failed to read teamim")?;
-    let teamim = teamim.char_indices().skip(n);
-    'teamim: for (_, c_taam) in teamim {
+
+    'teamim: for (_, c_taam) in teamim.char_indices() {
         match c_taam {
             // Ta'am
             '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
                 if n > 0 {
                     continue;
                 }
-                let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
+                // should be this, but doesn't work after skipping
+                // let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
+                let Some((_, cur_c)) = cur_c else {
+                    continue 'teamim;
+                };
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
                 place_taam(&img, options, cur_c, cur_box, c_taam)?;
             }
@@ -193,11 +197,6 @@ fn place_taam(
     glyph
         .pix
         .try_with(|pix| {
-            eprintln!(
-                "ta'am {} on {cur_c:?}, placed {:?}",
-                glyph.name, glyph.placement
-            );
-
             let scale_factor = if glyph.placement == Placement::After {
                 0.4
             } else {

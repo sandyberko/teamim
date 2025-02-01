@@ -1,4 +1,8 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    str::from_utf8,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use clap::Parser;
 use eyre::{bail, ensure, Ok};
@@ -14,12 +18,21 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 #[derive(Parser)]
 struct Args {
     output: PathBuf,
+
+    #[arg(long)]
+    consonants: bool,
 }
+
+static CONSONANTS: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
+
+    if args.consonants {
+        CONSONANTS.store(true, Ordering::Relaxed);
+    }
 
     let file = File::create(&args.output).await?;
     let mut writer = BufWriter::new(file);
@@ -84,13 +97,17 @@ async fn parse_chapters(
                 b"chapter" => continue,
                 b"verse" => {
                     parse_complicated_verse(xml, buf, writer).await?;
-                    writer.write_all(b"\n").await?;
+                    if !CONSONANTS.load(Ordering::Relaxed) {
+                        writer.write_all(b"\n").await?;
+                    }
                 }
                 unknown => bail!("unknown tag {unknown:?}"),
             },
             Event::Empty(elem) if elem.name().as_ref() == b"verse" => {
                 expect_text_attr(writer, elem).await?;
-                writer.write_all(b"\n").await?;
+                if !CONSONANTS.load(Ordering::Relaxed) {
+                    writer.write_all(b"\n").await?;
+                }
             }
             Event::Empty(elem) if IGNORE_TAGS.contains(&elem.name().as_ref()) => {
                 // TODO
@@ -114,12 +131,22 @@ async fn write_text_attr(
     writer: &mut BufWriter<File>,
     start: BytesStart<'_>,
 ) -> Result<bool, eyre::Error> {
+    let char_buf = &mut [0; 2];
     let mut found_text = false;
     for attr in start.attributes() {
         let attr = attr?;
         if attr.key.as_ref() == b"text" {
             found_text = true;
-            writer.write_all(attr.value.as_ref()).await?;
+            if CONSONANTS.load(Ordering::Relaxed) {
+                for c in from_utf8(attr.value.as_ref())?.chars() {
+                    if let ('\u{05d0}'..='\u{05EA}') = c {
+                        c.encode_utf8(char_buf);
+                        writer.write_all(char_buf).await?;
+                    }
+                }
+            } else {
+                writer.write_all(attr.value.as_ref()).await?;
+            }
         }
     }
     Ok(found_text)
@@ -149,7 +176,9 @@ async fn parse_complicated_verse(
                 ),
             },
             Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => {
-                writer.write_all(b" \xD7\x80 ").await?;
+                if !CONSONANTS.load(Ordering::Relaxed) {
+                    writer.write_all(b" \xD7\x80 ").await?;
+                }
             }
             Event::Empty(elem) if elem.name().as_ref() == b"text" => {
                 expect_text_attr(writer, elem).await?;

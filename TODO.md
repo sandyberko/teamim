@@ -8,7 +8,9 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- fix the whole `process-mam` thing
 - process-mam: handle `lp-paseq` and such
+- embed texts, cache other things
 - TypeScript pedantic
 - deduplicate `lib` and `main`
 - fix the horrible inefficiencies of everything in `lib`. maybe just use some native UI?
@@ -34,7 +36,7 @@
   - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
   - more readymade fonts (in Downloads)
   - custom box
-  - wide letters
+  - wide letters: in training, maybe even in charset?
   - variable inter-character spacing
 - if Tesseract has text2image, surely it has API for fonts?
 - Search
