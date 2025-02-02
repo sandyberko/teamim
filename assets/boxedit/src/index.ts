@@ -96,13 +96,12 @@ function newBox(char: string, left: string, top: string, width: number, height: 
     boxElem.classList.add("box");
     boxElem.type = "text";
     boxElem.value = char;
-    boxElem.maxLength = 1;
-    boxElem.minLength = 1;
+    // boxElem.maxLength = 1;
+    // boxElem.minLength = 1;
     boxElem.style.left = left + 'px';
     boxElem.style.top = top + 'px';
     boxElem.style.width = width + 'px';
     boxElem.style.height = height + 'px';
-    setupKeyboardResize(boxElem);
     return boxElem;
 }
 
@@ -239,65 +238,146 @@ function handleMouseDown(downEvent: MouseEvent) {
 }
 // #endregion
 
+// #region Training Boxes
+{
+    // lstm box format
+    function renderTrainingBoxes(text: string) {
+        if (!image) throw new Error("where image?");
+        const imgHeight = image.height;
+
+        const boxContainer = document.getElementById("box-container");
+        if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
+        boxContainer.innerHTML = "";
+        let lastBox: HTMLInputElement | null = null;
+        for (const line of text.split("\n")) {
+            if (line === "") continue;
+            const char = line.substring(0, 1);
+            if (char === "\t") {
+                lastBox = null;
+            } else if (lastBox) {
+                lastBox.value = char + lastBox.value;
+                continue;
+            } else {
+                const [left, blBottom, right, blTop] = line.substring(2).split(" ");
+                const top = imgHeight - parseInt(blTop);
+                const bottom = imgHeight - parseInt(blBottom);
+                const width = parseInt(right) - parseInt(left);
+                const height = bottom - top;
+                lastBox = newBox(char, left, top.toString(), width, height);
+                boxContainer.appendChild(lastBox);
+            }
+        };
+    }
+    document.getElementById("training-input")!.addEventListener("change", (event) => {
+        const file = event.target as HTMLInputElement;
+        const reader = new FileReader();
+        reader.readAsText(file.files![0], 'UTF-8');
+        reader.onload = function (event) {
+            const text = event.target?.result as string;
+            renderTrainingBoxes(text);
+        }
+    });
+
+    let outputFile: FileSystemFileHandle | null = null;
+    document.getElementById("save-box")!.addEventListener("click", async (event) => {
+        // create a new handle
+        if (!outputFile) outputFile = await window.showSaveFilePicker();
+
+        // create a FileSystemWritableFileStream to write to
+        const writableStream = await outputFile.createWritable();
+
+        if (!image) throw new Error("where image?");
+        const imgHeight = image.height;
+
+        // write our file
+        for (const box of boxContainer.childNodes) {
+            if (box instanceof HTMLInputElement === false) continue;
+
+            // lstm box format
+            const left = box.offsetLeft;
+            const bottom = imgHeight - box.offsetTop - box.offsetHeight;
+            const right = box.offsetLeft + box.offsetWidth;
+            const top = imgHeight - box.offsetTop;
+
+            for (const char of Array.from(box.value).reverse()) {
+                await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+            }
+            await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
+        }
+
+        // close the file and write the contents to disk.
+        await writableStream.close();
+    });
+}
+// #endregion
+
 // Visibility
 const viewAttr = "data-view";
-const imageKey = "1";
-const boxKey = "2";
-const boxTextKey = "3";
-const soloBoxKey = "4";
-
+const keyMap: Record<string, (active: boolean) => void> = {
+    // image
+    "F1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
+    // box
+    "F2": (show) => { boxContainer.style.opacity = show ? "1" : "0"; },
+    // box + text
+    "F3": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "text-only"); },
+    // solo box
+    "F4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); }
+}
 document.addEventListener("keydown", (event) => {
-    switch (event.key) {
-        case imageKey:
-            if (!image) break;
-            image.style.opacity = "0";
-            break;
-        case boxKey: boxContainer.style.opacity = "0"; break;
-        case boxTextKey: boxContainer.setAttribute(viewAttr, "text-only"); break;
-        case soloBoxKey: boxContainer.setAttribute(viewAttr, "solo"); break;
+    if (event.key in keyMap) {
+        event.preventDefault();
+        keyMap[event.key](false);
     }
 });
 document.addEventListener("keyup", (event) => {
     if (event.shiftKey) return;
-    switch (event.key) {
-        case imageKey:
-            if (!image) break;
-            image.style.opacity = "1";
-            break;
-        case boxKey: boxContainer.style.opacity = "1"; break;
-        case boxTextKey:
-        case soloBoxKey:
-            boxContainer.removeAttribute(viewAttr);
-            break;
+    if (event.key in keyMap) {
+        event.preventDefault();
+        keyMap[event.key](true);
     }
 });
 
-const saveBoxButton = document.getElementById("save-box");
-if (saveBoxButton instanceof HTMLInputElement === false) throw new Error("where save button?");
-let outputFile: FileSystemFileHandle | null = null;
-saveBoxButton.addEventListener("click", async (event) => {
-    // create a new handle
-    if (!outputFile) outputFile = await window.showSaveFilePicker();
+{
+    let outputFile: FileSystemFileHandle | null = null;
+    document.getElementById("save-box")!.addEventListener("click", async (event) => {
+        // create a new handle
+        if (!outputFile) outputFile = await window.showSaveFilePicker();
 
-    // create a FileSystemWritableFileStream to write to
-    const writableStream = await outputFile.createWritable();
+        // create a FileSystemWritableFileStream to write to
+        const writableStream = await outputFile.createWritable();
 
-    // write our file
-    for (const box of boxContainer.childNodes) {
-        if (box instanceof HTMLInputElement === false) continue;
+        if (!image) throw new Error("where image?");
+        const imgHeight = image.height;
 
-        const char = box.value;
-        const left = box.offsetLeft;
-        const bottom = box.offsetTop + box.offsetHeight;
-        const right = box.offsetLeft + box.offsetWidth;
-        const top = box.offsetTop;
+        // write our file
+        for (const box of boxContainer.childNodes) {
+            if (box instanceof HTMLInputElement === false) continue;
 
-        await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
-    }
+            // top-left custom box format
+            // const char = box.value;
+            // const left = box.offsetLeft;
+            // const bottom = box.offsetTop + box.offsetHeight;
+            // const right = box.offsetLeft + box.offsetWidth;
+            // const top = box.offsetTop;
 
-    // close the file and write the contents to disk.
-    await writableStream.close();
-});
+            // await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+
+            // lstm box format
+            const left = box.offsetLeft;
+            const bottom = imgHeight - box.offsetTop - box.offsetHeight;
+            const right = box.offsetLeft + box.offsetWidth;
+            const top = imgHeight - box.offsetTop;
+
+            for (const char of Array.from(box.value).reverse()) {
+                await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+            }
+            await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
+        }
+
+        // close the file and write the contents to disk.
+        await writableStream.close();
+    });
+}
 
 function getBoxes() {
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
@@ -342,7 +422,7 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
     });
     if (response.status === 400) {
         imageInput.focus();
-        alert("❌ Empty image");
+        alert("לא נבחרה תמונה");
     }
     if (!response.ok) { throw new Error("Failed to recognize"); }
     const text = await response.text();

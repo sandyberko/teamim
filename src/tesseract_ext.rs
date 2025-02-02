@@ -8,7 +8,7 @@ use std::{
 use eyre::{bail, OptionExt};
 use leptess::{
     capi::{
-        TessBaseAPI, TessBaseAPICreate, TessBaseAPIDelete, TessBaseAPIEnd,
+        self, TessBaseAPI, TessBaseAPICreate, TessBaseAPIDelete, TessBaseAPIEnd,
         TessBaseAPIGetComponentImages, TessBaseAPIGetIterator, TessBaseAPIGetUTF8Text,
         TessBaseAPIInit3, TessBaseAPIRecognize, TessBaseAPISetImage2, TessPageIteratorBoundingBox,
         TessPageIteratorLevel_RIL_SYMBOL, TessResultIterator, TessResultIteratorGetUTF8Text,
@@ -22,6 +22,13 @@ use crate::leptonica_ext::Boxes;
 #[repr(i32)]
 pub enum PageIteratorLevel {
     Symbol = TessPageIteratorLevel_RIL_SYMBOL,
+}
+
+#[derive(Default)]
+#[repr(i32)]
+pub enum PageSegMode {
+    #[default]
+    Auto = capi::TessPageSegMode_PSM_AUTO,
 }
 
 pub struct Tess {
@@ -98,6 +105,10 @@ impl Tess {
         } else {
             Ok(Text(NonNull::new(cstr).ok_or_eyre("failed to get text")?))
         }
+    }
+
+    pub fn set_page_seg_mode(&self, mode: PageSegMode) {
+        unsafe { capi::TessBaseAPISetPageSegMode(self.raw.as_ptr(), mode as _) }
     }
 }
 
@@ -177,6 +188,7 @@ impl ResultItem<'_> {
 }
 
 pub struct BoundingBox {
+    pub char: char,
     pub left: i32,
     pub bottom: i32,
     pub right: i32,
@@ -186,10 +198,37 @@ pub struct BoundingBox {
 impl Default for BoundingBox {
     fn default() -> Self {
         Self {
+            char: '\0',
             left: -1,
             bottom: -1,
             right: -1,
             top: -1,
+        }
+    }
+}
+
+impl Display for BoundingBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            char,
+            left,
+            bottom,
+            right,
+            top,
+        } = self;
+        write!(f, "{char} {left} {bottom} {right} {top} 0")
+    }
+}
+
+impl BoundingBox {
+    #[must_use]
+    pub fn into_bottom_left(self, img_h: i32) -> Self {
+        Self {
+            char: self.char,
+            left: self.left,
+            bottom: img_h - self.bottom,
+            right: self.right,
+            top: img_h - self.top,
         }
     }
 }

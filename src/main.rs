@@ -27,6 +27,9 @@ struct Args {
     #[clap(short, long)]
     corrected: Option<PathBuf>,
 
+    #[clap(long)]
+    to_bottom_left: Option<PathBuf>,
+
     /// Output image file name
     #[clap(short, long)]
     output: PathBuf,
@@ -63,19 +66,32 @@ fn main() -> eyre::Result<()> {
 
     let mut pix = leptonica::pix_read(&args.input)?;
     pix.convert_to_32()?;
+    let img_h: i32 = pix.get_h().try_into().unwrap();
 
     if let Some(corrected) = &args.corrected {
         if corrected.extension() != Some(OsStr::new("box")) {
             bail!("expected .box extension, found {corrected:?}");
         }
-        let text = BufReader::new(File::open(corrected)?)
-            .lines()
-            .map(|line| line?.chars().next().ok_or_eyre("empty line"))
-            .collect::<eyre::Result<String>>()?;
-        let boxes = BufReader::new(File::open(corrected)?)
-            .lines()
-            .map(|line| Ok(into_geometry(parse_box_line(&line?)?, OriginPos::TopLeft)));
-        place_teamim(&pix, &args, &text, boxes)?;
+
+        if let Some(to_bottom_left) = args.to_bottom_left {
+            let corrected = BufReader::new(File::open(corrected)?);
+            let mut writer = BufWriter::new(File::create(to_bottom_left)?);
+            for line in corrected.lines() {
+                let line = parse_box_line(&line?)?;
+                let r#box = line.into_bottom_left(img_h);
+                writeln!(writer, "{box}")?;
+            }
+            writer.flush()?;
+        } else {
+            let text = BufReader::new(File::open(corrected)?)
+                .lines()
+                .map(|line| line?.chars().next().ok_or_eyre("empty line"))
+                .collect::<eyre::Result<String>>()?;
+            let boxes = BufReader::new(File::open(corrected)?)
+                .lines()
+                .map(|line| Ok(into_geometry(parse_box_line(&line?)?, OriginPos::TopLeft)));
+            place_teamim(&pix, &args, &text, boxes)?;
+        }
     } else {
         let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
@@ -105,6 +121,7 @@ fn main() -> eyre::Result<()> {
             for char in tess.results_iter() {
                 let text = char.text();
                 let BoundingBox {
+                    char: _,
                     left,
                     bottom,
                     right,

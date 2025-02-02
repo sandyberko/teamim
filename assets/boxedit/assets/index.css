@@ -54,6 +54,8 @@ main {
     grid-area: main;
     position: relative;
     overflow: scroll;
+    zoom: 0.4;
+    font-size: 123px;
 
     &>img {
         position: absolute;
@@ -74,22 +76,23 @@ main {
             overflow: visible !important;
             background: transparent;
             font-family: 'Guttman Stam';
-            font-size: 24px;
             color: red;
             user-select: none;
+            font-size: inherit;
 
             &:focus {
                 outline-color: rgba(255, 0, 0, .5);
             }
 
-            &::selection {
-                background-color: transparent;
-            }
         }
 
         &[data-view="text-only"]>.box,
         &[data-view="solo"]>.box {
             color: transparent !important;
+
+            &::selection {
+                background-color: transparent;
+            }
         }
 
         &[data-view="solo"]>.box:not(:focus) {

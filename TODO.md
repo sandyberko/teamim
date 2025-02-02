@@ -1,10 +1,16 @@
 # TODO
 
+- check PSMs
+- fix 345_007 box file, retrain
+- diff feature for training boxes
+- more boxes?
+- more augmentations: 
+  - variable inter-character spacing
+  - wide letters: in training, maybe even in charset?
+  
+
 ## Necessary
 - detect font size of image?
-- save final image
-- fix stars
-- [x] release build
 - boxedit: recognize cached image
 
 ## Optimization
@@ -35,10 +41,6 @@
   - save name `.box`
 - Training
   - explore training from scratch, as in that [Rashi project](https://gitlab.com/pninim.org/tessdata_heb_rashi/-/blob/main/tesseract_4.1.1/TRAINING.md)
-  - more readymade fonts (in Downloads)
-  - custom box
-  - wide letters: in training, maybe even in charset?
-  - variable inter-character spacing
 - if Tesseract has text2image, surely it has API for fonts?
 - Search
     - just find for perfect strings

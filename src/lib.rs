@@ -9,11 +9,12 @@ use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
-use tesseract_ext::{BoundingBox, Tess};
+use tesseract_ext::{BoundingBox, PageSegMode, Tess};
 use thiserror::Error;
 
 pub fn recognize(img: &[u8]) -> eyre::Result<String> {
     let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
+    tess.set_page_seg_mode(PageSegMode::default());
 
     let mut pix = leptonica::pix_read_mem(img)?;
     pix.convert_to_32()?;
@@ -25,6 +26,7 @@ pub fn recognize(img: &[u8]) -> eyre::Result<String> {
     for char in tess.results_iter() {
         let text = char.text();
         let BoundingBox {
+            char: _,
             left,
             bottom,
             right,
@@ -231,8 +233,13 @@ fn place_taam(
 
 pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox> {
     let mut parts = line.split(' ');
-    let _char = parts.next().ok_or_eyre("failed to parse char")?;
     Ok(BoundingBox {
+        char: parts
+            .next()
+            .ok_or_eyre("failed to parse char")?
+            .chars()
+            .next()
+            .ok_or_eyre("expected char")?,
         left: parts.next().ok_or_eyre("failed to parse left")?.parse()?,
         bottom: parts.next().ok_or_eyre("failed to parse bottom")?.parse()?,
         right: parts.next().ok_or_eyre("failed to parse right")?.parse()?,
@@ -249,6 +256,7 @@ pub enum OriginPos {
 #[must_use]
 pub fn into_geometry(
     BoundingBox {
+        char: _,
         left,
         bottom,
         right,
