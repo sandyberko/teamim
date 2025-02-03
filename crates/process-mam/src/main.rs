@@ -3,6 +3,7 @@ use std::{fmt::Display, path::PathBuf, str::from_utf8};
 use clap::{Parser, ValueEnum};
 use eyre::{bail, ensure, Ok};
 use futures::TryStreamExt;
+use phf::{phf_map, Map};
 use quick_xml::events::{BytesStart, Event};
 use reqwest::Client;
 use tokio::{
@@ -24,7 +25,7 @@ enum Target {
     #[default]
     Teamim,
     Search,
-    // Training,
+    Training,
 }
 
 impl Display for Target {
@@ -32,6 +33,7 @@ impl Display for Target {
         match self {
             Target::Teamim => f.write_str("teamim"),
             Target::Search => f.write_str("search"),
+            Target::Training => f.write_str("training"),
         }
     }
 }
@@ -70,9 +72,7 @@ async fn main() -> eyre::Result<()> {
             config.trim_text_start = true;
         }
 
-        let ctx = Context {
-            target: args.processing,
-        };
+        let mut ctx = Context::new(args.processing);
 
         assert_eq!(
             ctx.next(&mut xml, &mut buf).await?,
@@ -90,8 +90,29 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+pub static WIDE_LETTERS: Map<char, char> = phf_map! {
+    'א'  =>'ﬡ',
+    'ד'  =>'ﬢ',
+    'ה'  =>'ﬣ',
+    'כ'  =>'ﬤ',
+    'ל'  =>'ﬥ',
+    'ס'  =>'ﬦ',
+    'ר'  =>'ﬧ',
+    'ת'  =>'ﬨ',
+};
+
 struct Context {
     target: Target,
+    wide_letter_interval: usize,
+}
+
+impl Context {
+    fn new(target: Target) -> Self {
+        Self {
+            target,
+            wide_letter_interval: 0,
+        }
+    }
 }
 
 const IGNORE_TAGS: &[&[u8]] = &[b"spi-pe2", b"spi-samekh2", b"spi-samekh3"];
@@ -102,7 +123,7 @@ fn is_ignored_verse_tag(name: &[u8]) -> bool {
 
 impl Context {
     async fn next<'buf>(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &'buf mut Vec<u8>,
     ) -> quick_xml::Result<Event<'buf>> {
@@ -110,7 +131,7 @@ impl Context {
     }
 
     async fn parse_chapters(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -145,7 +166,7 @@ impl Context {
     }
 
     async fn expect_text_attr(
-        &self,
+        &mut self,
         writer: &mut BufWriter<File>,
         elem: BytesStart<'_>,
     ) -> eyre::Result<()> {
@@ -156,11 +177,11 @@ impl Context {
     }
 
     async fn write_text_attr(
-        &self,
+        &mut self,
         writer: &mut BufWriter<File>,
         start: BytesStart<'_>,
     ) -> Result<bool, eyre::Error> {
-        let char_buf = &mut [0; 2];
+        let char_buf = &mut [0; 4];
         let mut found_text = false;
         for attr in start.attributes() {
             let attr = attr?;
@@ -178,6 +199,31 @@ impl Context {
                             }
                         }
                     }
+                    Target::Training => {
+                        for c in from_utf8(attr.value.as_ref())?.chars() {
+                            match c {
+                                '\u{05d0}'..='\u{05EA}' | ' ' => {
+                                    let c = WIDE_LETTERS
+                                        .get(&c)
+                                        .filter(|_| {
+                                            if self.wide_letter_interval >= 25 {
+                                                self.wide_letter_interval = 0;
+                                                true
+                                            } else {
+                                                self.wide_letter_interval += 1;
+                                                false
+                                            }
+                                        })
+                                        .unwrap_or(&c)
+                                        .encode_utf8(char_buf);
+                                    writer.write_all(c.as_bytes()).await?;
+                                }
+                                // Sof Pasuq | Maqaf
+                                '\u{05c3}' | '\u{05be}' => writer.write_all(b" ").await?,
+                                _ => (),
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -185,7 +231,7 @@ impl Context {
     }
 
     async fn parse_complicated_verse(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -203,11 +249,13 @@ impl Context {
                         xml.buffer_position()
                     ),
                 },
-                Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => {
-                    if self.target == Target::Teamim {
+                Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => match self.target {
+                    Target::Teamim => {
                         writer.write_all(b" \xD7\x80 ").await?;
                     }
-                }
+                    Target::Training => writer.write_all(b" ").await?,
+                    Target::Search => (),
+                },
                 Event::Empty(elem) if elem.name().as_ref() == b"text" => {
                     self.expect_text_attr(writer, elem).await?;
                 }
@@ -226,7 +274,7 @@ impl Context {
     }
 
     async fn parse_complicated_sdt(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -261,7 +309,7 @@ impl Context {
     }
 
     async fn parse_complicated_cant(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -285,7 +333,7 @@ impl Context {
     }
 
     async fn parse_kq(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -318,7 +366,7 @@ impl Context {
         Ok(())
     }
     async fn parse_cant_all_three(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -367,7 +415,7 @@ impl Context {
     }
 
     async fn parse_scrdfftar(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
@@ -392,7 +440,7 @@ impl Context {
     }
 
     async fn parse_slh_word(
-        &self,
+        &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,

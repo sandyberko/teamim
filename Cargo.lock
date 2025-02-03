@@ -1858,6 +1858,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "futures",
+ "phf",
  "quick-xml",
  "reqwest",
  "tokio",

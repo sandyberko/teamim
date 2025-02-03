@@ -12,6 +12,7 @@ clap = { workspace = true }
 quick-xml = { version = "0.37.2", features = ["async-tokio"] }
 futures = "0.3.31"
 tokio-util = { version = "0.7.13", features = ["compat"] }
+phf = { workspace = true }
 
 [lints]
 workspace = true
