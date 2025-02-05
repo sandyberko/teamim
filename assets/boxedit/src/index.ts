@@ -1,5 +1,7 @@
 "use strict";
 
+import { TessBox, TAG_NAME } from "./tess-box.js";
+
 let image: HTMLImageElement | null = null;
 
 const main = document.getElementById("main");
@@ -53,14 +55,14 @@ function renderBoxes(text: string, training: boolean = false) {
     const boxContainer = document.getElementById("box-container");
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
     boxContainer.innerHTML = "";
-    let lastBox: HTMLInputElement | null = null;
+    let lastBox: TessBox | null = null;
     for (const box of text.split("\n")) {
         if (box === "") continue;
         let char = box.substring(0, 1);
         if (char === "\t") {
             lastBox = null;
         } else if (lastBox) {
-            lastBox.value = lastBox.value + char;
+            lastBox.appendChild(document.createTextNode(char));
         } else {
             const [left, bottom, right, top] = box.substring(2).split(" ");
             const width = parseInt(right) - parseInt(left);
@@ -89,18 +91,16 @@ enum Direction {
     Inside = 0b0000,
 }
 
-function newBox(char: string, left: string, top: string, width: number, height: number) {
-    const boxElem = document.createElement("input");
-    setupKeyboardResize(boxElem);
-    boxElem.classList.add("box");
-    boxElem.type = "text";
-    boxElem.value = char;
-    // boxElem.maxLength = 1;
-    // boxElem.minLength = 1;
+let tabIndex = 0;
+function newBox(char: string, left: string, top: string, width: number, height: number): TessBox {
+    const boxElem = document.createElement(TAG_NAME) as TessBox;
+    boxElem.tabIndex = tabIndex++;
+    boxElem.innerText = char;
     boxElem.style.left = left + 'px';
     boxElem.style.top = top + 'px';
     boxElem.style.width = width + 'px';
     boxElem.style.height = height + 'px';
+    setupKeyboardResize(boxElem);
     return boxElem;
 }
 
@@ -125,7 +125,7 @@ function eventDir(event: MouseEvent): Direction {
     );
 }
 
-function setupKeyboardResize(elem: HTMLInputElement) {
+function setupKeyboardResize(elem: TessBox) {
     let keyboardResizeDir: Direction = Direction.Inside;
 
     elem.addEventListener("keydown", (event) => {
@@ -185,13 +185,13 @@ cursor.set(Direction.LeftTop, "nw-resize");
 cursor.set(Direction.Inside, "move");
 
 function handleMouseMove(event: MouseEvent) {
-    if (event.target instanceof HTMLInputElement === false) return false;
+    if (event.target instanceof TessBox === false) return false;
     const dir = eventDir(event);
     event.target.style.cursor = cursor.get(dir) || (() => { throw new Error(`invalid cursor ${dir.toString(2)}`); })();
 }
 
 function handleMouseDown(downEvent: MouseEvent) {
-    if (downEvent.target instanceof HTMLInputElement === false) return false;
+    if (downEvent.target instanceof TessBox === false) return false;
     downEvent.preventDefault();
 
     const elem = downEvent.target;
@@ -214,14 +214,13 @@ function handleMouseDown(downEvent: MouseEvent) {
 
 {
     boxContainer.addEventListener("focusin", (event) => {
-        if (event.target instanceof HTMLInputElement === false) return false;
+        if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "2";
-        event.target.select();
         event.target.addEventListener("mousemove", handleMouseMove);
         event.target.addEventListener("mousedown", handleMouseDown);
     });
     boxContainer.addEventListener("focusout", (event) => {
-        if (event.target instanceof HTMLInputElement === false) return false;
+        if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "0";
         event.target.removeEventListener("mousemove", handleMouseMove);
         event.target.removeEventListener("mousedown", handleMouseDown);
@@ -239,14 +238,14 @@ function handleMouseDown(downEvent: MouseEvent) {
         const boxContainer = document.getElementById("box-container");
         if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
         boxContainer.innerHTML = "";
-        let lastBox: HTMLInputElement | null = null;
+        let lastBox: TessBox | null = null;
         for (const line of text.split("\n")) {
             if (line === "") continue;
             const char = line.substring(0, 1);
             if (char === "\t") {
                 lastBox = null;
             } else if (lastBox) {
-                lastBox.value = char + lastBox.value;
+                lastBox.appendChild(document.createTextNode(char));
                 continue;
             } else {
                 const [left, blBottom, right, blTop] = line.substring(2).split(" ");
@@ -335,10 +334,10 @@ if (targetInput instanceof HTMLSelectElement === false) throw new Error("where t
                 const writableStream = await outputFile.createWritable();
                 // write our file
                 for (const box of boxContainer.childNodes) {
-                    if (box instanceof HTMLInputElement === false) continue;
+                    if (box instanceof TessBox === false) continue;
 
                     // top-left custom box format
-                    const char = box.value;
+                    const char = box.innerText;
                     const left = box.offsetLeft;
                     const bottom = box.offsetTop + box.offsetHeight;
                     const right = box.offsetLeft + box.offsetWidth;
@@ -367,7 +366,7 @@ async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, sugge
 
     // write our file
     for (const box of boxContainer.childNodes) {
-        if (box instanceof HTMLInputElement === false) continue;
+        if (box instanceof TessBox === false) continue;
 
         // lstm box format
         const left = box.offsetLeft;
@@ -377,7 +376,7 @@ async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, sugge
         const top = imgHeight - box.offsetTop;
 
         // there seems to be a trailing space when coming from server
-        for (const char of Array.from(box.value).reverse()) {
+        for (const char of Array.from(box.innerText).reverse()) {
             await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
         }
         await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
@@ -403,7 +402,7 @@ function getBoxes() {
         .join("\n");
 }
 
-function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number) {
+function resizeElem(elem: TessBox, dir: number, dy: number, dx: number) {
     if (dir === 0b0000) dir = 0b1111;
 
     if ((dir & Direction.Top) != 0) {
@@ -468,16 +467,16 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
         } else {
             const { boxNumber, expected } = error;
             const box = boxContainer.childNodes[boxNumber];
-            if (box instanceof HTMLInputElement === false) throw new Error("where box?");
+            if (box instanceof TessBox === false) throw new Error("where box?");
             box.focus();
-            box.select();
+            // box.select();
             // blink box
             box.animate([{ backgroundColor: "red" }, { backgroundColor: "white" }], {
                 duration: 1000,
                 iterations: 5,
             });
-            box.setCustomValidity(expected);
-            box.reportValidity();
+            // box.setCustomValidity(expected);
+            // box.reportValidity();
         }
     } else if (response.status !== 200) {
         throw new Error("Failed to recognize");
@@ -498,29 +497,29 @@ const diffButton = document.getElementById("diff");
 if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
 diffButton.addEventListener("click", diff);
 
-class LineBoxIter {
-    #startIdx: number;
-    #box: HTMLInputElement;
-    constructor() {
-        this.#startIdx = 0;
-        if (boxContainer?.firstElementChild instanceof HTMLInputElement === false) throw new Error("where box?");
-        this.#box = boxContainer.firstElementChild;
-    }
+// class LineBoxIter {
+//     #startIdx: number;
+//     #box: TessBox;
+//     constructor() {
+//         this.#startIdx = 0;
+//         if (boxContainer?.firstElementChild instanceof TessBox === false) throw new Error("where box?");
+//         this.#box = boxContainer.firstElementChild;
+//     }
 
-    next(index: number, length: number) {
-        while (index >= this.#box.value.length) {
-            this.#startIdx += this.#box.value.length + 1;
-            index -= this.#box.value.length + 1;
-            if (this.#box.nextElementSibling instanceof HTMLInputElement === false) {
-                debugger;
-                throw new Error("where box?");
-            }
-            this.#box = this.#box.nextElementSibling;
-        }
-        this.#box.focus();
-        this.#box.setSelectionRange(index, index + length);
-    }
-}
+//     next(index: number, length: number) {
+//         while (index >= this.#box.value.length) {
+//             this.#startIdx += this.#box.value.length + 1;
+//             index -= this.#box.value.length + 1;
+//             if (this.#box.nextElementSibling instanceof TessBox === false) {
+//                 debugger;
+//                 throw new Error("where box?");
+//             }
+//             this.#box = this.#box.nextElementSibling;
+//         }
+//         this.#box.focus();
+//         this.#box.setSelectionRange(index, index + length);
+//     }
+// }
 
 async function diff() {
     if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
@@ -529,7 +528,7 @@ async function diff() {
     diffButton.disabled = true;
     try {
         const body = Array.from(boxContainer!.children)
-            .map((box) => box instanceof HTMLInputElement && box.value)
+            .map((box) => box instanceof TessBox && box.innerText)
             .join(" ");
         const response = await fetch("/diff", {
             method: "POST",
@@ -546,20 +545,20 @@ async function diff() {
         } else {
             diffButton.value = "⚠️";
             setTimeout(() => diffButton.value = icon, 2000);
-            const iter = new LineBoxIter();
-            for (const op of diff) {
-                if ("Replace" in op) {
-                    iter.next(op.Replace.new_index, op.Replace.new_len);
-                    return;
-                } else if ("Insert" in op) {
-                    iter.next(op.Insert.new_index, op.Insert.new_len);
-                } else if ("Delete" in op) {
-                    iter.next(op.Delete.new_index, 0);
-                } else {
-                    throw new Error(`invalid op ${JSON.stringify(op)}`);
-                }
-                break;
-            }
+            // const iter = new LineBoxIter();
+            // for (const op of diff) {
+            //     if ("Replace" in op) {
+            //         iter.next(op.Replace.new_index, op.Replace.new_len);
+            //         return;
+            //     } else if ("Insert" in op) {
+            //         iter.next(op.Insert.new_index, op.Insert.new_len);
+            //     } else if ("Delete" in op) {
+            //         iter.next(op.Delete.new_index, 0);
+            //     } else {
+            //         throw new Error(`invalid op ${JSON.stringify(op)}`);
+            //     }
+            //     break;
+            // }
         }
     } finally {
         diffButton.disabled = false;
