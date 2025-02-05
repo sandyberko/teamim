@@ -37,6 +37,7 @@ async fn main() {
     let app = Router::new()
         .route("/recognize", post(post_recognize))
         .route("/renderTeamim", post(post_render_teamim))
+        .route("/diff", post(post_diff))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
         .fallback_service(ServeDir::new(boxedit_dir.join("assets")));
@@ -168,4 +169,25 @@ async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, Re
     .into_iter()
     .collect::<HeaderMap>();
     Ok((headers, Bytes::from_owner(image)))
+}
+
+#[derive(Debug, Error)]
+enum DiffError {
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
+
+impl IntoResponse for DiffError {
+    fn into_response(self) -> Response {
+        match self {
+            DiffError::Other(e) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+            }
+        }
+    }
+}
+
+#[axum::debug_handler]
+async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, DiffError> {
+    Ok(teamim::diff(&text).map(Json)?)
 }

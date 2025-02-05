@@ -1,3 +1,4 @@
+"use strict";
 const imageStorageKey = "image";
 const boxFileStorageKey = "boxfile";
 
@@ -279,7 +280,7 @@ function handleMouseDown(downEvent: MouseEvent) {
     });
 
     let outputFile: FileSystemFileHandle | null = null;
-    document.getElementById("save-box")!.addEventListener("click", async (event) => {
+    document.getElementById("training-save")!.addEventListener("click", async (event) => {
         // create a new handle
         if (!outputFile) outputFile = await window.showSaveFilePicker();
 
@@ -321,7 +322,9 @@ const keyMap: Record<string, (active: boolean) => void> = {
     // box + text
     "F3": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "text-only"); },
     // solo box
-    "F4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); }
+    "F4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); },
+    // diff
+    "F5": (show) => { show && diff(); }
 }
 document.addEventListener("keydown", (event) => {
     if (event.key in keyMap) {
@@ -467,12 +470,63 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
     }
 });
 
-const storedImage = localStorage.getItem(imageStorageKey);
-if (storedImage) {
-    renderImage(storedImage);
+type DiffOp = { "Replace": { new_index: number, new_len: number, old: string } }
+    | { "Insert": { new_index: number, new_len: number } }
+    | { "Delete": { new_index: number, old: string } };
+
+document.getElementById("diff")!.addEventListener("click", diff);
+
+class LineBoxIter {
+    #startIdx: number;
+    #box: HTMLInputElement;
+    constructor() {
+        this.#startIdx = 0;
+        if (boxContainer?.firstElementChild instanceof HTMLInputElement === false) throw new Error("where box?");
+        this.#box = boxContainer.firstElementChild;
+    }
+
+    next(index: number, length: number) {
+        while (index >= this.#box.value.length) {
+            console.log(`index ${index} - ${this.#box.value.length} = ${index - this.#box.value.length}`);
+            this.#startIdx += this.#box.value.length + 1;
+            index -= this.#box.value.length + 1;
+            if (this.#box.nextElementSibling instanceof HTMLInputElement === false) {
+                debugger;
+                throw new Error("where box?");
+            }
+            this.#box = this.#box.nextElementSibling;
+        }
+        console.log(index, length);
+        this.#box.focus();
+        this.#box.setSelectionRange(index, index + length);
+    }
 }
 
-const storedBoxFile = localStorage.getItem(boxFileStorageKey);
-if (storedBoxFile) {
-    renderBoxes(storedBoxFile);
-}
+async function diff() {
+    const body = Array.from(boxContainer!.children)
+        .map((box) => box instanceof HTMLInputElement && box.value)
+        .join(" ");
+    const response = await fetch("/diff", {
+        method: "POST",
+        body,
+    });
+    if (response.status != 200) {
+        throw new Error("Failed to diff");
+    }
+    const diff: DiffOp[] = await response.json();
+    const iter = new LineBoxIter();
+    for (const op of diff) {
+        if ("Replace" in op) {
+            iter.next(op.Replace.new_index, op.Replace.new_len);
+            return;
+        } else if ("Insert" in op) {
+            iter.next(op.Insert.new_index, op.Insert.new_len);
+        } else if ("Delete" in op) {
+            iter.next(op.Delete.new_index, 0);
+        } else {
+            throw new Error(`invalid op ${JSON.stringify(op)}`);
+        }
+        return;
+    }
+};
+

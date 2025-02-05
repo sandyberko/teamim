@@ -1,10 +1,10 @@
-use std::{fmt::Display, path::PathBuf, str::from_utf8};
+use std::{borrow::Cow, fmt::Display, path::PathBuf, str::from_utf8};
 
 use clap::{Parser, ValueEnum};
 use eyre::{bail, ensure, Ok};
 use futures::TryStreamExt;
 use phf::{phf_map, Map};
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::{attributes::Attribute, BytesStart, Event};
 use reqwest::Client;
 use tokio::{
     fs::File,
@@ -17,7 +17,7 @@ struct Args {
     output: PathBuf,
 
     #[arg(short, long, default_value_t = Target::default())]
-    processing: Target,
+    target: Target,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, ValueEnum)]
@@ -26,6 +26,7 @@ enum Target {
     Teamim,
     Search,
     Training,
+    Diff,
 }
 
 impl Display for Target {
@@ -34,6 +35,7 @@ impl Display for Target {
             Target::Teamim => f.write_str("teamim"),
             Target::Search => f.write_str("search"),
             Target::Training => f.write_str("training"),
+            Target::Diff => f.write_str("diff"),
         }
     }
 }
@@ -72,7 +74,7 @@ async fn main() -> eyre::Result<()> {
             config.trim_text_start = true;
         }
 
-        let mut ctx = Context::new(args.processing);
+        let mut ctx = Context::new(args.target);
 
         assert_eq!(
             ctx.next(&mut xml, &mut buf).await?,
@@ -170,64 +172,58 @@ impl Context {
         writer: &mut BufWriter<File>,
         elem: BytesStart<'_>,
     ) -> eyre::Result<()> {
-        if !self.write_text_attr(writer, elem).await? {
+        let Some(text) = get_text_attr(&elem)? else {
             bail!("expected text");
-        }
+        };
+        self.write_text(writer, text.as_ref()).await?;
         Ok(())
     }
 
-    async fn write_text_attr(
-        &mut self,
-        writer: &mut BufWriter<File>,
-        start: BytesStart<'_>,
-    ) -> Result<bool, eyre::Error> {
+    async fn write_text(&mut self, writer: &mut BufWriter<File>, text: &[u8]) -> eyre::Result<()> {
         let char_buf = &mut [0; 4];
-        let mut found_text = false;
-        for attr in start.attributes() {
-            let attr = attr?;
-            if attr.key.as_ref() == b"text" {
-                found_text = true;
-                match self.target {
-                    Target::Teamim => {
-                        writer.write_all(attr.value.as_ref()).await?;
+        match self.target {
+            Target::Teamim => {
+                writer.write_all(text).await?;
+            }
+            Target::Search => {
+                for c in from_utf8(text)?.chars() {
+                    if let ('\u{05d0}'..='\u{05EA}') = c {
+                        c.encode_utf8(char_buf);
+                        writer.write_all(char_buf).await?;
                     }
-                    Target::Search => {
-                        for c in from_utf8(attr.value.as_ref())?.chars() {
-                            if let ('\u{05d0}'..='\u{05EA}') = c {
-                                c.encode_utf8(char_buf);
-                                writer.write_all(char_buf).await?;
-                            }
+                }
+            }
+            Target::Training | Target::Diff => {
+                for c in from_utf8(text)?.chars() {
+                    match c {
+                        '\u{05d0}'..='\u{05EA}' | ' ' => {
+                            let c = WIDE_LETTERS
+                                .get(&c)
+                                .filter(|_| {
+                                    if self.target == Target::Diff {
+                                        return false;
+                                    }
+                                    if self.wide_letter_interval >= 25 {
+                                        self.wide_letter_interval = 0;
+                                        true
+                                    } else {
+                                        self.wide_letter_interval += 1;
+                                        false
+                                    }
+                                })
+                                .unwrap_or(&c)
+                                .encode_utf8(char_buf);
+                            writer.write_all(c.as_bytes()).await?;
                         }
-                    }
-                    Target::Training => {
-                        for c in from_utf8(attr.value.as_ref())?.chars() {
-                            match c {
-                                '\u{05d0}'..='\u{05EA}' | ' ' => {
-                                    let c = WIDE_LETTERS
-                                        .get(&c)
-                                        .filter(|_| {
-                                            if self.wide_letter_interval >= 25 {
-                                                self.wide_letter_interval = 0;
-                                                true
-                                            } else {
-                                                self.wide_letter_interval += 1;
-                                                false
-                                            }
-                                        })
-                                        .unwrap_or(&c)
-                                        .encode_utf8(char_buf);
-                                    writer.write_all(c.as_bytes()).await?;
-                                }
-                                // Sof Pasuq | Maqaf
-                                '\u{05c3}' | '\u{05be}' => writer.write_all(b" ").await?,
-                                _ => (),
-                            }
-                        }
+                        // Sof Pasuq | Maqaf
+                        '\u{05c3}' | '\u{05be}' => writer.write_all(b" ").await?,
+                        _ => (),
                     }
                 }
             }
         }
-        Ok(found_text)
+
+        Ok(())
     }
 
     async fn parse_complicated_verse(
@@ -253,7 +249,7 @@ impl Context {
                     Target::Teamim => {
                         writer.write_all(b" \xD7\x80 ").await?;
                     }
-                    Target::Training => writer.write_all(b" ").await?,
+                    Target::Training | Target::Diff => writer.write_all(b" ").await?,
                     Target::Search => (),
                 },
                 Event::Empty(elem) if elem.name().as_ref() == b"text" => {
@@ -425,7 +421,9 @@ impl Context {
                 self.parse_complicated_sdt(xml, buf, writer).await?;
             }
             Event::Empty(elem) if elem.name().as_ref() == b"sdt-target" => {
-                self.write_text_attr(writer, elem).await?;
+                if let Some(text) = get_text_attr(&elem)? {
+                    self.write_text(writer, &text).await?;
+                }
             }
             e => bail!("expected sdt-target, found: {e:?}"),
         };
@@ -449,10 +447,9 @@ impl Context {
             match self.next(xml, buf).await? {
                 Event::Empty(elem) => match elem.name().as_ref() {
                     b"text" | b"letter-large" | b"letter-small" => {
-                        if !self.write_text_attr(writer, elem).await? {
-                            bail!("expected text");
-                        }
+                        self.expect_text_attr(writer, elem).await?;
                     }
+
                     unknown => bail!("unknown tag {:?}", std::str::from_utf8(unknown)),
                 },
                 Event::End(end) if end.name().as_ref() == b"slh-word" => break,
@@ -461,4 +458,14 @@ impl Context {
         }
         Ok(())
     }
+}
+
+fn get_text_attr<'a>(elem: &'a BytesStart<'_>) -> eyre::Result<Option<Cow<'a, [u8]>>> {
+    for attr in elem.attributes() {
+        let attr: Attribute<'a> = attr?;
+        if attr.key.as_ref() == b"text" {
+            return Ok(Some(attr.value));
+        }
+    }
+    Ok(None)
 }

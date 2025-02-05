@@ -9,6 +9,8 @@ use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
+use serde::Serialize;
+use similar::TextDiff;
 use tesseract_ext::{BoundingBox, PageSegMode, Tess};
 use thiserror::Error;
 
@@ -232,18 +234,16 @@ fn place_taam(
 }
 
 pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox> {
-    let mut parts = line.split(' ');
+    // `char` needs special parsing since it can just be a space itself
+    let mut line = line.chars();
+    let char = line.next().ok_or_eyre("expected char")?;
+    let mut parts = line.as_str().split(' ').map(str::parse);
     Ok(BoundingBox {
-        char: parts
-            .next()
-            .ok_or_eyre("failed to parse char")?
-            .chars()
-            .next()
-            .ok_or_eyre("expected char")?,
-        left: parts.next().ok_or_eyre("failed to parse left")?.parse()?,
-        bottom: parts.next().ok_or_eyre("failed to parse bottom")?.parse()?,
-        right: parts.next().ok_or_eyre("failed to parse right")?.parse()?,
-        top: parts.next().ok_or_eyre("failed to parse top")?.parse()?,
+        char,
+        left: parts.next().ok_or_eyre("failed to parse left")??,
+        bottom: parts.next().ok_or_eyre("failed to parse bottom")??,
+        right: parts.next().ok_or_eyre("failed to parse right")??,
+        top: parts.next().ok_or_eyre("failed to parse top")??,
     })
 }
 
@@ -281,4 +281,60 @@ pub fn into_geometry(
             h: bottom - top,
         },
     }
+}
+
+#[derive(Serialize)]
+pub enum DiffOp<'s> {
+    Insert {
+        new_index: usize,
+        new_len: usize,
+    },
+    Delete {
+        new_index: usize,
+        old: &'s str,
+    },
+    Replace {
+        new_index: usize,
+        new_len: usize,
+        old: &'s str,
+    },
+}
+
+const SRC_TEXT: &str = include_str!("../assets/text/mam/diff.txt");
+pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
+    let position = {
+        let snippet = if let Some((idx, _)) = text.char_indices().nth(17) {
+            &text[..idx]
+        } else {
+            text
+        };
+        eprintln!("finding: {snippet:?}");
+        SRC_TEXT.find(snippet).ok_or_eyre("not found")?
+    };
+    let old = &SRC_TEXT[position..];
+    let mut end = text.len();
+    while !old.is_char_boundary(end) {
+        end += 1;
+    }
+    let old = &old[..end];
+    Ok(TextDiff::from_graphemes(old, text)
+        .ops()
+        .iter()
+        .filter_map(|op| match *op {
+            similar::DiffOp::Delete { new_index, .. } => {
+                Some(DiffOp::Delete { new_index, old: "" })
+            }
+            similar::DiffOp::Insert {
+                new_index, new_len, ..
+            } => Some(DiffOp::Insert { new_index, new_len }),
+            similar::DiffOp::Equal { .. } => None,
+            similar::DiffOp::Replace {
+                new_index, new_len, ..
+            } => Some(DiffOp::Replace {
+                new_index,
+                new_len,
+                old: "",
+            }),
+        })
+        .collect())
 }

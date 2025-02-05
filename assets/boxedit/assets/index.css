@@ -21,6 +21,7 @@ body {
 header {
     grid-area: header;
     display: flex;
+    flex-wrap: wrap;
 }
 
 kbd {
