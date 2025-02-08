@@ -1,6 +1,4 @@
 "use strict";
-const imageStorageKey = "image";
-const boxFileStorageKey = "boxfile";
 
 let image: HTMLImageElement | null = null;
 
@@ -9,22 +7,6 @@ if (main instanceof HTMLElement === false) throw new Error("where main?");
 
 const boxContainer = document.getElementById("box-container");
 if (boxContainer instanceof HTMLElement) { } else { throw new Error("where box container?"); }
-
-
-// Image
-function renderImage(imageData: string) {
-    if (image === null) {
-        image = new Image();
-        document.getElementById("main")!.appendChild(image);
-    }
-    image.onload = (event) => {
-        if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
-        boxContainer!.style.width = event.target.width + 'px';
-        boxContainer!.style.height = event.target.height + 'px';
-    }
-
-    image.src = imageData;
-}
 
 const imageInput = document.getElementById("image-input");
 if (imageInput instanceof HTMLInputElement === false) throw new Error("where image input?");
@@ -35,17 +17,19 @@ if (imageSaveButton instanceof HTMLAnchorElement === false) throw new Error("whe
 
 imageInput.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const imageData = event.target?.result as string;
-        localStorage.setItem(imageStorageKey, imageData);
-        renderImage(imageData);
-
-        // reset box and save button
-        boxContainer.innerHTML = "";
-        imageSaveButton.href = "";
+    const imageData = input.files![0];
+    const url = URL.createObjectURL(imageData);
+    if (image === null) {
+        image = new Image();
+        document.getElementById("main")!.appendChild(image);
     }
-    reader.readAsDataURL(input.files![0]);
+    image.onload = (event) => {
+        if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
+        boxContainer!.style.width = event.target.width + 'px';
+        boxContainer!.style.height = event.target.height + 'px';
+    }
+
+    image.src = url;
 });
 
 document.getElementById("box-input")!.addEventListener("change", (event) => {
@@ -60,9 +44,6 @@ document.getElementById("box-input")!.addEventListener("change", (event) => {
 
 // #region Render boxes
 function renderBoxes(text: string) {
-    // cache boxes
-    localStorage.setItem(boxFileStorageKey, text);
-
     const boxContainer = document.getElementById("box-container");
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
     boxContainer.innerHTML = "";
