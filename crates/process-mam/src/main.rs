@@ -23,10 +23,14 @@ struct Args {
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, ValueEnum)]
 enum Target {
     #[default]
+    /// With teamim, sof-pasuq, maqaf, and verse per line
     Teamim,
+    /// Consonants only, no spaces, single line
     Search,
+    /// Consonants only, with spaces, single line
     Training,
-    Diff,
+    /// Same as [`Target::Training`], but with wide letters inserted every [`WIDE_LETTER_INTERVAL`]
+    TrainingWideLetters,
 }
 
 impl Display for Target {
@@ -34,13 +38,14 @@ impl Display for Target {
         match self {
             Target::Teamim => f.write_str("teamim"),
             Target::Search => f.write_str("search"),
-            Target::Training => f.write_str("training"),
-            Target::Diff => f.write_str("diff"),
+            Target::TrainingWideLetters => f.write_str("training"),
+            Target::Training => f.write_str("diff"),
         }
     }
 }
 
 const COMMIT: &str = "6684604e161a4f7910fcac58d6dca2c07d21f6a4";
+const WIDE_LETTER_INTERVAL: usize = 25;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -105,14 +110,14 @@ pub static WIDE_LETTERS: Map<char, char> = phf_map! {
 
 struct Context {
     target: Target,
-    wide_letter_interval: usize,
+    wide_letter_elapsed: usize,
 }
 
 impl Context {
     fn new(target: Target) -> Self {
         Self {
             target,
-            wide_letter_interval: 0,
+            wide_letter_elapsed: 0,
         }
     }
 }
@@ -193,21 +198,21 @@ impl Context {
                     }
                 }
             }
-            Target::Training | Target::Diff => {
+            Target::TrainingWideLetters | Target::Training => {
                 for c in from_utf8(text)?.chars() {
                     match c {
                         '\u{05d0}'..='\u{05EA}' | ' ' => {
                             let c = WIDE_LETTERS
                                 .get(&c)
                                 .filter(|_| {
-                                    if self.target == Target::Diff {
+                                    if self.target == Target::Training {
                                         return false;
                                     }
-                                    if self.wide_letter_interval >= 25 {
-                                        self.wide_letter_interval = 0;
+                                    if self.wide_letter_elapsed >= WIDE_LETTER_INTERVAL {
+                                        self.wide_letter_elapsed = 0;
                                         true
                                     } else {
-                                        self.wide_letter_interval += 1;
+                                        self.wide_letter_elapsed += 1;
                                         false
                                     }
                                 })
@@ -249,7 +254,9 @@ impl Context {
                     Target::Teamim => {
                         writer.write_all(b" \xD7\x80 ").await?;
                     }
-                    Target::Training | Target::Diff => writer.write_all(b" ").await?,
+                    Target::TrainingWideLetters | Target::Training => {
+                        writer.write_all(b" ").await?;
+                    }
                     Target::Search => (),
                 },
                 Event::Empty(elem) if elem.name().as_ref() == b"text" => {
@@ -420,9 +427,16 @@ impl Context {
             Event::Start(elem) if elem.name().as_ref() == b"sdt-target" => {
                 self.parse_complicated_sdt(xml, buf, writer).await?;
             }
-            Event::Empty(elem) if elem.name().as_ref() == b"sdt-target" => {
-                if let Some(text) = get_text_attr(&elem)? {
-                    self.write_text(writer, &text).await?;
+            Event::Empty(elem) if elem.name().as_ref() == b"sdt-target" => 'sdt_target: {
+                let Some(target_text) = get_text_attr(&elem)? else {
+                    break 'sdt_target;
+                };
+
+                // TODO redundant allocation
+                let target_text = target_text.into_owned();
+
+                if !self.write_besifrei_note(xml, buf, writer).await? {
+                    self.write_text(writer, &target_text).await?;
                 }
             }
             e => bail!("expected sdt-target, found: {e:?}"),
@@ -435,6 +449,43 @@ impl Context {
                 return Ok(());
             }
         }
+    }
+
+    async fn write_besifrei_note(
+        &mut self,
+        xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
+        buf: &mut Vec<u8>,
+        writer: &mut BufWriter<File>,
+    ) -> eyre::Result<bool> {
+        let note = match self.next(xml, buf).await? {
+            // complicated note, the ones I've seen don't seem to be important
+            Event::Start(elem) if elem.name().as_ref() == b"sdt-note" => return Ok(false),
+            Event::Empty(elem) if elem.name().as_ref() == b"sdt-note" => elem,
+            unexpected => bail!("unexpected {unexpected:?}"),
+        };
+
+        let Some(note_text) = get_text_attr(&note)? else {
+            bail!("expected note text");
+        };
+
+        // TODO this is sad
+        if note_text == "בספרי ספרד ואשכנז וי״ו קטיעא".as_bytes() {
+            return Ok(false);
+        }
+
+        if let Some(note_text) = note_text.strip_prefix("בספרי ספרד ואשכנז ".as_bytes())
+        {
+            self.write_text(writer, note_text).await?;
+            return Ok(true);
+        }
+
+        if let Some(note_text) = note_text.strip_prefix("בספרי ספרד ואשכנז ".as_bytes())
+        {
+            self.write_text(writer, note_text).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     async fn parse_slh_word(

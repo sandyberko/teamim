@@ -300,7 +300,7 @@ pub enum DiffOp<'s> {
     },
 }
 
-const SRC_TEXT: &str = include_str!("../assets/text/mam/diff.txt");
+const SRC_TEXT: &str = include_str!("../assets/text/mam/training.txt");
 pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
     let position = {
         let snippet = if let Some((idx, _)) = text.char_indices().nth(17) {
