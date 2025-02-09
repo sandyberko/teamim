@@ -469,7 +469,6 @@ class LineBoxIter {
 
     next(index: number, length: number) {
         while (index >= this.#box.value.length) {
-            console.log(`index ${index} - ${this.#box.value.length} = ${index - this.#box.value.length}`);
             this.#startIdx += this.#box.value.length + 1;
             index -= this.#box.value.length + 1;
             if (this.#box.nextElementSibling instanceof HTMLInputElement === false) {
@@ -478,7 +477,6 @@ class LineBoxIter {
             }
             this.#box = this.#box.nextElementSibling;
         }
-        console.log(index, length);
         this.#box.focus();
         this.#box.setSelectionRange(index, index + length);
     }
@@ -498,7 +496,7 @@ async function diff() {
     const diff: DiffOp[] = await response.json();
 
     if (diff.length === 0) {
-        if (diffButton instanceof HTMLButtonElement === false) throw new Error("where diff button?");
+        if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
         const icon = diffButton.value;
         diffButton.value = "✅";
         setTimeout(() => diffButton.value = icon, 2000);

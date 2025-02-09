@@ -350,13 +350,13 @@ impl Context {
                             bail!("found two q");
                         }
                         found_q = true;
-                        self.expect_text_attr(writer, elem).await?;
                     }
                     b"kq-k" => {
                         if found_k {
                             bail!("found two k");
                         }
                         found_k = true;
+                        self.expect_text_attr(writer, elem).await?;
                     }
                     unknown => bail!("unknown tag {unknown:?}"),
                 },

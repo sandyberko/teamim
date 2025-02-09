@@ -1,5 +1,6 @@
 # TODO
 
+- IMPORTANT: qri-ktiv!
 - check PSMs
 - fix 345_007 box file, retrain
 - diff feature for training boxes

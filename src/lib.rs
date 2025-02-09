@@ -308,7 +308,6 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
         } else {
             text
         };
-        eprintln!("finding: {snippet:?}");
         SRC_TEXT.find(snippet).ok_or_eyre("not found")?
     };
     let old = &SRC_TEXT[position..];
