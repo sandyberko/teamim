@@ -2,6 +2,7 @@
     direction: rtl;
     height: 100%;
     overflow: hidden;
+    font-family: system-ui;
 }
 
 * {
@@ -43,6 +44,15 @@ kbd {
 #legend {
     grid-area: legend;
     height: fit-content;
+    border-radius: 1em;
+    box-shadow: 0 0 4em rgba(0, 0, 0, .2);
+    border: 1px;
+    
+    header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+    }
 
     th[scope="rowgroup"] {
         color: gray;

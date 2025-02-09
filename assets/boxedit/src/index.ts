@@ -455,7 +455,8 @@ type DiffOp = { "Replace": { new_index: number, new_len: number, old: string } }
     | { "Insert": { new_index: number, new_len: number } }
     | { "Delete": { new_index: number, old: string } };
 
-document.getElementById("diff")!.addEventListener("click", diff);
+const diffButton = document.getElementById("diff");
+diffButton!.addEventListener("click", diff);
 
 class LineBoxIter {
     #startIdx: number;
@@ -495,6 +496,14 @@ async function diff() {
         throw new Error("Failed to diff");
     }
     const diff: DiffOp[] = await response.json();
+
+    if (diff.length === 0) {
+        if (diffButton instanceof HTMLButtonElement === false) throw new Error("where diff button?");
+        const icon = diffButton.value;
+        diffButton.value = "✅";
+        setTimeout(() => diffButton.value = icon, 2000);
+    }
+
     const iter = new LineBoxIter();
     for (const op of diff) {
         if ("Replace" in op) {
