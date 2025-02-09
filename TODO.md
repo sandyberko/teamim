@@ -1,5 +1,6 @@
 # TODO
 
+- "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
 - diff not found 500
 - check PSMs
@@ -16,6 +17,7 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- embedded tessdata? `tess_from_mem` or something?
 - Paseq glyph is empty?
 - fix the whole `process-mam` thing
 - process-mam: handle `lp-paseq` and such
@@ -51,3 +53,4 @@
 
 ## Long term
 - License, attribution (MAM, tesseract)
+- errors in .ts and rust

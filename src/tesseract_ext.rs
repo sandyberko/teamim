@@ -11,17 +11,18 @@ use leptess::{
         self, TessBaseAPI, TessBaseAPICreate, TessBaseAPIDelete, TessBaseAPIEnd,
         TessBaseAPIGetComponentImages, TessBaseAPIGetIterator, TessBaseAPIGetUTF8Text,
         TessBaseAPIInit3, TessBaseAPIRecognize, TessBaseAPISetImage2, TessPageIteratorBoundingBox,
-        TessPageIteratorLevel_RIL_SYMBOL, TessResultIterator, TessResultIteratorGetUTF8Text,
-        TessResultIteratorNext,
+        TessResultIterator, TessResultIteratorGetUTF8Text, TessResultIteratorNext,
     },
     leptonica,
 };
 
 use crate::leptonica_ext::Boxes;
 
+#[derive(Copy, Clone)]
 #[repr(i32)]
 pub enum PageIteratorLevel {
-    Symbol = TessPageIteratorLevel_RIL_SYMBOL,
+    Textline = capi::TessPageIteratorLevel_RIL_TEXTLINE,
+    Symbol = capi::TessPageIteratorLevel_RIL_SYMBOL,
 }
 
 #[derive(Default)]
@@ -55,11 +56,11 @@ impl Tess {
         Ok(Tess { raw })
     }
 
-    pub fn results_iter(&mut self) -> ResultIter {
+    pub fn results_iter(&mut self, level: PageIteratorLevel) -> ResultIter {
         let iter_ptr = unsafe { TessBaseAPIGetIterator(self.raw.as_ptr()) };
         ResultIter {
             raw: NonNull::new(iter_ptr).unwrap(),
-            level: TessPageIteratorLevel_RIL_SYMBOL,
+            level,
             is_first: true,
             __phantom: PhantomData,
         }
@@ -131,7 +132,7 @@ impl Display for Text {
 
 pub struct ResultIter<'tess> {
     raw: NonNull<TessResultIterator>,
-    level: i32,
+    level: PageIteratorLevel,
     is_first: bool,
     __phantom: PhantomData<&'tess mut TessResultIterator>,
 }
@@ -143,7 +144,7 @@ impl<'tess> Iterator for ResultIter<'tess> {
         if self.is_first {
             self.is_first = false;
         } else {
-            let has_next = unsafe { TessResultIteratorNext(self.raw.as_ptr(), self.level) };
+            let has_next = unsafe { TessResultIteratorNext(self.raw.as_ptr(), self.level as _) };
             if has_next != 1 {
                 return None;
             }
@@ -158,14 +159,14 @@ impl<'tess> Iterator for ResultIter<'tess> {
 
 pub struct ResultItem<'tess> {
     raw: NonNull<TessResultIterator>,
-    level: i32,
+    level: PageIteratorLevel,
     __phantom: PhantomData<&'tess mut TessResultIterator>,
 }
 
 impl ResultItem<'_> {
     #[must_use]
     pub fn text<'s>(&self) -> &'s str {
-        let cstr = unsafe { TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level) };
+        let cstr = unsafe { TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level as _) };
         assert!(!cstr.is_null(), "failed to get text");
         unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
     }
@@ -175,7 +176,7 @@ impl ResultItem<'_> {
         let err = unsafe {
             TessPageIteratorBoundingBox(
                 self.raw.as_ptr() as _,
-                self.level,
+                self.level as _,
                 &mut r#box.left,
                 &mut r#box.top,
                 &mut r#box.right,
@@ -187,6 +188,7 @@ impl ResultItem<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct BoundingBox {
     pub char: char,
     pub left: i32,
@@ -221,6 +223,10 @@ impl Display for BoundingBox {
 }
 
 impl BoundingBox {
+    #[must_use]
+    pub fn with_char(self, char: char) -> Self {
+        Self { char, ..self }
+    }
     #[must_use]
     pub fn into_bottom_left(self, img_h: i32) -> Self {
         Self {

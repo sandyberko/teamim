@@ -21,7 +21,9 @@ imageInput.addEventListener("change", (event) => {
     setImage(imageData);
 });
 
-document.getElementById("box-input")!.addEventListener("change", (event) => {
+const boxInput = document.getElementById("box-input");
+if (boxInput instanceof HTMLInputElement === false) throw new Error("where box input?");
+boxInput.addEventListener("change", (event) => {
     const file = event.target as HTMLInputElement;
     const reader = new FileReader();
     reader.readAsText(file.files![0], 'UTF-8');
@@ -47,18 +49,28 @@ function setImage(imageData: File) {
 }
 
 // #region Render boxes
-function renderBoxes(text: string) {
+function renderBoxes(text: string, training: boolean = false) {
     const boxContainer = document.getElementById("box-container");
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
     boxContainer.innerHTML = "";
-    for (const line of text.split("\n")) {
-        const box = line.trim();
+    let lastBox: HTMLInputElement | null = null;
+    for (const box of text.split("\n")) {
         if (box === "") continue;
-        const [char, left, bottom, right, top] = box.split(" ");
-        const width = parseInt(right) - parseInt(left);
-        const height = parseInt(bottom) - parseInt(top);
-        const boxElem = newBox(char, left, top, width, height);
-        boxContainer.appendChild(boxElem);
+        let char = box.substring(0, 1);
+        if (char === "\t") {
+            lastBox = null;
+        } else if (lastBox) {
+            lastBox.value = lastBox.value + char;
+        } else {
+            const [left, bottom, right, top] = box.substring(2).split(" ");
+            const width = parseInt(right) - parseInt(left);
+            const height = parseInt(bottom) - parseInt(top);
+            const boxElem = newBox(char, left, top, width, height);
+            if (training) {
+                lastBox = boxElem;
+            }
+            boxContainer.appendChild(boxElem);
+        }
     };
 }
 
@@ -267,35 +279,10 @@ function handleMouseDown(downEvent: MouseEvent) {
     });
 
     let outputFile: FileSystemFileHandle | null = null;
-    document.getElementById("training-save")!.addEventListener("click", async (event) => {
+    document.getElementById("training-save")!.addEventListener("click", async () => {
         // create a new handle
         const suggestedName = Array.from(trainingInput.files!).find((file) => file.name.endsWith(".box"))?.name;
-        if (!outputFile) outputFile = await window.showSaveFilePicker({ suggestedName, types: [{ description: "Box file", accept: { "text/plain": [".box"] } }] });
-
-        // create a FileSystemWritableFileStream to write to
-        const writableStream = await outputFile.createWritable();
-
-        if (!image) throw new Error("where image?");
-        const imgHeight = image.height;
-
-        // write our file
-        for (const box of boxContainer.childNodes) {
-            if (box instanceof HTMLInputElement === false) continue;
-
-            // lstm box format
-            const left = box.offsetLeft;
-            const bottom = imgHeight - box.offsetTop - box.offsetHeight;
-            const right = box.offsetLeft + box.offsetWidth;
-            const top = imgHeight - box.offsetTop;
-
-            for (const char of Array.from(box.value).reverse()) {
-                await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
-            }
-            await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
-        }
-
-        // close the file and write the contents to disk.
-        await writableStream.close();
+        outputFile = await writeTrainingBoxes(outputFile, suggestedName);
     });
 }
 // #endregion
@@ -328,46 +315,77 @@ document.addEventListener("keyup", (event) => {
     }
 });
 
+const targetInput = document.getElementById("recognize-target");
+if (targetInput instanceof HTMLSelectElement === false) throw new Error("where target input?");
 {
     let outputFile: FileSystemFileHandle | null = null;
-    document.getElementById("save-box")!.addEventListener("click", async (event) => {
-        // create a new handle
-        if (!outputFile) outputFile = await window.showSaveFilePicker();
+    document.getElementById("save-box")!.addEventListener("click", async () => {
+        switch (targetInput.value) {
+            case "training":
+                const [fromServer, suggestedName] = boxInput.files?.[0]
+                    ? [false, boxInput.files[0].name]
+                    : [true, (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name)]
+                outputFile = await writeTrainingBoxes(outputFile, suggestedName, fromServer);
+                break;
+            case "recognition":
+                // create a new handle
+                if (!outputFile) outputFile = await window.showSaveFilePicker();
 
-        // create a FileSystemWritableFileStream to write to
-        const writableStream = await outputFile.createWritable();
+                // create a FileSystemWritableFileStream to write to
+                const writableStream = await outputFile.createWritable();
+                // write our file
+                for (const box of boxContainer.childNodes) {
+                    if (box instanceof HTMLInputElement === false) continue;
 
-        if (!image) throw new Error("where image?");
-        const imgHeight = image.height;
+                    // top-left custom box format
+                    const char = box.value;
+                    const left = box.offsetLeft;
+                    const bottom = box.offsetTop + box.offsetHeight;
+                    const right = box.offsetLeft + box.offsetWidth;
+                    const top = box.offsetTop;
 
-        // write our file
-        for (const box of boxContainer.childNodes) {
-            if (box instanceof HTMLInputElement === false) continue;
+                    await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+                }
 
-            // top-left custom box format
-            // const char = box.value;
-            // const left = box.offsetLeft;
-            // const bottom = box.offsetTop + box.offsetHeight;
-            // const right = box.offsetLeft + box.offsetWidth;
-            // const top = box.offsetTop;
-
-            // await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
-
-            // lstm box format
-            const left = box.offsetLeft;
-            const bottom = imgHeight - box.offsetTop - box.offsetHeight;
-            const right = box.offsetLeft + box.offsetWidth;
-            const top = imgHeight - box.offsetTop;
-
-            for (const char of Array.from(box.value).reverse()) {
-                await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
-            }
-            await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
+                // close the file and write the contents to disk.
+                await writableStream.close();
+                break;
         }
-
-        // close the file and write the contents to disk.
-        await writableStream.close();
     });
+}
+
+async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, suggestedName: string | undefined, fromServer: boolean = false): Promise<FileSystemFileHandle> {
+    if (!boxContainer) throw new Error("where boxContainer?");
+
+    if (!outputFile) outputFile = await window.showSaveFilePicker({ suggestedName, types: [{ description: "Box file", accept: { "text/plain": [".box"] } }] });
+
+    // create a FileSystemWritableFileStream to write to
+    const writableStream = await outputFile.createWritable();
+
+    if (!image) throw new Error("where image?");
+    const imgHeight = image.height;
+
+    // write our file
+    for (const box of boxContainer.childNodes) {
+        if (box instanceof HTMLInputElement === false) continue;
+
+        // lstm box format
+        const left = box.offsetLeft;
+        const bottom = imgHeight - box.offsetTop - box.offsetHeight;
+        // see [https://github.com/tesseract-ocr/tesseract/blob/3157ff0e741ea5c85e16fbd1c6edf20f30eccbd3/src/api/lstmboxrenderer.cpp#L34]
+        const right = box.offsetLeft + box.offsetWidth + (fromServer ? 5 : 0);
+        const top = imgHeight - box.offsetTop;
+
+        // there seems to be a trailing space when coming from server
+        for (const char of Array.from(box.value).reverse()) {
+            await writableStream.write(`${char} ${left} ${bottom} ${right} ${top} 0\n`);
+        }
+        await writableStream.write(`\t ${left} ${bottom} ${right} ${top} 0\n`);
+    }
+
+    // close the file and write the contents to disk.
+    await writableStream.close();
+    return outputFile;
 }
 
 function getBoxes() {
@@ -407,17 +425,31 @@ function resizeElem(elem: HTMLInputElement, dir: number, dy: number, dx: number)
 document.getElementById("recognize")!.addEventListener("click", async (event) => {
     // get image from input
     const imageData = imageInput.files![0];
-    const response = await fetch("/recognize", {
-        method: "POST",
-        body: imageData
-    });
-    if (response.status === 400) {
-        imageInput.focus();
-        alert("לא נבחרה תמונה");
+
+    if (event.target instanceof HTMLInputElement === false) throw new Error("where recognize input?");
+    event.target.disabled = true;
+    const icon = event.target.value;
+    event.target.value = "⏳";
+    try {
+        const response = await fetch(`/recognize?target=${targetInput.value}`, {
+            method: "POST",
+            body: imageData
+        });
+        if (response.status === 400) {
+            imageInput.focus();
+            alert("לא נבחרה תמונה");
+        }
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Failed to recognize: ${text}`);
+        }
+        const text = await response.text();
+        renderBoxes(text, targetInput.value === "training");
     }
-    if (!response.ok) { throw new Error("Failed to recognize"); }
-    const text = await response.text();
-    renderBoxes(text);
+    finally {
+        event.target.value = icon;
+        event.target.disabled = false;
+    }
 });
 
 document.getElementById("render-teamim")!.addEventListener("click", async (event) => {
@@ -463,7 +495,8 @@ type DiffOp = { "Replace": { new_index: number, new_len: number, old: string } }
     | { "Delete": { new_index: number, old: string } };
 
 const diffButton = document.getElementById("diff");
-diffButton!.addEventListener("click", diff);
+if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
+diffButton.addEventListener("click", diff);
 
 class LineBoxIter {
     #startIdx: number;
@@ -490,38 +523,46 @@ class LineBoxIter {
 }
 
 async function diff() {
-    const body = Array.from(boxContainer!.children)
-        .map((box) => box instanceof HTMLInputElement && box.value)
-        .join(" ");
-    const response = await fetch("/diff", {
-        method: "POST",
-        body,
-    });
-    if (response.status != 200) {
-        throw new Error("Failed to diff");
-    }
-    const diff: DiffOp[] = await response.json();
-
-    if (diff.length === 0) {
-        if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
-        const icon = diffButton.value;
-        diffButton.value = "✅";
-        setTimeout(() => diffButton.value = icon, 2000);
-    }
-
-    const iter = new LineBoxIter();
-    for (const op of diff) {
-        if ("Replace" in op) {
-            iter.next(op.Replace.new_index, op.Replace.new_len);
-            return;
-        } else if ("Insert" in op) {
-            iter.next(op.Insert.new_index, op.Insert.new_len);
-        } else if ("Delete" in op) {
-            iter.next(op.Delete.new_index, 0);
-        } else {
-            throw new Error(`invalid op ${JSON.stringify(op)}`);
+    if (diffButton instanceof HTMLInputElement === false) throw new Error("where diff button?");
+    const icon = diffButton.value;
+    diffButton.value = "⏳";
+    diffButton.disabled = true;
+    try {
+        const body = Array.from(boxContainer!.children)
+            .map((box) => box instanceof HTMLInputElement && box.value)
+            .join(" ");
+        const response = await fetch("/diff", {
+            method: "POST",
+            body,
+        });
+        if (response.status != 200) {
+            throw new Error("Failed to diff");
         }
-        return;
+        const diff: DiffOp[] = await response.json();
+
+        if (diff.length === 0) {
+            diffButton.value = "✅";
+            setTimeout(() => diffButton.value = icon, 2000);
+        } else {
+            diffButton.value = "⚠️";
+            setTimeout(() => diffButton.value = icon, 2000);
+            const iter = new LineBoxIter();
+            for (const op of diff) {
+                if ("Replace" in op) {
+                    iter.next(op.Replace.new_index, op.Replace.new_len);
+                    return;
+                } else if ("Insert" in op) {
+                    iter.next(op.Insert.new_index, op.Insert.new_len);
+                } else if ("Delete" in op) {
+                    iter.next(op.Delete.new_index, 0);
+                } else {
+                    throw new Error(`invalid op ${JSON.stringify(op)}`);
+                }
+                break;
+            }
+        }
+    } finally {
+        diffButton.disabled = false;
     }
 };
 

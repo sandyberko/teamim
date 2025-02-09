@@ -2,15 +2,16 @@ use std::path::PathBuf;
 
 use axum::{
     body::Bytes,
-    extract::{multipart::MultipartError, Multipart},
+    extract::{multipart::MultipartError, rejection::QueryRejection, Multipart, Query},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use teamim::{
-    into_geometry, parse_box_line, place_teamim, MismatchError, OriginPos, PlaceError, PlaceOptions,
+    into_geometry, parse_box_line, place_teamim, MismatchError, OriginPos, PlaceError,
+    PlaceOptions, RecognizeTarget,
 };
 use thiserror::Error;
 use tower_http::services::ServeDir;
@@ -38,13 +39,14 @@ async fn main() {
         .route("/recognize", post(post_recognize))
         .route("/renderTeamim", post(post_render_teamim))
         .route("/diff", post(post_diff))
+        .nest_service("/fonts", ServeDir::new("assets/fonts"))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
         .fallback_service(ServeDir::new(boxedit_dir.join("assets")));
     // .layer(TraceLayer::new_for_http());
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("[::1]:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
     // launch browser
     let _browser = tokio::spawn(async move {
@@ -61,13 +63,17 @@ enum RecognizeError {
     #[error("empty image")]
     EmptyImage,
     #[error(transparent)]
+    InvalidArgs(QueryRejection),
+    #[error(transparent)]
     Other(#[from] eyre::Report),
 }
 
 impl IntoResponse for RecognizeError {
     fn into_response(self) -> Response {
         match self {
-            RecognizeError::EmptyImage => (StatusCode::BAD_REQUEST, "empty image").into_response(),
+            RecognizeError::EmptyImage | RecognizeError::InvalidArgs(_) => {
+                (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+            }
             RecognizeError::Other(e) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
@@ -75,11 +81,28 @@ impl IntoResponse for RecognizeError {
     }
 }
 
-async fn post_recognize(image: Bytes) -> Result<String, RecognizeError> {
+#[derive(Deserialize)]
+struct RecognizeArgs {
+    target: RecognizeTarget,
+}
+
+#[axum::debug_handler]
+async fn post_recognize(
+    args: Result<Query<RecognizeArgs>, QueryRejection>,
+    image: Bytes,
+) -> Result<impl IntoResponse, RecognizeError> {
+    let RecognizeArgs { target } = *args.map_err(RecognizeError::InvalidArgs)?;
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    Ok(teamim::recognize(&image)?)
+    let box_file = teamim::recognize(&image, target)?;
+    let headers = [(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/tesseract-lstm-box"),
+    )]
+    .into_iter()
+    .collect::<HeaderMap>();
+    Ok((headers, box_file))
 }
 
 #[derive(Serialize)]

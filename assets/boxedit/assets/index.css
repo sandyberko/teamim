@@ -1,3 +1,10 @@
+@font-face {
+    font-family: "Guttman Stam";
+    src:
+        local("Guttman Stam"),
+        url("fonts/Guttman_Stam.ttf") format("truetype");
+}
+
 :root {
     direction: rtl;
     height: 100%;
@@ -12,10 +19,9 @@
 body {
     display: grid;
     grid-template-rows: auto 1fr;
-    grid-template-columns: 1fr auto;
     grid-template-areas:
-        "header header"
-        "main legend";
+        "header"
+        "main";
     height: 100%;
 }
 
@@ -42,12 +48,10 @@ kbd {
 }
 
 #legend {
-    grid-area: legend;
-    height: fit-content;
     border-radius: 1em;
     box-shadow: 0 0 4em rgba(0, 0, 0, .2);
     border: 1px;
-    
+
     header {
         display: grid;
         grid-template-columns: 1fr auto;
@@ -66,21 +70,7 @@ main {
     position: relative;
     overflow: scroll;
     zoom: 0.4;
-    font-size: 113px;
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    font-size: 6.6em;
 
     &>img {
         position: absolute;

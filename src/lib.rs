@@ -3,38 +3,56 @@ pub mod glyph;
 pub mod leptonica_ext;
 pub mod tesseract_ext;
 
-use std::{fmt::Write, fs};
+use std::{ffi::CStr, fmt::Write, fs};
 
 use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use similar::TextDiff;
-use tesseract_ext::{BoundingBox, PageSegMode, Tess};
+use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess};
 use thiserror::Error;
 
-pub fn recognize(img: &[u8]) -> eyre::Result<String> {
-    let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
+const DATAPATH: &CStr = c"./assets/tessdata";
+const LANG: &CStr = c"stam";
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecognizeTarget {
+    Training,
+    Recognition,
+}
+
+pub fn recognize(img: &[u8], target: RecognizeTarget) -> eyre::Result<String> {
+    let mut tess = Tess::new(DATAPATH, LANG)?;
     tess.set_page_seg_mode(PageSegMode::default());
 
-    let mut pix = leptonica::pix_read_mem(img)?;
-    pix.convert_to_32()?;
-
+    let pix = leptonica::pix_read_mem(img)?;
     tess.set_image(&pix);
     tess.recognize()?;
 
     let mut w = String::new();
-    for char in tess.results_iter() {
-        let text = char.text();
-        let BoundingBox {
-            char: _,
-            left,
-            bottom,
-            right,
-            top,
-        } = char.bounding_box();
-        writeln!(&mut w, "{text} {left} {bottom} {right} {top} 0")?;
+    match target {
+        RecognizeTarget::Training => {
+            for row in tess.results_iter(PageIteratorLevel::Textline) {
+                // TODO this could be a single call
+                let bounding_box = row.bounding_box();
+                // trim_end because tesseract adds a trailing space
+                for char in row.text().trim_end().chars() {
+                    writeln!(&mut w, "{}", bounding_box.with_char(char))?;
+                }
+                writeln!(&mut w, "{}", bounding_box.with_char('\t'))?;
+            }
+        }
+        RecognizeTarget::Recognition => {
+            for result in tess.results_iter(PageIteratorLevel::Symbol) {
+                // TODO this could be a single call
+                let char = result.text().chars().next().ok_or_eyre("no char")?;
+                let bounding_box = result.bounding_box().with_char(char);
+                writeln!(&mut w, "{bounding_box}")?;
+            }
+        }
     }
 
     Ok(w)
@@ -300,22 +318,9 @@ pub enum DiffOp<'s> {
     },
 }
 
-const SRC_TEXT: &str = include_str!("../assets/text/mam/training.txt");
+const TRUTH_TEXT: &str = include_str!("../assets/text/mam/training.txt");
 pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
-    let position = {
-        let snippet = if let Some((idx, _)) = text.char_indices().nth(17) {
-            &text[..idx]
-        } else {
-            text
-        };
-        SRC_TEXT.find(snippet).ok_or_eyre("not found")?
-    };
-    let old = &SRC_TEXT[position..];
-    let mut end = text.len();
-    while !old.is_char_boundary(end) {
-        end += 1;
-    }
-    let old = &old[..end];
+    let old = find_truth_text(text)?;
     Ok(TextDiff::from_graphemes(old, text)
         .ops()
         .iter()
@@ -336,4 +341,21 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
             }),
         })
         .collect())
+}
+
+fn find_truth_text(text: &str) -> eyre::Result<&str> {
+    let position = {
+        let snippet = if let Some((idx, _)) = text.char_indices().nth(17) {
+            &text[..idx]
+        } else {
+            text
+        };
+        TRUTH_TEXT.find(snippet).ok_or_eyre("not found")?
+    };
+    let old = &TRUTH_TEXT[position..];
+    let mut end = text.len();
+    while !old.is_char_boundary(end) {
+        end += 1;
+    }
+    Ok(&old[..end])
 }
