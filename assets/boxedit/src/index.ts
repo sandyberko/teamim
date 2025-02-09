@@ -18,18 +18,7 @@ if (imageSaveButton instanceof HTMLAnchorElement === false) throw new Error("whe
 imageInput.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
     const imageData = input.files![0];
-    const url = URL.createObjectURL(imageData);
-    if (image === null) {
-        image = new Image();
-        document.getElementById("main")!.appendChild(image);
-    }
-    image.onload = (event) => {
-        if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
-        boxContainer!.style.width = event.target.width + 'px';
-        boxContainer!.style.height = event.target.height + 'px';
-    }
-
-    image.src = url;
+    setImage(imageData);
 });
 
 document.getElementById("box-input")!.addEventListener("change", (event) => {
@@ -41,6 +30,21 @@ document.getElementById("box-input")!.addEventListener("change", (event) => {
         renderBoxes(text);
     }
 });
+
+function setImage(imageData: File) {
+    const url = URL.createObjectURL(imageData);
+    if (image === null) {
+        image = new Image();
+        document.getElementById("main")!.appendChild(image);
+    }
+    image.onload = (event) => {
+        if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
+        boxContainer!.style.width = event.target.width + 'px';
+        boxContainer!.style.height = event.target.height + 'px';
+    };
+
+    image.src = url;
+}
 
 // #region Render boxes
 function renderBoxes(text: string) {
@@ -75,6 +79,7 @@ enum Direction {
 
 function newBox(char: string, left: string, top: string, width: number, height: number) {
     const boxElem = document.createElement("input");
+    setupKeyboardResize(boxElem);
     boxElem.classList.add("box");
     boxElem.type = "text";
     boxElem.value = char;
@@ -108,7 +113,6 @@ function eventDir(event: MouseEvent): Direction {
     );
 }
 
-const hebrewLetterRegex = /[\u05d0-\u05ea]/;
 function setupKeyboardResize(elem: HTMLInputElement) {
     let keyboardResizeDir: Direction = Direction.Inside;
 
@@ -142,8 +146,7 @@ function setupKeyboardResize(elem: HTMLInputElement) {
             case "ArrowDown": toggleDirFocus(Direction.Bottom); break;
             case "ArrowLeft": toggleDirFocus(Direction.Left); break;
             case "ArrowRight": toggleDirFocus(Direction.Right); break;
-        }
-        else {
+        } else if (event.shiftKey) {
             let dx = 0, dy = 0;
             switch (event.key) {
                 case "ArrowUp": event.preventDefault(); dy = -1; break;
@@ -152,12 +155,6 @@ function setupKeyboardResize(elem: HTMLInputElement) {
                 case "ArrowRight": event.preventDefault(); dx = 1; break;
             }
             resizeElem(elem, keyboardResizeDir, dy, dx);
-        }
-    });
-    elem.addEventListener("beforeinput", (event) => {
-        if (event.data && event.data.match(hebrewLetterRegex) === null) {
-            event.preventDefault();
-            alert("אותיות עבריות בלבד. האם המקלדת על עברית?")
         }
     });
 }
@@ -250,20 +247,30 @@ function handleMouseDown(downEvent: MouseEvent) {
             }
         };
     }
-    document.getElementById("training-input")!.addEventListener("change", (event) => {
+    const trainingInput = document.getElementById("training-input") as HTMLInputElement;
+    trainingInput!.addEventListener("change", (event) => {
         const file = event.target as HTMLInputElement;
-        const reader = new FileReader();
-        reader.readAsText(file.files![0], 'UTF-8');
-        reader.onload = function (event) {
-            const text = event.target?.result as string;
-            renderTrainingBoxes(text);
+        const files = Array.from(file.files!);
+        let imageFile = files.find((file) => file.name.endsWith(".jpg") || file.name.endsWith(".jpeg"));
+        if (imageFile) {
+            setImage(imageFile);
+        }
+        const boxFile = files.find((file) => file.name.endsWith(".box"));
+        if (boxFile) {
+            const reader = new FileReader();
+            reader.readAsText(boxFile, 'UTF-8');
+            reader.onload = function (event) {
+                const text = event.target?.result as string;
+                renderTrainingBoxes(text);
+            }
         }
     });
 
     let outputFile: FileSystemFileHandle | null = null;
     document.getElementById("training-save")!.addEventListener("click", async (event) => {
         // create a new handle
-        if (!outputFile) outputFile = await window.showSaveFilePicker();
+        const suggestedName = Array.from(trainingInput.files!).find((file) => file.name.endsWith(".box"))?.name;
+        if (!outputFile) outputFile = await window.showSaveFilePicker({ suggestedName, types: [{ description: "Box file", accept: { "text/plain": [".box"] } }] });
 
         // create a FileSystemWritableFileStream to write to
         const writableStream = await outputFile.createWritable();
@@ -297,15 +304,15 @@ function handleMouseDown(downEvent: MouseEvent) {
 const viewAttr = "data-view";
 const keyMap: Record<string, (active: boolean) => void> = {
     // image
-    "F1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
+    "1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
     // box
-    "F2": (show) => { boxContainer.style.opacity = show ? "1" : "0"; },
+    "2": (show) => { boxContainer.style.opacity = show ? "1" : "0"; },
     // box + text
-    "F3": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "text-only"); },
+    "3": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "text-only"); },
     // solo box
-    "F4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); },
+    "4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); },
     // diff
-    "F5": (show) => { show && diff(); }
+    "F1": (show) => { show && diff(); }
 }
 document.addEventListener("keydown", (event) => {
     if (event.key in keyMap) {
