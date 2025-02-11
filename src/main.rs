@@ -118,7 +118,7 @@ fn main() -> eyre::Result<()> {
 
             let mut w = BufWriter::new(file);
 
-            for char in tess.results_iter() {
+            for char in tess.results_iter(PageIteratorLevel::Symbol) {
                 let text = char.text();
                 let BoundingBox {
                     char: _,
@@ -135,7 +135,7 @@ fn main() -> eyre::Result<()> {
         } else {
             // Boxes
             let boxes = tess
-                .results_iter()
+                .results_iter(PageIteratorLevel::Symbol)
                 .map(|r| Ok(into_geometry(r.bounding_box(), OriginPos::TopLeft)));
             place_teamim(&pix, &args, text.as_str()?, boxes)?;
         }
