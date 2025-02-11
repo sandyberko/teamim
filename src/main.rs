@@ -121,7 +121,7 @@ fn main() -> eyre::Result<()> {
             for char in tess.results_iter(PageIteratorLevel::Symbol) {
                 let text = char.text();
                 let BoundingBox {
-                    char: _,
+                    value: (),
                     left,
                     bottom,
                     right,

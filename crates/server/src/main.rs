@@ -2,16 +2,17 @@ use std::path::PathBuf;
 
 use axum::{
     body::Bytes,
-    extract::{multipart::MultipartError, rejection::QueryRejection, Multipart, Query},
+    extract::{multipart::MultipartError, Multipart},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use axum_serde::Xml;
+use serde::Serialize;
 use teamim::{
-    into_geometry, parse_box_line, place_teamim, MismatchError, OriginPos, PlaceError,
-    PlaceOptions, RecognizeTarget,
+    into_geometry, parse_box_line, place_teamim, tesseract_ext::BoundingBox, MismatchError,
+    OriginPos, PlaceError, PlaceOptions,
 };
 use thiserror::Error;
 use tower_http::services::ServeDir;
@@ -37,6 +38,7 @@ async fn main() {
     // build our application with a single route
     let app = Router::new()
         .route("/recognize", post(post_recognize))
+        .route("/recognizeTraining", post(post_recognize_training))
         .route("/renderTeamim", post(post_render_teamim))
         .route("/diff", post(post_diff))
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
@@ -63,15 +65,13 @@ enum RecognizeError {
     #[error("empty image")]
     EmptyImage,
     #[error(transparent)]
-    InvalidArgs(QueryRejection),
-    #[error(transparent)]
     Other(#[from] eyre::Report),
 }
 
 impl IntoResponse for RecognizeError {
     fn into_response(self) -> Response {
         match self {
-            RecognizeError::EmptyImage | RecognizeError::InvalidArgs(_) => {
+            RecognizeError::EmptyImage => {
                 (StatusCode::BAD_REQUEST, self.to_string()).into_response()
             }
             RecognizeError::Other(e) => {
@@ -80,22 +80,12 @@ impl IntoResponse for RecognizeError {
         }
     }
 }
-
-#[derive(Deserialize)]
-struct RecognizeArgs {
-    target: RecognizeTarget,
-}
-
 #[axum::debug_handler]
-async fn post_recognize(
-    args: Result<Query<RecognizeArgs>, QueryRejection>,
-    image: Bytes,
-) -> Result<impl IntoResponse, RecognizeError> {
-    let RecognizeArgs { target } = *args.map_err(RecognizeError::InvalidArgs)?;
+async fn post_recognize(image: Bytes) -> Result<impl IntoResponse, RecognizeError> {
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let box_file = teamim::recognize(&image, target)?;
+    let box_file = teamim::recognize(&image)?;
     let headers = [(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/tesseract-lstm-box"),
@@ -103,6 +93,30 @@ async fn post_recognize(
     .into_iter()
     .collect::<HeaderMap>();
     Ok((headers, box_file))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "kebab-case")]
+struct Div {
+    #[serde(rename = "@id")]
+    id: String,
+    #[serde(rename = "@style")]
+    style: String,
+    tess_box: Vec<BoundingBox<String>>,
+}
+
+#[axum::debug_handler]
+async fn post_recognize_training(image: Bytes) -> Result<Xml<Div>, RecognizeError> {
+    if image.is_empty() {
+        return Err(RecognizeError::EmptyImage);
+    }
+    let (tess_box, w, h) = teamim::recognize_training(&image)?;
+    let boxes = Div {
+        id: "box-container".to_owned(),
+        style: format!("width: {w}px; height: {h}px;"),
+        tess_box,
+    };
+    Ok(boxes.into())
 }
 
 #[derive(Serialize)]

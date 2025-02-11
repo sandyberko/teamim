@@ -7,8 +7,15 @@ let image: HTMLImageElement | null = null;
 const main = document.getElementById("main");
 if (main instanceof HTMLElement === false) throw new Error("where main?");
 
-const boxContainer = document.getElementById("box-container");
-if (boxContainer instanceof HTMLElement) { } else { throw new Error("where box container?"); }
+function boxContainer(): HTMLElement {
+    const elem = document.getElementById("box-container");
+    if (elem instanceof HTMLElement) {
+        return elem;
+    } else {
+        throw new Error("where box container?");
+    }
+
+}
 
 const imageInput = document.getElementById("image-input");
 if (imageInput instanceof HTMLInputElement === false) throw new Error("where image input?");
@@ -43,8 +50,8 @@ function setImage(imageData: File) {
     }
     image.onload = (event) => {
         if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
-        boxContainer!.style.width = event.target.width + 'px';
-        boxContainer!.style.height = event.target.height + 'px';
+        boxContainer().style.width = event.target.width + 'px';
+        boxContainer().style.height = event.target.height + 'px';
     };
 
     image.src = url;
@@ -52,9 +59,7 @@ function setImage(imageData: File) {
 
 // #region Render boxes
 function renderBoxes(text: string, training: boolean = false) {
-    const boxContainer = document.getElementById("box-container");
-    if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
-    boxContainer.innerHTML = "";
+    boxContainer().innerHTML = "";
     let lastBox: TessBox | null = null;
     for (const box of text.split("\n")) {
         if (box === "") continue;
@@ -71,7 +76,7 @@ function renderBoxes(text: string, training: boolean = false) {
             if (training) {
                 lastBox = boxElem;
             }
-            boxContainer.appendChild(boxElem);
+            boxContainer().appendChild(boxElem);
         }
     };
 }
@@ -201,7 +206,7 @@ function handleMouseDown(downEvent: MouseEvent) {
     const signal = controller.signal;
 
     let prevX = downEvent.clientX, prevY = downEvent.clientY;
-    boxContainer!.addEventListener("mousemove", (moveEvent) => {
+    boxContainer().addEventListener("mousemove", (moveEvent) => {
         const dx = moveEvent.clientX - prevX, dy = moveEvent.clientY - prevY;
         prevX = moveEvent.clientX;
         prevY = moveEvent.clientY;
@@ -209,17 +214,17 @@ function handleMouseDown(downEvent: MouseEvent) {
         resizeElem(elem, dir, dy, dx);
     }, { signal });
 
-    boxContainer!.addEventListener("mouseup", () => controller.abort(), { signal });
+    boxContainer().addEventListener("mouseup", () => controller.abort(), { signal });
 }
 
 {
-    boxContainer.addEventListener("focusin", (event) => {
+    boxContainer().addEventListener("focusin", (event) => {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "2";
         event.target.addEventListener("mousemove", handleMouseMove);
         event.target.addEventListener("mousedown", handleMouseDown);
     });
-    boxContainer.addEventListener("focusout", (event) => {
+    boxContainer().addEventListener("focusout", (event) => {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "0";
         event.target.removeEventListener("mousemove", handleMouseMove);
@@ -235,9 +240,7 @@ function handleMouseDown(downEvent: MouseEvent) {
         if (!image) throw new Error("where image?");
         const imgHeight = image.height;
 
-        const boxContainer = document.getElementById("box-container");
-        if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
-        boxContainer.innerHTML = "";
+        boxContainer().innerHTML = "";
         let lastBox: TessBox | null = null;
         for (const line of text.split("\n")) {
             if (line === "") continue;
@@ -254,7 +257,7 @@ function handleMouseDown(downEvent: MouseEvent) {
                 const width = parseInt(right) - parseInt(left);
                 const height = bottom - top;
                 lastBox = newBox(char, left, top.toString(), width, height);
-                boxContainer.appendChild(lastBox);
+                boxContainer().appendChild(lastBox);
             }
         };
     }
@@ -292,11 +295,11 @@ const keyMap: Record<string, (active: boolean) => void> = {
     // image
     "1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
     // box
-    "2": (show) => { boxContainer.style.opacity = show ? "1" : "0"; },
+    "2": (show) => { boxContainer().style.opacity = show ? "1" : "0"; },
     // box + text
-    "3": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "text-only"); },
+    "3": (show) => { show ? boxContainer().removeAttribute(viewAttr) : boxContainer().setAttribute(viewAttr, "text-only"); },
     // solo box
-    "4": (show) => { show ? boxContainer.removeAttribute(viewAttr) : boxContainer.setAttribute(viewAttr, "solo"); },
+    "4": (show) => { show ? boxContainer().removeAttribute(viewAttr) : boxContainer().setAttribute(viewAttr, "solo"); },
     // diff
     "F1": (show) => { show && diff(); }
 }
@@ -333,7 +336,7 @@ if (targetInput instanceof HTMLSelectElement === false) throw new Error("where t
                 // create a FileSystemWritableFileStream to write to
                 const writableStream = await outputFile.createWritable();
                 // write our file
-                for (const box of boxContainer.childNodes) {
+                for (const box of boxContainer().childNodes) {
                     if (box instanceof TessBox === false) continue;
 
                     // top-left custom box format
@@ -365,7 +368,7 @@ async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, sugge
     const imgHeight = image.height;
 
     // write our file
-    for (const box of boxContainer.childNodes) {
+    for (const box of boxContainer().childNodes) {
         if (box instanceof TessBox === false) continue;
 
         // lstm box format
@@ -389,7 +392,7 @@ async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, sugge
 
 function getBoxes() {
     if (boxContainer instanceof HTMLElement === false) throw new Error("where main?");
-    return Array.from(boxContainer.childNodes)
+    return Array.from(boxContainer().childNodes)
         .map((box) => {
             if (box instanceof HTMLInputElement === false) throw new Error("invalid box");
             const char = box.value;
@@ -430,7 +433,7 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
     const icon = event.target.value;
     event.target.value = "⏳";
     try {
-        const response = await fetch(`/recognize?target=${targetInput.value}`, {
+        const response = await fetch(`/recognize${targetInput.value === "training" ? "Training" : ""}`, {
             method: "POST",
             body: imageData
         });
@@ -442,8 +445,16 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
             const text = await response.text();
             throw new Error(`Failed to recognize: ${text}`);
         }
-        const text = await response.text();
-        renderBoxes(text, targetInput.value === "training");
+        switch (targetInput.value) {
+            case "recognition":
+                const text = await response.text();
+                renderBoxes(text, true);
+                break;
+            case "training":
+                const boxes = await response.text();
+                boxContainer().outerHTML = boxes;
+                break;
+        }
     }
     finally {
         event.target.value = icon;
@@ -466,7 +477,7 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
             alert("טקסט לא נמצא, נסה לתקן טעויות זיהוי ולהריץ שוב");
         } else {
             const { boxNumber, expected } = error;
-            const box = boxContainer.childNodes[boxNumber];
+            const box = boxContainer().childNodes[boxNumber];
             if (box instanceof TessBox === false) throw new Error("where box?");
             box.focus();
             // box.select();
@@ -503,7 +514,7 @@ diffButton.addEventListener("click", diff);
 //     constructor() {
 //         this.#startIdx = 0;
 //         if (boxContainer?.firstElementChild instanceof TessBox === false) throw new Error("where box?");
-//         this.#box = boxContainer.firstElementChild;
+//         this.#box = boxContainer().firstElementChild;
 //     }
 
 //     next(index: number, length: number) {
@@ -527,7 +538,7 @@ async function diff() {
     diffButton.value = "⏳";
     diffButton.disabled = true;
     try {
-        const body = Array.from(boxContainer!.children)
+        const body = Array.from(boxContainer().children)
             .map((box) => box instanceof TessBox && box.innerText)
             .join(" ");
         const response = await fetch("/diff", {

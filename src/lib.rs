@@ -9,7 +9,7 @@ use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use similar::TextDiff;
 use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess};
 use thiserror::Error;
@@ -17,14 +17,30 @@ use thiserror::Error;
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RecognizeTarget {
-    Training,
-    Recognition,
+pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBox<String>>, u32, u32)> {
+    let mut tess = Tess::new(DATAPATH, LANG)?;
+    tess.set_page_seg_mode(PageSegMode::default());
+
+    let pix = leptonica::pix_read_mem(img)?;
+    tess.set_image(&pix);
+    tess.recognize()?;
+    let w = pix.get_w();
+    let h = pix.get_h();
+    let boxes = tess
+        .results_iter(PageIteratorLevel::Textline)
+        .map(|row| {
+            // TODO this could be a single call
+            let bounding_box = row.bounding_box();
+            // trim_end because tesseract adds a trailing space
+            let text = row.text().trim_end();
+            // TODO is coloning necessary?
+            bounding_box.with_value(text.to_owned())
+        })
+        .collect();
+    Ok((boxes, w, h))
 }
 
-pub fn recognize(img: &[u8], target: RecognizeTarget) -> eyre::Result<String> {
+pub fn recognize(img: &[u8]) -> eyre::Result<String> {
     let mut tess = Tess::new(DATAPATH, LANG)?;
     tess.set_page_seg_mode(PageSegMode::default());
 
@@ -33,28 +49,12 @@ pub fn recognize(img: &[u8], target: RecognizeTarget) -> eyre::Result<String> {
     tess.recognize()?;
 
     let mut w = String::new();
-    match target {
-        RecognizeTarget::Training => {
-            for row in tess.results_iter(PageIteratorLevel::Textline) {
-                // TODO this could be a single call
-                let bounding_box = row.bounding_box();
-                // trim_end because tesseract adds a trailing space
-                for char in row.text().trim_end().chars() {
-                    writeln!(&mut w, "{}", bounding_box.with_char(char))?;
-                }
-                writeln!(&mut w, "{}", bounding_box.with_char('\t'))?;
-            }
-        }
-        RecognizeTarget::Recognition => {
-            for result in tess.results_iter(PageIteratorLevel::Symbol) {
-                // TODO this could be a single call
-                let char = result.text().chars().next().ok_or_eyre("no char")?;
-                let bounding_box = result.bounding_box().with_char(char);
-                writeln!(&mut w, "{bounding_box}")?;
-            }
-        }
+    for result in tess.results_iter(PageIteratorLevel::Symbol) {
+        // TODO this could be a single call
+        let char = result.text().chars().next().ok_or_eyre("no char")?;
+        let bounding_box = result.bounding_box().with_value(char);
+        writeln!(&mut w, "{bounding_box}")?;
     }
-
     Ok(w)
 }
 
@@ -251,13 +251,13 @@ fn place_taam(
     Ok(())
 }
 
-pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox> {
+pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox<char>> {
     // `char` needs special parsing since it can just be a space itself
     let mut line = line.chars();
     let char = line.next().ok_or_eyre("expected char")?;
     let mut parts = line.as_str().split(' ').map(str::parse);
     Ok(BoundingBox {
-        char,
+        value: char,
         left: parts.next().ok_or_eyre("failed to parse left")??,
         bottom: parts.next().ok_or_eyre("failed to parse bottom")??,
         right: parts.next().ok_or_eyre("failed to parse right")??,
@@ -272,14 +272,14 @@ pub enum OriginPos {
 }
 
 #[must_use]
-pub fn into_geometry(
+pub fn into_geometry<V>(
     BoundingBox {
-        char: _,
+        value: _,
         left,
         bottom,
         right,
         top,
-    }: BoundingBox,
+    }: BoundingBox<V>,
     origin_pos: OriginPos,
 ) -> BoxGeometry {
     match origin_pos {

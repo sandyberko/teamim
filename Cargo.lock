@@ -244,6 +244,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-serde"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29617f4d5e0ec3c0fc486b3facd9d04f82742822bef65fa9ff461fde69e248e1"
+dependencies = [
+ "axum-core",
+ "bytes",
+ "http",
+ "mime",
+ "quick-xml",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1917,6 +1932,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "165859e9e55f79d67b96c5d96f4e88b6f2695a1972849c15a6a3f5c59fc2c003"
 dependencies = [
  "memchr",
+ "serde",
  "tokio",
 ]
 
@@ -2356,6 +2372,7 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-serde",
  "bytes",
  "eyre",
  "mime",

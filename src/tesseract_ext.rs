@@ -15,6 +15,7 @@ use leptess::{
     },
     leptonica,
 };
+use serde::Serialize;
 
 use crate::leptonica_ext::Boxes;
 
@@ -171,7 +172,7 @@ impl ResultItem<'_> {
         unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
     }
     #[must_use]
-    pub fn bounding_box(&self) -> BoundingBox {
+    pub fn bounding_box(&self) -> BoundingBox<()> {
         let mut r#box = BoundingBox::default();
         let err = unsafe {
             TessPageIteratorBoundingBox(
@@ -188,19 +189,25 @@ impl ResultItem<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct BoundingBox {
-    pub char: char,
+#[derive(Clone, Copy, Serialize)]
+pub struct BoundingBox<Value> {
+    #[serde(rename = "$value")]
+    pub value: Value,
+
+    #[serde(rename = "@left")]
     pub left: i32,
+    #[serde(rename = "@bottom")]
     pub bottom: i32,
+    #[serde(rename = "@right")]
     pub right: i32,
+    #[serde(rename = "@top")]
     pub top: i32,
 }
 
-impl Default for BoundingBox {
+impl<V: Default> Default for BoundingBox<V> {
     fn default() -> Self {
         Self {
-            char: '\0',
+            value: V::default(),
             left: -1,
             bottom: -1,
             right: -1,
@@ -209,10 +216,10 @@ impl Default for BoundingBox {
     }
 }
 
-impl Display for BoundingBox {
+impl<V: Display> Display for BoundingBox<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            char,
+            value: char,
             left,
             bottom,
             right,
@@ -222,15 +229,28 @@ impl Display for BoundingBox {
     }
 }
 
-impl BoundingBox {
+impl<V> BoundingBox<V> {
     #[must_use]
-    pub fn with_char(self, char: char) -> Self {
-        Self { char, ..self }
+    pub fn with_value<O>(self, value: O) -> BoundingBox<O> {
+        let BoundingBox {
+            value: _,
+            left,
+            bottom,
+            right,
+            top,
+        } = self;
+        BoundingBox {
+            value,
+            left,
+            bottom,
+            right,
+            top,
+        }
     }
     #[must_use]
     pub fn into_bottom_left(self, img_h: i32) -> Self {
         Self {
-            char: self.char,
+            value: self.value,
             left: self.left,
             bottom: img_h - self.bottom,
             right: self.right,
