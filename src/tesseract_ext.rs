@@ -189,7 +189,7 @@ impl ResultItem<'_> {
     }
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
     #[serde(rename = "$value")]
     pub value: Value,
@@ -230,21 +230,24 @@ impl<V: Display> Display for BoundingBox<V> {
 }
 
 impl<V> BoundingBox<V> {
-    #[must_use]
-    pub fn with_value<O>(self, value: O) -> BoundingBox<O> {
-        let BoundingBox {
-            value: _,
-            left,
-            bottom,
-            right,
-            top,
-        } = self;
-        BoundingBox {
+    pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
+        Self {
             value,
             left,
             bottom,
             right,
             top,
+        }
+    }
+
+    #[must_use]
+    pub fn with_value<O>(&self, value: O) -> BoundingBox<O> {
+        BoundingBox {
+            value,
+            left: self.left,
+            bottom: self.bottom,
+            right: self.right,
+            top: self.top,
         }
     }
     #[must_use]

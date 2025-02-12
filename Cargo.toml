@@ -21,11 +21,9 @@ edition = "2021"
 default-run = "teamim"
 
 [dependencies]
-ab_glyph = "0.2.29"
 clap = { workspace = true }
 eyre = { workspace = true }
 color-eyre = { workspace = true }
-imageproc = "0.25.0"
 leptess = "0.14.0"
 leptonica-plumbing = "1.4.0"
 phf = { workspace = true }

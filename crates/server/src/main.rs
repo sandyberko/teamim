@@ -11,7 +11,7 @@ use axum::{
 use axum_serde::Xml;
 use serde::Serialize;
 use teamim::{
-    into_geometry, parse_box_line, place_teamim, tesseract_ext::BoundingBox, MismatchError,
+    into_geometry, parse_box_line, place_teamim, training_diff::BoundingBoxDiff, MismatchError,
     OriginPos, PlaceError, PlaceOptions,
 };
 use thiserror::Error;
@@ -102,7 +102,7 @@ struct Div {
     id: String,
     #[serde(rename = "@style")]
     style: String,
-    tess_box: Vec<BoundingBox<String>>,
+    tess_box: Vec<BoundingBoxDiff>,
 }
 
 #[axum::debug_handler]

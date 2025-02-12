@@ -2,6 +2,7 @@ pub mod fuzzy_find;
 pub mod glyph;
 pub mod leptonica_ext;
 pub mod tesseract_ext;
+pub mod training_diff;
 
 use std::{ffi::CStr, fmt::Write, fs};
 
@@ -13,31 +14,38 @@ use serde::Serialize;
 use similar::TextDiff;
 use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess};
 use thiserror::Error;
+use training_diff::BoundingBoxDiff;
 
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
-pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBox<String>>, u32, u32)> {
+pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBoxDiff>, u32, u32)> {
     let mut tess = Tess::new(DATAPATH, LANG)?;
     tess.set_page_seg_mode(PageSegMode::default());
 
     let pix = leptonica::pix_read_mem(img)?;
     tess.set_image(&pix);
     tess.recognize()?;
-    let w = pix.get_w();
-    let h = pix.get_h();
+
+    // TODO is it already owned?
+    let ocr_text = tess.get_text()?;
+    let ocr_text = ocr_text.as_str()?.replace('\n', "");
+
+    let truth_text = find_truth_text(&ocr_text)?;
+
     let boxes = tess
         .results_iter(PageIteratorLevel::Textline)
         .map(|row| {
             // TODO this could be a single call
             let bounding_box = row.bounding_box();
-            // trim_end because tesseract adds a trailing space
-            let text = row.text().trim_end();
-            // TODO is coloning necessary?
-            bounding_box.with_value(text.to_owned())
+            bounding_box.with_value(row.text().trim_end_matches('\n'))
         })
-        .collect();
-    Ok((boxes, w, h))
+        .collect::<Box<[_]>>();
+    let diff = training_diff::diff(boxes.as_ref(), truth_text);
+
+    let w = pix.get_w();
+    let h = pix.get_h();
+    Ok((diff, w, h))
 }
 
 pub fn recognize(img: &[u8]) -> eyre::Result<String> {
@@ -343,17 +351,17 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
         .collect())
 }
 
-fn find_truth_text(text: &str) -> eyre::Result<&str> {
+fn find_truth_text(ocr_text: &str) -> eyre::Result<&str> {
     let position = {
-        let snippet = if let Some((idx, _)) = text.char_indices().nth(17) {
-            &text[..idx]
+        let snippet = if let Some((idx, _)) = ocr_text.char_indices().nth(17) {
+            &ocr_text[..idx]
         } else {
-            text
+            ocr_text
         };
         TRUTH_TEXT.find(snippet).ok_or_eyre("not found")?
     };
     let old = &TRUTH_TEXT[position..];
-    let mut end = text.len();
+    let mut end = ocr_text.len();
     while !old.is_char_boundary(end) {
         end += 1;
     }
