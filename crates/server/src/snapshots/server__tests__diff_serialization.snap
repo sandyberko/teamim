@@ -5,8 +5,8 @@ expression: w
 <div id="box-container" style="width: 100px; height: 100px;">
     <tess-box left="1" bottom="2" right="3" top="4">
         <equal>foo</equal>
-        <delete truth="bar"/>
-        <insert>baz</insert>
+        <delete>bar</delete>
+        <insert err="baz"></insert>
     </tess-box>
     <tess-box left="5" bottom="6" right="7" top="8">
         <equal>qux</equal>

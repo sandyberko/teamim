@@ -96,6 +96,17 @@ main {
                 outline-color: rgba(255, 0, 0, .5);
             }
 
+            insert {
+                border: 5px solid magenta;
+                &:hover::after {
+                    content: attr(err);
+                }
+            }
+
+            delete {
+                outline: 2px solid cyan;
+                color: blueviolet;
+            }
         }
 
         &[data-view="text-only"]>tess-box,

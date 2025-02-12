@@ -8,7 +8,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use axum_serde::Xml;
+use quick_xml::se::Serializer;
 use serde::Serialize;
 use teamim::{
     into_geometry, parse_box_line, place_teamim, training_diff::BoundingBoxDiff, MismatchError,
@@ -64,6 +64,8 @@ async fn main() {
 enum RecognizeError {
     #[error("empty image")]
     EmptyImage,
+    #[error("seialization error: {0}")]
+    Serialization(#[from] quick_xml::se::SeError),
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
@@ -74,8 +76,8 @@ impl IntoResponse for RecognizeError {
             RecognizeError::EmptyImage => {
                 (StatusCode::BAD_REQUEST, self.to_string()).into_response()
             }
-            RecognizeError::Other(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+            RecognizeError::Other(_) | RecognizeError::Serialization(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
             }
         }
     }
@@ -106,7 +108,7 @@ struct Div {
 }
 
 #[axum::debug_handler]
-async fn post_recognize_training(image: Bytes) -> Result<Xml<Div>, RecognizeError> {
+async fn post_recognize_training(image: Bytes) -> Result<impl IntoResponse, RecognizeError> {
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
@@ -116,7 +118,18 @@ async fn post_recognize_training(image: Bytes) -> Result<Xml<Div>, RecognizeErro
         style: format!("width: {w}px; height: {h}px;"),
         tess_box,
     };
-    Ok(boxes.into())
+    let mut buf = String::new();
+    let mut serializer = Serializer::new(&mut buf);
+    serializer.indent(' ', 4);
+    serializer.expand_empty_elements(true);
+    boxes.serialize(serializer)?;
+    let headers = [(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(mime::TEXT_XML.as_ref()),
+    )]
+    .into_iter()
+    .collect::<HeaderMap>();
+    Ok((headers, buf))
 }
 
 #[derive(Serialize)]
@@ -249,10 +262,8 @@ mod tests {
                     top: 4,
                     value: vec![
                         DiffOp::Equal("foo".to_owned()),
-                        DiffOp::Delete {
-                            truth: "bar".to_owned(),
-                        },
-                        DiffOp::Insert("baz".to_owned()),
+                        DiffOp::Delete("bar".to_owned()),
+                        DiffOp::insert("baz".to_owned()),
                     ],
                 },
                 BoundingBoxDiff {
@@ -266,7 +277,7 @@ mod tests {
         };
         let mut w = String::new();
         let mut serializer = Serializer::new(&mut w);
-        serializer.indent(' ', 4);
+        serializer.expand_empty_elements(true);
         root.serialize(serializer).unwrap();
         assert_snapshot!(w);
     }

@@ -29,7 +29,7 @@ pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBoxDiff>, u32
 
     // TODO is it already owned?
     let ocr_text = tess.get_text()?;
-    let ocr_text = ocr_text.as_str()?.replace('\n', "");
+    let ocr_text = ocr_text.as_str()?.replace('\n', " ");
 
     let truth_text = find_truth_text(&ocr_text)?;
 
@@ -38,10 +38,10 @@ pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBoxDiff>, u32
         .map(|row| {
             // TODO this could be a single call
             let bounding_box = row.bounding_box();
-            bounding_box.with_value(row.text().trim_end_matches('\n'))
+            bounding_box.with_value(row.text())
         })
         .collect::<Box<[_]>>();
-    let diff = training_diff::diff(boxes.as_ref(), truth_text);
+    let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
 
     let w = pix.get_w();
     let h = pix.get_h();
