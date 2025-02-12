@@ -96,7 +96,7 @@ async fn post_recognize(image: Bytes) -> Result<impl IntoResponse, RecognizeErro
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename = "div", rename_all = "kebab-case")]
 struct Div {
     #[serde(rename = "@id")]
     id: String,
@@ -227,4 +227,47 @@ impl IntoResponse for DiffError {
 #[axum::debug_handler]
 async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, DiffError> {
     Ok(teamim::diff(&text).map(Json)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use insta::assert_snapshot;
+    use quick_xml::se::Serializer;
+    use serde::Serialize as _;
+    use teamim::training_diff::{BoundingBoxDiff, DiffOp};
+
+    #[test]
+    fn diff_serialization() {
+        let root = super::Div {
+            id: "box-container".to_owned(),
+            style: "width: 100px; height: 100px;".to_owned(),
+            tess_box: vec![
+                BoundingBoxDiff {
+                    left: 1,
+                    bottom: 2,
+                    right: 3,
+                    top: 4,
+                    value: vec![
+                        DiffOp::Equal("foo".to_owned()),
+                        DiffOp::Delete {
+                            truth: "bar".to_owned(),
+                        },
+                        DiffOp::Insert("baz".to_owned()),
+                    ],
+                },
+                BoundingBoxDiff {
+                    left: 5,
+                    bottom: 6,
+                    right: 7,
+                    top: 8,
+                    value: vec![DiffOp::Equal("qux".to_owned())],
+                },
+            ],
+        };
+        let mut w = String::new();
+        let mut serializer = Serializer::new(&mut w);
+        serializer.indent(' ', 4);
+        root.serialize(serializer).unwrap();
+        assert_snapshot!(w);
+    }
 }

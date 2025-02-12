@@ -8,10 +8,14 @@ use crate::tesseract_ext::BoundingBox;
 pub type BoundingBoxDiff = BoundingBox<Vec<DiffOp>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum DiffOp {
     Equal(String),
     Insert(String),
-    Delete(String),
+    Delete {
+        #[serde(rename = "@truth")]
+        truth: String,
+    },
 }
 
 /// IMPORTANT: `ocr_text_lines` should have trailing spaces
@@ -44,8 +48,9 @@ pub fn diff(ocr_text_lines: &[BoundingBox<&str>], old: &str) -> Vec<BoundingBoxD
                 let Some((_, (_, line))) = lines_iter.peek_mut() else {
                     panic!("no line for DELETE {change:?}");
                 };
-                eprintln!("DELETE {change:?}");
-                line.value.push(DiffOp::Delete(change.to_owned()));
+                line.value.push(DiffOp::Delete {
+                    truth: change.to_owned(),
+                });
             }
             ChangeTag::Equal | ChangeTag::Insert => 'change: loop {
                 let Some((_line_idx, (line_text, line_diff))) = lines_iter.peek_mut() else {
@@ -57,14 +62,8 @@ pub fn diff(ocr_text_lines: &[BoundingBox<&str>], old: &str) -> Vec<BoundingBoxD
                 change = &change[end..];
                 **line_text = &line_text[end..];
                 let op = match tag {
-                    ChangeTag::Equal => {
-                        eprintln!("EQUAL {chunk:?}");
-                        DiffOp::Equal(chunk.to_owned())
-                    }
-                    ChangeTag::Insert => {
-                        eprintln!("INSERT {chunk:?}");
-                        DiffOp::Insert(chunk.to_owned())
-                    }
+                    ChangeTag::Equal => DiffOp::Equal(chunk.to_owned()),
+                    ChangeTag::Insert => DiffOp::Insert(chunk.to_owned()),
                     ChangeTag::Delete => unreachable!(),
                 };
                 line_diff.value.push(op);
@@ -98,7 +97,9 @@ mod tests {
             vec![
                 ocr_text_lines[0].with_value(vec![
                     DiffOp::Equal("hello w".to_owned()),
-                    DiffOp::Delete("o".to_owned()),
+                    DiffOp::Delete {
+                        truth: "o".to_owned()
+                    },
                     DiffOp::Equal("rld ".to_owned()),
                 ]),
                 ocr_text_lines[1].with_value(vec![

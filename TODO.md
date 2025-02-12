@@ -1,5 +1,6 @@
 # TODO
 
+- blur image, alternating rows
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
 - diff not found 500
@@ -17,6 +18,7 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- use `dissimilar` crate instead of `similar`
 - embedded tessdata? `tess_from_mem` or something?
 - Paseq glyph is empty?
 - fix the whole `process-mam` thing
