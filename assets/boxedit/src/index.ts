@@ -1,6 +1,6 @@
 "use strict";
 
-import { TessBox, TAG_NAME } from "./tess-box.js";
+import { TessBox, TAG_NAME, newBox } from "./tess-box.js";
 
 let image: HTMLImageElement | null = null;
 
@@ -79,155 +79,6 @@ function renderBoxes(text: string, training: boolean = false) {
             boxContainer().appendChild(boxElem);
         }
     };
-}
-
-/**
- * Clockwise from top
- */
-enum Direction {
-    Top = 0b1000,
-    TopRight = 0b1100,
-    Right = 0b0100,
-    RightBottom = 0b0110,
-    Bottom = 0b0010,
-    BottomLeft = 0b0011,
-    Left = 0b0001,
-    LeftTop = 0b1001,
-    Inside = 0b0000,
-}
-
-function newBox(char: string, left: string, top: string, width: number, height: number): TessBox {
-    const boxElem = document.createElement(TAG_NAME) as TessBox;
-    boxElem.innerText = char;
-    boxElem.style.left = left + 'px';
-    boxElem.style.top = top + 'px';
-    boxElem.style.width = width + 'px';
-    boxElem.style.height = height + 'px';
-    setupKeyboardResize(boxElem);
-    return boxElem;
-}
-
-function getDir(top: boolean, right: boolean, bottom: boolean, left: boolean): Direction {
-    let dir = 0;
-    if (top) dir |= Direction.Top;
-    if (right) dir |= Direction.Right;
-    if (bottom) dir |= Direction.Bottom;
-    if (left) dir |= Direction.Left;
-    return dir;
-}
-
-function eventDir(event: MouseEvent): Direction {
-    if (event.target instanceof HTMLElement === false) throw new Error("where target?");
-
-    const rect = event.target.getBoundingClientRect();
-    return getDir(
-        event.y - rect.top < 4, // top
-        rect.right - event.x < 4, // right
-        rect.bottom - event.y < 4, // bottom
-        event.x - rect.left < 4, // left
-    );
-}
-
-function setupKeyboardResize(elem: TessBox) {
-    let keyboardResizeDir: Direction = Direction.Inside;
-
-    elem.addEventListener("keydown", (event) => {
-        if (event.key === "Delete") {
-            event.preventDefault();
-            elem.remove();
-            return true;
-        };
-        if (event.key === "=") {
-            event.preventDefault();
-            const newBoxElemt = newBox(
-                "",
-                elem.offsetLeft - elem.offsetWidth - 10 + "",
-                elem.offsetTop.toString(), elem.offsetWidth,
-                elem.offsetHeight
-            );
-            elem.after(newBoxElemt);
-            newBoxElemt.focus();
-            return true;
-        }
-
-        const toggleDirFocus = (dir: Direction) => {
-            event.preventDefault();
-            if (dir === keyboardResizeDir) keyboardResizeDir = Direction.Inside;
-            else keyboardResizeDir = dir;
-        };
-
-        if (event.ctrlKey) switch (event.key) {
-            case "ArrowUp": toggleDirFocus(Direction.Top); break;
-            case "ArrowDown": toggleDirFocus(Direction.Bottom); break;
-            case "ArrowLeft": toggleDirFocus(Direction.Left); break;
-            case "ArrowRight": toggleDirFocus(Direction.Right); break;
-        } else if (event.shiftKey) {
-            let dx = 0, dy = 0;
-            switch (event.key) {
-                case "ArrowUp": event.preventDefault(); dy = -1; break;
-                case "ArrowDown": event.preventDefault(); dy = 1; break;
-                case "ArrowLeft": event.preventDefault(); dx = -1; break;
-                case "ArrowRight": event.preventDefault(); dx = 1; break;
-            }
-            resizeElem(elem, keyboardResizeDir, dy, dx);
-        }
-    });
-}
-// #endregion
-
-// #region Resize
-const cursor = new Map<Direction, string>();
-cursor.set(Direction.Top, "ns-resize");
-cursor.set(Direction.TopRight, "ne-resize");
-cursor.set(Direction.Right, "ew-resize");
-cursor.set(Direction.RightBottom, "se-resize");
-cursor.set(Direction.Bottom, "ns-resize");
-cursor.set(Direction.BottomLeft, "sw-resize");
-cursor.set(Direction.Left, "ew-resize");
-cursor.set(Direction.LeftTop, "nw-resize");
-cursor.set(Direction.Inside, "move");
-
-function handleMouseMove(event: MouseEvent) {
-    if (event.target instanceof TessBox === false) return false;
-    const dir = eventDir(event);
-    event.target.style.cursor = cursor.get(dir) || (() => { throw new Error(`invalid cursor ${dir.toString(2)}`); })();
-}
-
-function handleMouseDown(downEvent: MouseEvent) {
-    if (downEvent.target instanceof TessBox === false) return false;
-    downEvent.preventDefault();
-
-    const elem = downEvent.target;
-    const dir = eventDir(downEvent);
-
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    let prevX = downEvent.clientX, prevY = downEvent.clientY;
-    boxContainer().addEventListener("mousemove", (moveEvent) => {
-        const dx = moveEvent.clientX - prevX, dy = moveEvent.clientY - prevY;
-        prevX = moveEvent.clientX;
-        prevY = moveEvent.clientY;
-
-        resizeElem(elem, dir, dy, dx);
-    }, { signal });
-
-    boxContainer().addEventListener("mouseup", () => controller.abort(), { signal });
-}
-
-{
-    boxContainer().addEventListener("focusin", (event) => {
-        if (event.target instanceof TessBox === false) return false;
-        event.target.style.zIndex = "2";
-        event.target.addEventListener("mousemove", handleMouseMove);
-        event.target.addEventListener("mousedown", handleMouseDown);
-    });
-    boxContainer().addEventListener("focusout", (event) => {
-        if (event.target instanceof TessBox === false) return false;
-        event.target.style.zIndex = "0";
-        event.target.removeEventListener("mousemove", handleMouseMove);
-        event.target.removeEventListener("mousedown", handleMouseDown);
-    });
 }
 // #endregion
 
@@ -401,25 +252,6 @@ function getBoxes() {
             return `${char} ${left} ${bottom} ${right} ${top} 0`;
         })
         .join("\n");
-}
-
-function resizeElem(elem: TessBox, dir: number, dy: number, dx: number) {
-    if (dir === 0b0000) dir = 0b1111;
-
-    if ((dir & Direction.Top) != 0) {
-        elem.style.top = elem.offsetTop + dy + 'px';
-        elem.style.height = elem.clientHeight - dy + 'px';
-    }
-    if ((dir & Direction.Right) != 0) {
-        elem.style.width = elem.clientWidth + dx + 'px';
-    }
-    if ((dir & Direction.Bottom) != 0) {
-        elem.style.height = elem.clientHeight + dy + 'px';
-    }
-    if ((dir & Direction.Left) != 0) {
-        elem.style.left = elem.offsetLeft + dx + 'px';
-        elem.style.width = elem.clientWidth - dx + 'px';
-    }
 }
 
 document.getElementById("recognize")!.addEventListener("click", async (event) => {
