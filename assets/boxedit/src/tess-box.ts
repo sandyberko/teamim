@@ -67,17 +67,23 @@ export class TessBox extends HTMLElement {
     }
 
     // #region mouse-resize
+    #focusController: AbortController | null = null;
     handleFocus(event: FocusEvent) {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "2";
-        event.target.addEventListener("mousemove", this.handleMouseMove.bind(this));
-        event.target.addEventListener("mousedown", this.handleMouseDown.bind(this));
+        if (this.#focusController === null) {
+            this.#focusController = new AbortController();
+            const signal = this.#focusController.signal;
+            event.target.addEventListener("mousemove", this.handleMouseMove.bind(this), { signal });
+            event.target.addEventListener("mousedown", this.handleMouseDown.bind(this), { signal });
+        }
     }
     handleBlur(event: FocusEvent) {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "0";
-        event.target.removeEventListener("mousemove", this.handleMouseMove.bind(this));
-        event.target.removeEventListener("mousedown", this.handleMouseDown.bind(this));
+        event.target.style.cursor = "default";
+        this.#focusController?.abort();
+        this.#focusController = null;
     }
     handleMouseDown(downEvent: MouseEvent) {
         if (downEvent.target instanceof TessBox === false) return false;
@@ -110,7 +116,7 @@ export class TessBox extends HTMLElement {
     // #region keyboard-resize
     #keyboardResizeDir: Direction = Direction.Inside;
     handleKeyDown(event: KeyboardEvent) {
-        if (event.key === "Delete") {
+        if (event.shiftKey && event.key === "Delete") {
             event.preventDefault();
             this.remove();
             return true;

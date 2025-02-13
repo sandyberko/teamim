@@ -353,7 +353,7 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
 
 fn find_truth_text(ocr_text: &str) -> eyre::Result<&str> {
     let position = {
-        let snippet = if let Some((idx, _)) = ocr_text.char_indices().nth(17) {
+        let snippet = if let Some((idx, _)) = ocr_text.char_indices().nth(25) {
             &ocr_text[..idx]
         } else {
             ocr_text

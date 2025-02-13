@@ -139,16 +139,17 @@ function renderBoxes(text: string, training: boolean = false) {
 // #endregion
 
 // Visibility
-const viewAttr = "data-view";
+const hideTextAttr = "data-hide-text";
+const soloAttr = "data-solo";
 const keyMap: Record<string, (active: boolean) => void> = {
     // image
     "1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
     // box
     "2": (show) => { boxContainer().style.opacity = show ? "1" : "0"; },
-    // box + text
-    "3": (show) => { show ? boxContainer().removeAttribute(viewAttr) : boxContainer().setAttribute(viewAttr, "text-only"); },
+    // hide text
+    "3": (show) => { boxContainer().toggleAttribute(hideTextAttr, !show); },
     // solo box
-    "4": (show) => { show ? boxContainer().removeAttribute(viewAttr) : boxContainer().setAttribute(viewAttr, "solo"); },
+    "4": (show) => { boxContainer().toggleAttribute(soloAttr, !show); },
     // diff
     "F1": (show) => { show && diff(); }
 }

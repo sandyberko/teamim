@@ -98,6 +98,7 @@ main {
 
             insert {
                 border: 5px solid magenta;
+
                 &:hover::after {
                     content: attr(err);
                 }
@@ -109,16 +110,15 @@ main {
             }
         }
 
-        &[data-view="text-only"]>tess-box,
-        &[data-view="solo"]>tess-box {
-            color: transparent !important;
+        &[data-hide-text]>tess-box, &[data-hide-text]>tess-box>* {
+            color: transparent;
 
             &::selection {
                 background-color: transparent;
             }
         }
 
-        &[data-view="solo"]>tess-box:not(:focus) {
+        &[data-solo]>tess-box:not(:focus) {
             opacity: 0;
         }
     }

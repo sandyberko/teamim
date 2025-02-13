@@ -1,11 +1,11 @@
 # TODO
 
+- Shira is missing spaces
 - blur image, alternating rows
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
 - diff not found 500
 - check PSMs
-- fix 345_007 box file, retrain
 - diff feature for training boxes
 - more boxes?
 - more augmentations: 
