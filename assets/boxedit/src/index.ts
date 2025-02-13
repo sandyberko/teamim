@@ -96,10 +96,8 @@ enum Direction {
     Inside = 0b0000,
 }
 
-let tabIndex = 0;
 function newBox(char: string, left: string, top: string, width: number, height: number): TessBox {
     const boxElem = document.createElement(TAG_NAME) as TessBox;
-    boxElem.tabIndex = tabIndex++;
     boxElem.innerText = char;
     boxElem.style.left = left + 'px';
     boxElem.style.top = top + 'px';

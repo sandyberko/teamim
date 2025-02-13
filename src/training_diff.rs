@@ -1,4 +1,3 @@
-use serde::Serialize;
 use similar::utils::TextDiffRemapper;
 use similar::ChangeTag;
 use similar::{Algorithm, TextDiff};
@@ -7,14 +6,10 @@ use crate::tesseract_ext::BoundingBox;
 
 pub type BoundingBoxDiff = BoundingBox<Vec<DiffOp>>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiffOp {
     Equal(String),
-    Insert {
-        #[serde(rename = "@err")]
-        err: String,
-    },
+    Insert { err: String },
     Delete(String),
 }
 

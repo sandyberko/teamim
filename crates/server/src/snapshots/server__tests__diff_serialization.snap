@@ -1,14 +1,5 @@
 ---
 source: crates/server/src/main.rs
-expression: w
+expression: markup.into_string()
 ---
-<div id="box-container" style="width: 100px; height: 100px;">
-    <tess-box left="1" bottom="2" right="3" top="4">
-        <equal>foo</equal>
-        <delete>bar</delete>
-        <insert err="baz"></insert>
-    </tess-box>
-    <tess-box left="5" bottom="6" right="7" top="8">
-        <equal>qux</equal>
-    </tess-box>
-</div>
+<div id="box-container" style="width: 100px; height: 100px;"><tess-box>foo<delete>bar</delete><insert err="baz"></insert></tess-box><tess-box>qux</tess-box></div>

@@ -8,11 +8,12 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use quick_xml::se::Serializer;
+use maud::{html, Markup};
 use serde::Serialize;
 use teamim::{
-    into_geometry, parse_box_line, place_teamim, training_diff::BoundingBoxDiff, MismatchError,
-    OriginPos, PlaceError, PlaceOptions,
+    into_geometry, parse_box_line, place_teamim,
+    training_diff::{BoundingBoxDiff, DiffOp},
+    MismatchError, OriginPos, PlaceError, PlaceOptions,
 };
 use thiserror::Error;
 use tower_http::services::ServeDir;
@@ -64,8 +65,6 @@ async fn main() {
 enum RecognizeError {
     #[error("empty image")]
     EmptyImage,
-    #[error("seialization error: {0}")]
-    Serialization(#[from] quick_xml::se::SeError),
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
@@ -76,7 +75,7 @@ impl IntoResponse for RecognizeError {
             RecognizeError::EmptyImage => {
                 (StatusCode::BAD_REQUEST, self.to_string()).into_response()
             }
-            RecognizeError::Other(_) | RecognizeError::Serialization(_) => {
+            RecognizeError::Other(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
             }
         }
@@ -97,39 +96,44 @@ async fn post_recognize(image: Bytes) -> Result<impl IntoResponse, RecognizeErro
     Ok((headers, box_file))
 }
 
-#[derive(Serialize)]
-#[serde(rename = "div", rename_all = "kebab-case")]
 struct Div {
-    #[serde(rename = "@id")]
-    id: String,
-    #[serde(rename = "@style")]
-    style: String,
+    width: u32,
+    height: u32,
     tess_box: Vec<BoundingBoxDiff>,
 }
 
+impl From<Div> for Markup {
+    fn from(val: Div) -> Self {
+        html! {
+            div #box-container style={"width: "(val.width)"px; height: "(val.height)"px;"} {
+                @for tess_box in val.tess_box {
+                    tess-box top=(tess_box.top) left=(tess_box.left) right=(tess_box.right) bottom=(tess_box.bottom) {
+                        @for op in tess_box.value {
+                            @match op {
+                                DiffOp::Equal(value) => (value),
+                                DiffOp::Insert { err } => insert err=(err) {},
+                                DiffOp::Delete(value) => delete { (value) },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[axum::debug_handler]
-async fn post_recognize_training(image: Bytes) -> Result<impl IntoResponse, RecognizeError> {
+async fn post_recognize_training(image: Bytes) -> Result<Markup, RecognizeError> {
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let (tess_box, w, h) = teamim::recognize_training(&image)?;
-    let boxes = Div {
-        id: "box-container".to_owned(),
-        style: format!("width: {w}px; height: {h}px;"),
+    let (tess_box, width, height) = teamim::recognize_training(&image)?;
+    Ok(Div {
+        width,
+        height,
         tess_box,
-    };
-    let mut buf = String::new();
-    let mut serializer = Serializer::new(&mut buf);
-    serializer.indent(' ', 4);
-    serializer.expand_empty_elements(true);
-    boxes.serialize(serializer)?;
-    let headers = [(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(mime::TEXT_XML.as_ref()),
-    )]
-    .into_iter()
-    .collect::<HeaderMap>();
-    Ok((headers, buf))
+    }
+    .into())
 }
 
 #[derive(Serialize)]
@@ -245,15 +249,14 @@ async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, D
 #[cfg(test)]
 mod tests {
     use insta::assert_snapshot;
-    use quick_xml::se::Serializer;
-    use serde::Serialize as _;
+    use maud::Markup;
     use teamim::training_diff::{BoundingBoxDiff, DiffOp};
 
     #[test]
     fn diff_serialization() {
         let root = super::Div {
-            id: "box-container".to_owned(),
-            style: "width: 100px; height: 100px;".to_owned(),
+            width: 100,
+            height: 100,
             tess_box: vec![
                 BoundingBoxDiff {
                     left: 1,
@@ -275,10 +278,7 @@ mod tests {
                 },
             ],
         };
-        let mut w = String::new();
-        let mut serializer = Serializer::new(&mut w);
-        serializer.expand_empty_elements(true);
-        root.serialize(serializer).unwrap();
-        assert_snapshot!(w);
+        let markup: Markup = root.into();
+        assert_snapshot!(markup.into_string());
     }
 }

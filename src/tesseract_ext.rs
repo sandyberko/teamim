@@ -15,7 +15,6 @@ use leptess::{
     },
     leptonica,
 };
-use serde::Serialize;
 
 use crate::leptonica_ext::Boxes;
 
@@ -189,18 +188,13 @@ impl ResultItem<'_> {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
-    #[serde(rename = "$value")]
     pub value: Value,
 
-    #[serde(rename = "@left")]
     pub left: i32,
-    #[serde(rename = "@bottom")]
     pub bottom: i32,
-    #[serde(rename = "@right")]
     pub right: i32,
-    #[serde(rename = "@top")]
     pub top: i32,
 }
 
