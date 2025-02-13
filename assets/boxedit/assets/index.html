@@ -20,8 +20,8 @@
         <fieldset>
             <legend>זיהוי</legend>
             <select id="recognize-target" title="סוג זיהוי">
-                <option value="recognition">זיהוי</option>
                 <option value="training">אימון</option>
+                <option value="recognition">זיהוי</option>
             </select>
             <input id="recognize" type="submit" value="🔍" title="הרץ זיהוי">
             <input type="file" id="box-input" accept=".box" title="בחר קובץ זיהוי">
@@ -40,6 +40,14 @@
         <fieldset>
             <legend>תצוגה</legend>
             <button onclick="document.getElementById('legend').showModal()">מקרא</button>
+            <select id="view-mode" title="מצב תצוגה" multiple>
+                <option value="text-only">טקסט בלבד</option>
+                <option value="solo">ריבוע יחיד</option>
+            </select>
+        </fieldset>
+        <fieldset>
+            <legend>גודל גופן</legend>
+            <input type="range" id="font-size" min="4" max="9" value="6.6" step="0.05">
         </fieldset>
     </header>
     <main id="main">

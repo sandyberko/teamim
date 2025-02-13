@@ -47,7 +47,7 @@ pub fn diff(ocr_lines: &[BoundingBox<&str>], new: &str, old: &str) -> Vec<Boundi
         match tag {
             ChangeTag::Delete => {
                 let Some((_, (_, line))) = lines_iter.peek_mut() else {
-                    panic!("no line for DELETE {change:?}");
+                    break 'changes;
                 };
                 line.value.push(DiffOp::Delete(change.to_owned()));
             }

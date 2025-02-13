@@ -406,3 +406,17 @@ async function diff() {
     }
 };
 
+
+const fontSizeInput = document.getElementById("font-size");
+if (fontSizeInput instanceof HTMLInputElement === false) throw new Error("where font size input?");
+fontSizeInput.addEventListener("input", (event) => {
+    const fontSize = parseFloat(fontSizeInput.value);
+    main.style.fontSize = fontSize + 'em';
+});
+
+const viewModeInput = document.getElementById("view-mode");
+if (viewModeInput instanceof HTMLSelectElement === false) throw new Error("where view mode input?");
+viewModeInput.addEventListener("change", (event) => {
+    const viewModes = viewModeInput.value.split(",");
+    keyMap["4"](viewModes.includes('solo'));
+});

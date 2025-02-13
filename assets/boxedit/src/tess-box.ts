@@ -67,13 +67,13 @@ export class TessBox extends HTMLElement {
     }
 
     // #region mouse-resize
-    handleFocusIn(event: FocusEvent) {
+    handleFocus(event: FocusEvent) {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "2";
         event.target.addEventListener("mousemove", this.handleMouseMove.bind(this));
         event.target.addEventListener("mousedown", this.handleMouseDown.bind(this));
     }
-    handleFocusOut(event: FocusEvent) {
+    handleBlur(event: FocusEvent) {
         if (event.target instanceof TessBox === false) return false;
         event.target.style.zIndex = "0";
         event.target.removeEventListener("mousemove", this.handleMouseMove.bind(this));
@@ -172,6 +172,7 @@ export class TessBox extends HTMLElement {
 
     connectedCallback() {
         this.tabIndex = 0;
+        this.contentEditable = "true";
 
         const left = this.getAttribute("left");
         const bottom = this.getAttribute("bottom");
@@ -186,8 +187,8 @@ export class TessBox extends HTMLElement {
         this.style.top = top + 'px';
 
         this.addEventListener("dblclick", this.handleDoubleClick.bind(this));
-        this.addEventListener("focusin", this.handleFocusIn.bind(this));
-        this.addEventListener("focusout", this.handleFocusOut.bind(this));
+        this.addEventListener("focus", this.handleFocus.bind(this));
+        this.addEventListener("blur", this.handleBlur.bind(this));
         this.addEventListener("keydown", this.handleKeyDown.bind(this));
     }
 
