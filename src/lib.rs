@@ -19,51 +19,62 @@ use training_diff::BoundingBoxDiff;
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
-pub fn recognize_training(img: &[u8]) -> eyre::Result<(Vec<BoundingBoxDiff>, u32, u32)> {
-    let mut tess = Tess::new(DATAPATH, LANG)?;
-    tess.set_page_seg_mode(PageSegMode::default());
-
-    let pix = leptonica::pix_read_mem(img)?;
-    tess.set_image(&pix);
-    tess.recognize()?;
-
-    // TODO is it already owned?
-    let ocr_text = tess.get_text()?;
-    let ocr_text = ocr_text.as_str()?.replace('\n', " ");
-
-    let truth_text = find_truth_text(&ocr_text)?;
-
-    let boxes = tess
-        .results_iter(PageIteratorLevel::Textline)
-        .map(|row| {
-            // TODO this could be a single call
-            let bounding_box = row.bounding_box();
-            bounding_box.with_value(row.text())
-        })
-        .collect::<Box<[_]>>();
-    let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
-
-    let w = pix.get_w();
-    let h = pix.get_h();
-    Ok((diff, w, h))
+#[derive(Clone)]
+pub struct TeamimCtx {
+    tess: Tess,
 }
 
-pub fn recognize(img: &[u8]) -> eyre::Result<String> {
-    let mut tess = Tess::new(DATAPATH, LANG)?;
-    tess.set_page_seg_mode(PageSegMode::default());
-
-    let pix = leptonica::pix_read_mem(img)?;
-    tess.set_image(&pix);
-    tess.recognize()?;
-
-    let mut w = String::new();
-    for result in tess.results_iter(PageIteratorLevel::Symbol) {
-        // TODO this could be a single call
-        let char = result.text().chars().next().ok_or_eyre("no char")?;
-        let bounding_box = result.bounding_box().with_value(char);
-        writeln!(&mut w, "{bounding_box}")?;
+impl TeamimCtx {
+    pub fn new() -> eyre::Result<Self> {
+        let tess = Tess::new(DATAPATH, LANG)?;
+        tess.set_page_seg_mode(PageSegMode::default());
+        Ok(Self { tess })
     }
-    Ok(w)
+
+    pub fn recognize(&mut self, img: &[u8]) -> eyre::Result<String> {
+        let pix = leptonica::pix_read_mem(img)?;
+        self.tess.set_image(&pix);
+        self.tess.recognize()?;
+
+        let mut w = String::new();
+        for result in self.tess.results_iter(PageIteratorLevel::Symbol) {
+            // TODO this could be a single call
+            let char = result.text().chars().next().ok_or_eyre("no char")?;
+            let bounding_box = result.bounding_box().with_value(char);
+            writeln!(&mut w, "{bounding_box}")?;
+        }
+        Ok(w)
+    }
+
+    pub fn recognize_training(
+        &mut self,
+        img: &[u8],
+    ) -> eyre::Result<(Vec<BoundingBoxDiff>, u32, u32)> {
+        let pix = leptonica::pix_read_mem(img)?;
+        self.tess.set_image(&pix);
+        self.tess.recognize()?;
+
+        // TODO is it already owned?
+        let ocr_text = self.tess.get_text()?;
+        let ocr_text = ocr_text.as_str()?.replace('\n', " ");
+
+        let truth_text = find_truth_text(&ocr_text)?;
+
+        let boxes = self
+            .tess
+            .results_iter(PageIteratorLevel::Textline)
+            .map(|row| {
+                // TODO this could be a single call
+                let bounding_box = row.bounding_box();
+                bounding_box.with_value(row.text())
+            })
+            .collect::<Box<[_]>>();
+        let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
+
+        let w = pix.get_w();
+        let h = pix.get_h();
+        Ok((diff, w, h))
+    }
 }
 
 #[derive(Clone, Copy, Default)]

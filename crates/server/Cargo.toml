@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 eyre = { workspace = true }
+color-eyre = { workspace = true }
 thiserror = { workspace = true }
 axum = { version = "0.8.1", features = ["macros", "tower-log", "multipart"] }
 teamim = { path = "../.." }

@@ -1,6 +1,6 @@
 # TODO
 
-- Shira is missing spaces
+- Shira is missing spaces (248/080.jpg)
 - blur image, alternating rows
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!

@@ -32,9 +32,13 @@ pub enum PageSegMode {
     Auto = capi::TessPageSegMode_PSM_AUTO,
 }
 
+#[derive(Clone)]
 pub struct Tess {
     raw: NonNull<TessBaseAPI>,
 }
+
+// TODO are you sure?
+unsafe impl Send for Tess {}
 
 impl Drop for Tess {
     fn drop(&mut self) {

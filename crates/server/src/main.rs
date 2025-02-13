@@ -1,13 +1,17 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     body::Bytes,
-    extract::{multipart::MultipartError, Multipart},
+    extract::{multipart::MultipartError, Multipart, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
+use eyre::eyre;
 use maud::{html, Markup};
 use serde::Serialize;
 use teamim::{
@@ -19,8 +23,15 @@ use thiserror::Error;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+#[derive(Clone)]
+struct AppState {
+    ctx: Arc<Mutex<teamim::TeamimCtx>>,
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> eyre::Result<()> {
+    color_eyre::install()?;
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -36,6 +47,10 @@ async fn main() {
         panic!("boxedit dir does not exist: {boxedit_dir:?}");
     }
 
+    let state = AppState {
+        ctx: Arc::new(Mutex::new(teamim::TeamimCtx::new()?)),
+    };
+
     // build our application with a single route
     let app = Router::new()
         .route("/recognize", post(post_recognize))
@@ -45,11 +60,13 @@ async fn main() {
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
-        .fallback_service(ServeDir::new(boxedit_dir.join("assets")));
+        .fallback_service(ServeDir::new(boxedit_dir.join("assets")))
+        .with_state(state);
+
     // .layer(TraceLayer::new_for_http());
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 
     // launch browser
     let _browser = tokio::spawn(async move {
@@ -58,7 +75,8 @@ async fn main() {
         open::that(url).unwrap();
     });
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 #[derive(Error, Debug)]
@@ -82,11 +100,19 @@ impl IntoResponse for RecognizeError {
     }
 }
 #[axum::debug_handler]
-async fn post_recognize(image: Bytes) -> Result<impl IntoResponse, RecognizeError> {
+async fn post_recognize(
+    State(state): State<AppState>,
+    image: Bytes,
+) -> Result<impl IntoResponse, RecognizeError> {
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let box_file = teamim::recognize(&image)?;
+    let box_file = state
+        .ctx
+        .lock()
+        .map_err(|_| eyre!("lock ctx"))?
+        .recognize(&image)?;
+
     let headers = [(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/tesseract-lstm-box"),
@@ -123,11 +149,18 @@ impl From<Div> for Markup {
 }
 
 #[axum::debug_handler]
-async fn post_recognize_training(image: Bytes) -> Result<Markup, RecognizeError> {
+async fn post_recognize_training(
+    State(state): State<AppState>,
+    image: Bytes,
+) -> Result<Markup, RecognizeError> {
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let (tess_box, width, height) = teamim::recognize_training(&image)?;
+    let (tess_box, width, height) = state
+        .ctx
+        .lock()
+        .map_err(|err| eyre!("lock error: {err}"))?
+        .recognize_training(&image)?;
     Ok(Div {
         width,
         height,
