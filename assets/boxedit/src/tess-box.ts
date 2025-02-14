@@ -185,12 +185,12 @@ export class TessBox extends HTMLElement {
         const right = this.getAttribute("right");
         const top = this.getAttribute("top");
 
-        if (left === null || bottom === null || right === null || top === null) throw new Error("missing box attribute");
-
-        this.style.left = left + 'px';
-        this.style.height = parseInt(bottom) - parseInt(top) + 'px';
-        this.style.width = parseInt(right) - parseInt(left) + 'px';
-        this.style.top = top + 'px';
+        if (left !== null && bottom !== null && right !== null && top !== null) {
+            this.style.left = left + 'px';
+            this.style.height = parseInt(bottom) - parseInt(top) + 'px';
+            this.style.width = parseInt(right) - parseInt(left) + 'px';
+            this.style.top = top + 'px';
+        }
 
         this.addEventListener("dblclick", this.handleDoubleClick.bind(this));
         this.addEventListener("focus", this.handleFocus.bind(this));

@@ -90,7 +90,7 @@ main {
             overflow: visible;
             font-family: 'Guttman Stam';
             color: red;
-            white-space: nowrap;
+            white-space: pre;
 
             &:focus {
                 outline-color: rgba(255, 0, 0, .5);

@@ -20,7 +20,7 @@ function boxContainer(): HTMLElement {
 const imageInput = document.getElementById("image-input");
 if (imageInput instanceof HTMLInputElement === false) throw new Error("where image input?");
 
-const imageSaveButton = document.getElementById("save-image");
+const imageSaveButton = document.getElementById("image-save");
 if (imageSaveButton instanceof HTMLAnchorElement === false) throw new Error("where save button?");
 
 
@@ -34,11 +34,27 @@ const boxInput = document.getElementById("box-input");
 if (boxInput instanceof HTMLInputElement === false) throw new Error("where box input?");
 boxInput.addEventListener("change", (event) => {
     const file = event.target as HTMLInputElement;
-    const reader = new FileReader();
-    reader.readAsText(file.files![0], 'UTF-8');
-    reader.onload = function (event) {
-        const text = event.target?.result as string;
-        renderBoxes(text);
+    const files = Array.from(file.files!);
+    let imageFile = files.find((file) => file.name.endsWith(".jpg") || file.name.endsWith(".jpeg"));
+    if (imageFile) {
+        setImage(imageFile);
+    }
+    const boxFile = files.find((file) => file.name.endsWith(".box"));
+    if (boxFile) {
+        const reader = new FileReader();
+        reader.readAsText(boxFile, 'UTF-8');
+        reader.onload = function (event) {
+            const text = event.target?.result as string;
+            if (targetInput instanceof HTMLSelectElement === false) throw new Error("where target input?");
+            switch (targetInput.value) {
+                case "training":
+                    renderTrainingBoxes(text);
+                    break;
+                case "recognition":
+                    renderBoxes(text, true);
+                    break;
+            }
+        }
     }
 });
 
@@ -83,59 +99,34 @@ function renderBoxes(text: string, training: boolean = false) {
 // #endregion
 
 // #region Training Boxes
-{
-    // lstm box format
-    function renderTrainingBoxes(text: string) {
-        if (!image) throw new Error("where image?");
-        const imgHeight = image.height;
 
-        boxContainer().innerHTML = "";
-        let lastBox: TessBox | null = null;
-        for (const line of text.split("\n")) {
-            if (line === "") continue;
-            const char = line.substring(0, 1);
-            if (char === "\t") {
-                lastBox = null;
-            } else if (lastBox) {
-                lastBox.appendChild(document.createTextNode(char));
-                continue;
-            } else {
-                const [left, blBottom, right, blTop] = line.substring(2).split(" ");
-                const top = imgHeight - parseInt(blTop);
-                const bottom = imgHeight - parseInt(blBottom);
-                const width = parseInt(right) - parseInt(left);
-                const height = bottom - top;
-                lastBox = newBox(char, left, top.toString(), width, height);
-                boxContainer().appendChild(lastBox);
-            }
-        };
-    }
-    const trainingInput = document.getElementById("training-input") as HTMLInputElement;
-    trainingInput!.addEventListener("change", (event) => {
-        const file = event.target as HTMLInputElement;
-        const files = Array.from(file.files!);
-        let imageFile = files.find((file) => file.name.endsWith(".jpg") || file.name.endsWith(".jpeg"));
-        if (imageFile) {
-            setImage(imageFile);
-        }
-        const boxFile = files.find((file) => file.name.endsWith(".box"));
-        if (boxFile) {
-            const reader = new FileReader();
-            reader.readAsText(boxFile, 'UTF-8');
-            reader.onload = function (event) {
-                const text = event.target?.result as string;
-                renderTrainingBoxes(text);
-            }
-        }
-    });
+// lstm box format
+function renderTrainingBoxes(text: string) {
+    if (!image) throw new Error("where image?");
+    const imgHeight = image.height;
 
-    let outputFile: FileSystemFileHandle | null = null;
-    document.getElementById("training-save")!.addEventListener("click", async () => {
-        // create a new handle
-        const suggestedName = Array.from(trainingInput.files!).find((file) => file.name.endsWith(".box"))?.name;
-        outputFile = await writeTrainingBoxes(outputFile, suggestedName);
-    });
+    boxContainer().innerHTML = "";
+    let lastBox: TessBox | null = null;
+    for (const line of text.split("\n")) {
+        if (line === "") continue;
+        const char = line.substring(0, 1);
+        if (char === "\t") {
+            lastBox = null;
+        } else if (lastBox) {
+            lastBox.prepend(document.createTextNode(char));
+            continue;
+        } else {
+            const [left, blBottom, right, blTop] = line.substring(2).split(" ");
+            const top = imgHeight - parseInt(blTop);
+            const bottom = imgHeight - parseInt(blBottom);
+            const width = parseInt(right) - parseInt(left);
+            const height = bottom - top;
+            lastBox = newBox(char, left, top.toString(), width, height);
+            boxContainer().appendChild(lastBox);
+        }
+    };
 }
+
 // #endregion
 
 // Visibility
@@ -171,13 +162,14 @@ const targetInput = document.getElementById("recognize-target");
 if (targetInput instanceof HTMLSelectElement === false) throw new Error("where target input?");
 {
     let outputFile: FileSystemFileHandle | null = null;
-    document.getElementById("save-box")!.addEventListener("click", async () => {
+    document.getElementById("box-save")!.addEventListener("click", async () => {
         switch (targetInput.value) {
             case "training":
-                const [fromServer, suggestedName] = boxInput.files?.[0]
-                    ? [false, boxInput.files[0].name]
-                    : [true, (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name)]
-                outputFile = await writeTrainingBoxes(outputFile, suggestedName, fromServer);
+                const [origin, suggestedName]: [BoxFileOrigin, string | undefined] =
+                    boxInput.files !== null && boxInput.files.length > 0
+                        ? ["file", Array.from(boxInput.files).find((file) => file.name.endsWith(".box"))?.name]
+                        : ["server", (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name)];
+                outputFile = await writeTrainingBoxes(outputFile, suggestedName, origin);
                 break;
             case "recognition":
                 // create a new handle
@@ -206,7 +198,8 @@ if (targetInput instanceof HTMLSelectElement === false) throw new Error("where t
     });
 }
 
-async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, suggestedName: string | undefined, fromServer: boolean = false): Promise<FileSystemFileHandle> {
+type BoxFileOrigin = "server" | "file";
+async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, suggestedName: string | undefined, origin: BoxFileOrigin): Promise<FileSystemFileHandle> {
     if (!boxContainer) throw new Error("where boxContainer?");
 
     if (!outputFile) outputFile = await window.showSaveFilePicker({ suggestedName, types: [{ description: "Box file", accept: { "text/plain": [".box"] } }] });
@@ -225,7 +218,7 @@ async function writeTrainingBoxes(outputFile: FileSystemFileHandle | null, sugge
         const left = box.offsetLeft;
         const bottom = imgHeight - box.offsetTop - box.offsetHeight;
         // see [https://github.com/tesseract-ocr/tesseract/blob/3157ff0e741ea5c85e16fbd1c6edf20f30eccbd3/src/api/lstmboxrenderer.cpp#L34]
-        const right = box.offsetLeft + box.offsetWidth + (fromServer ? 5 : 0);
+        const right = box.offsetLeft + box.offsetWidth + (origin == "server" ? 5 : 0);
         const top = imgHeight - box.offsetTop;
 
         // there seems to be a trailing space when coming from server

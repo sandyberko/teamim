@@ -124,7 +124,7 @@ impl Context {
 
 const IGNORE_TAGS: &[&[u8]] = &[b"spi-pe2", b"spi-samekh2", b"spi-samekh3"];
 fn is_ignored_verse_tag(name: &[u8]) -> bool {
-    const IGNORE_VERSE_TAGS: &[&[u8]] = &[b"lp-legarmeih", b"shirah-space", b"spi-invnun"];
+    const IGNORE_VERSE_TAGS: &[&[u8]] = &[b"lp-legarmeih", b"spi-invnun"];
     IGNORE_VERSE_TAGS.contains(&name) || IGNORE_TAGS.contains(&name)
 }
 
@@ -149,16 +149,19 @@ impl Context {
                     b"chapter" => continue,
                     b"verse" => {
                         self.parse_complicated_verse(xml, buf, writer).await?;
-                        if self.target == Target::Teamim {
-                            writer.write_all(b"\n").await?;
-                        }
                     }
                     unknown => bail!("unknown tag {unknown:?}"),
                 },
                 Event::Empty(elem) if elem.name().as_ref() == b"verse" => {
                     self.expect_text_attr(writer, elem).await?;
-                    if self.target == Target::Teamim {
-                        writer.write_all(b"\n").await?;
+                    match self.target {
+                        Target::Teamim => {
+                            writer.write_all(b"\n").await?;
+                        }
+                        Target::TrainingWideLetters | Target::Training => {
+                            writer.write_all(b" ").await?;
+                        }
+                        Target::Search => (),
                     }
                 }
                 Event::Empty(elem) if IGNORE_TAGS.contains(&elem.name().as_ref()) => {
@@ -220,8 +223,10 @@ impl Context {
                                 .encode_utf8(char_buf);
                             writer.write_all(c.as_bytes()).await?;
                         }
-                        // Sof Pasuq | Maqaf
-                        '\u{05c3}' | '\u{05be}' => writer.write_all(b" ").await?,
+                        // Sof Pasuq
+                        '\u{05c3}' => continue,
+                        // Maqaf
+                        '\u{05be}' => writer.write_all(b" ").await?,
                         _ => (),
                     }
                 }
@@ -237,6 +242,7 @@ impl Context {
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
     ) -> eyre::Result<()> {
+        let mut has_shirah_space = false;
         loop {
             match self.next(xml, buf).await? {
                 Event::Start(elem) => match elem.name().as_ref() {
@@ -265,6 +271,12 @@ impl Context {
                 Event::Empty(elem) if elem.name().as_ref() == b"kq-trivial" => {
                     self.expect_text_attr(writer, elem).await?;
                 }
+                Event::Empty(elem) if elem.name().as_ref() == b"shirah-space" => {
+                    has_shirah_space = true;
+                    if self.target != Target::Search {
+                        writer.write_all(b" ").await?;
+                    }
+                }
                 Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
                     // TODO
                     continue;
@@ -272,6 +284,17 @@ impl Context {
                 Event::End(end) if end.name().as_ref() == b"verse" => break,
                 unexpected => bail!("unexpected {unexpected:?}"),
             }
+        }
+        match self.target {
+            Target::Teamim => {
+                writer.write_all(b"\n").await?;
+            }
+            Target::Training | Target::TrainingWideLetters => {
+                if !has_shirah_space {
+                    writer.write_all(b" ").await?;
+                }
+            }
+            Target::Search => (),
         }
         Ok(())
     }

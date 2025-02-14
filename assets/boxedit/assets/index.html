@@ -14,8 +14,8 @@
     <header>
         <fieldset>
             <legend>תמונה</legend>
-            <input type="file" id="image-input" accept="image/*" title="בחר תמונה">
-            <a id="save-image" download="טעמים.png" title="שמור תמונה">💾</a>
+            <input id="image-input" name="image-input" type="file" accept="image/*" title="בחר תמונה">
+            <a id="image-save" download="טעמים.png" title="שמור תמונה">💾</a>
         </fieldset>
         <fieldset>
             <legend>זיהוי</legend>
@@ -24,13 +24,8 @@
                 <option value="recognition">זיהוי</option>
             </select>
             <input id="recognize" type="submit" value="🔍" title="הרץ זיהוי">
-            <input type="file" id="box-input" accept=".box" title="בחר קובץ זיהוי">
-            <input id="save-box" type="submit" value="💾" title="שמור קובץ זיהוי">
-        </fieldset>
-        <fieldset>
-            <legend>קובץ אימון</legend>
-            <input id="training-input" type="file" multiple accept=".box,.jpg,.jpeg" title="בחר קובץ אימון">
-            <input id="training-save" type="submit" value="💾" title="שמור קובץ אימון">
+            <input id="box-input" name="box-input" type="file" accept=".box,image/*" multiple title="בחר קובץ זיהוי">
+            <input id="box-save" name="box-save" type="submit" value="💾" title="שמור קובץ זיהוי">
         </fieldset>
         <fieldset>
             <legend>עיבוד</legend>

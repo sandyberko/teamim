@@ -1,6 +1,7 @@
 # TODO
 
-- Shira is missing spaces (248/080.jpg)
+- 248_080.box is wrong!
+- remove `Training File` input
 - blur image, alternating rows
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
