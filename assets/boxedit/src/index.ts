@@ -129,34 +129,37 @@ function renderTrainingBoxes(text: string) {
 
 // #endregion
 
-// Visibility
-const hideTextAttr = "data-hide-text";
-const soloAttr = "data-solo";
-const keyMap: Record<string, (active: boolean) => void> = {
-    // image
-    "1": (show) => { image && (image.style.opacity = show ? "1" : "0"); },
-    // box
-    "2": (show) => { boxContainer().style.opacity = show ? "1" : "0"; },
-    // hide text
-    "3": (show) => { boxContainer().toggleAttribute(hideTextAttr, !show); },
-    // solo box
-    "4": (show) => { boxContainer().toggleAttribute(soloAttr, !show); },
-    // diff
-    "F1": (show) => { show && diff(); }
+{// Visibility
+    const hideTextAttr = "data-hide-text";
+    const soloAttr = "data-solo";
+    const keyMap: Record<string, HTMLElement | null> = {
+        // image
+        "1": document.getElementById('view-image'),
+        // box
+        "2": document.getElementById('view-boxes'),
+        // hide text
+        "3": document.getElementById('view-text'),
+        // solo box
+        "4": document.getElementById('view-solo'),
+    }
+    document.addEventListener("keydown", (event) => {
+        if (event.key in keyMap) {
+            event.preventDefault();
+            const elem = keyMap[event.key];
+            if (elem instanceof HTMLInputElement === false) throw new Error(`expected input for ${event.key}`);
+            elem.checked = false;
+        }
+    });
+    document.addEventListener("keyup", (event) => {
+        if (event.shiftKey) return;
+        if (event.key in keyMap) {
+            event.preventDefault();
+            const elem = keyMap[event.key];
+            if (elem instanceof HTMLInputElement === false) throw new Error(`expected input for ${event.key}`);
+            elem.checked = true;
+        }
+    });
 }
-document.addEventListener("keydown", (event) => {
-    if (event.key in keyMap) {
-        event.preventDefault();
-        keyMap[event.key](false);
-    }
-});
-document.addEventListener("keyup", (event) => {
-    if (event.shiftKey) return;
-    if (event.key in keyMap) {
-        event.preventDefault();
-        keyMap[event.key](true);
-    }
-});
 
 const targetInput = document.getElementById("recognize-target");
 if (targetInput instanceof HTMLSelectElement === false) throw new Error("where target input?");
@@ -406,11 +409,4 @@ if (fontSizeInput instanceof HTMLInputElement === false) throw new Error("where 
 fontSizeInput.addEventListener("input", (event) => {
     const fontSize = parseFloat(fontSizeInput.value);
     main.style.fontSize = fontSize + 'em';
-});
-
-const viewModeInput = document.getElementById("view-mode");
-if (viewModeInput instanceof HTMLSelectElement === false) throw new Error("where view mode input?");
-viewModeInput.addEventListener("change", (event) => {
-    const viewModes = viewModeInput.value.split(",");
-    keyMap["4"](viewModes.includes('solo'));
 });

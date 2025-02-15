@@ -1,8 +1,6 @@
 # TODO
 
-- 248_080.box is wrong!
-- remove `Training File` input
-- blur image, alternating rows
+- 248/088 "ישלם המבער את הבער" is a mistake seemingly?
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
 - diff not found 500
@@ -19,6 +17,7 @@
 - boxedit: recognize cached image
 
 ## Optimization
+- sort worse recognitions and focus on them
 - use `dissimilar` crate instead of `similar`
 - embedded tessdata? `tess_from_mem` or something?
 - Paseq glyph is empty?

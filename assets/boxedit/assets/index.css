@@ -10,10 +10,15 @@
     height: 100%;
     overflow: hidden;
     font-family: system-ui;
+
+    --border-radius: 0.5em;
+    --border: 1px solid #ccc;
+    --background-color: #eee;
+    --padding: .75em;
 }
 
 * {
-    transition: opacity .1s;
+    transition: opacity .1s, background-color .4s;
 }
 
 body {
@@ -23,12 +28,49 @@ body {
         "header"
         "main";
     height: 100%;
+    gap: var(--padding);
 }
 
 header {
     grid-area: header;
     display: flex;
     flex-wrap: wrap;
+    user-select: none;
+
+    &>fieldset {
+        display: flex;
+        gap: .4em;
+        align-items: center;
+        border: var(--border);
+        border-radius: var(--border-radius);
+        background-color: var(--background-color);
+
+        &>legend {
+            font-weight: bold;
+            padding: .5em;
+        }
+
+        &>label>input {
+            vertical-align: -.1em;
+            margin: 0;
+        }
+
+        &>:is(input, select, button) {
+            background-color: white;
+            border-radius: var(--border-radius);
+            border: var(--border);
+            padding: .2em var(--padding) .2em var(--padding);
+
+            &:hover {
+                background-color: transparent;
+            }
+        }
+
+        input::file-selector-button {
+            border: none;
+            background-color: transparent;
+        }
+    }
 }
 
 kbd {
@@ -86,7 +128,7 @@ main {
             padding: 0;
             margin: 0;
             border: 0;
-            outline: 2px solid rgba(0, 0, 255, .5);
+            outline: solid rgba(0, 0, 255, .5);
             overflow: visible;
             font-family: 'Guttman Stam';
             color: red;
@@ -109,17 +151,25 @@ main {
                 color: blueviolet;
             }
         }
-
-        &[data-hide-text]>tess-box, &[data-hide-text]>tess-box>* {
-            color: transparent;
-
-            &::selection {
-                background-color: transparent;
-            }
-        }
-
-        &[data-solo]>tess-box:not(:focus) {
-            opacity: 0;
-        }
     }
+}
+
+body:has(#view-image:not(:checked)) img {
+    opacity: 0;
+}
+
+body:has(#view-boxes:not(:checked)) tess-box {
+    border-color: transparent;
+}
+
+body:has(#view-text:not(:checked)) tess-box {
+    color: transparent !important;
+
+    &::selection {
+        background-color: transparent;
+    }
+}
+
+body:has(#view-solo:not(:checked)) tess-box:not(:focus) {
+    opacity: 0;
 }

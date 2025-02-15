@@ -35,10 +35,22 @@
         <fieldset>
             <legend>תצוגה</legend>
             <button onclick="document.getElementById('legend').showModal()">מקרא</button>
-            <select id="view-mode" title="מצב תצוגה" multiple>
-                <option value="text-only">טקסט בלבד</option>
-                <option value="solo">ריבוע יחיד</option>
-            </select>
+            <label>
+                <input id="view-image" type="checkbox" checked title="תמונה">
+                <span>תמונה</span>
+            </label>
+            <label>
+                <input id="view-boxes" type="checkbox" checked title="ריבועים">
+                <span>ריבועים</span>
+            </label>
+            <label>
+                <input id="view-text" type="checkbox" checked title="טקסט">
+                <span>טקסט</span>
+            </label>
+            <label>
+                <input id="view-solo" type="checkbox" checked title="ריבוע נבחר בלבד">
+                <span>ריבוע נבחר בלבד</span>
+            </label>
         </fieldset>
         <fieldset>
             <legend>גודל גופן</legend>
@@ -81,15 +93,6 @@
                 <tr>
                     <td><kbd>4</kbd></td>
                     <td>ריבוע נבחר בלבד</td>
-                </tr>
-            </tbody>
-            <tbody>
-                <tr>
-                    <th scope="rowgroup" headers="keys action" colspan="2">זיהוי</th>
-                </tr>
-                <tr>
-                    <td><kbd>F1</kbd></td>
-                    <td>זיהוי שגיאות</td>
                 </tr>
             </tbody>
             <tbody>
