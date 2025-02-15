@@ -1,0 +1,17 @@
+[package]
+name = "sort_recogs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+teamim = { path = "../.." }
+clap = { workspace = true }
+strsim = "0.11.1"
+eyre = {workspace = true}
+color-eyre = { workspace = true }
+rayon = "1.10.0"
+indicatif = { version = "0.17.11", features = ["rayon"] }
+ctrlc = "3.4.5"
+
+[lints]
+workspace = true

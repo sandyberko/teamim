@@ -4,7 +4,7 @@ pub mod leptonica_ext;
 pub mod tesseract_ext;
 pub mod training_diff;
 
-use std::{ffi::CStr, fmt::Write, fs};
+use std::{ffi::CStr, fmt::Write, fs, path::Path};
 
 use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
@@ -12,7 +12,7 @@ use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
 use serde::Serialize;
 use similar::TextDiff;
-use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess};
+use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess, Text};
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
@@ -29,6 +29,13 @@ impl TeamimCtx {
         let tess = Tess::new(DATAPATH, LANG)?;
         tess.set_page_seg_mode(PageSegMode::default());
         Ok(Self { tess })
+    }
+
+    pub fn file_text(&mut self, img: impl AsRef<Path>) -> eyre::Result<Text> {
+        let pix = leptonica::pix_read(img.as_ref())?;
+        self.tess.set_image(&pix);
+        self.tess.recognize()?;
+        self.tess.get_text()
     }
 
     pub fn recognize(&mut self, img: &[u8]) -> eyre::Result<String> {
@@ -58,7 +65,7 @@ impl TeamimCtx {
         let ocr_text = self.tess.get_text()?;
         let ocr_text = ocr_text.as_str()?.replace('\n', " ");
 
-        let truth_text = find_truth_text(&ocr_text)?;
+        let truth_text = find_truth_text(&ocr_text).ok_or_eyre("not found")?;
 
         let boxes = self
             .tess
@@ -337,9 +344,9 @@ pub enum DiffOp<'s> {
     },
 }
 
-const TRUTH_TEXT: &str = include_str!("../assets/text/mam/training.txt");
+pub const TRAINING_TEXT: &str = include_str!("../assets/text/mam/training.txt");
 pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
-    let old = find_truth_text(text)?;
+    let old = find_truth_text(text).ok_or_eyre("not found")?;
     Ok(TextDiff::from_graphemes(old, text)
         .ops()
         .iter()
@@ -362,19 +369,20 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
         .collect())
 }
 
-fn find_truth_text(ocr_text: &str) -> eyre::Result<&str> {
+#[must_use]
+pub fn find_truth_text(ocr_text: &str) -> Option<&str> {
     let position = {
         let snippet = if let Some((idx, _)) = ocr_text.char_indices().nth(25) {
             &ocr_text[..idx]
         } else {
             ocr_text
         };
-        TRUTH_TEXT.find(snippet).ok_or_eyre("not found")?
+        TRAINING_TEXT.find(snippet)?
     };
-    let old = &TRUTH_TEXT[position..];
+    let old = &TRAINING_TEXT[position..];
     let mut end = ocr_text.len();
     while !old.is_char_boundary(end) {
         end += 1;
     }
-    Ok(&old[..end])
+    Some(&old[..end])
 }

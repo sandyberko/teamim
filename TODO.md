@@ -1,5 +1,7 @@
 # TODO
 
+- [local levenstein](https://docs.rs/fuzzy-string-distance/latest/fuzzy_string_distance/fn.local_levenshtein_distance.html)
+- sort distances: levenshtein never ends at the last images
 - 248/088 "ישלם המבער את הבער" is a mistake seemingly?
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
