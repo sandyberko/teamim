@@ -1939,7 +1939,7 @@ dependencies = [
  "eyre",
  "indicatif",
  "rayon",
- "strsim",
+ "similar",
  "teamim",
 ]
 

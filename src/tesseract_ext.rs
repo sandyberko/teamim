@@ -60,6 +60,24 @@ impl Tess {
         Ok(Tess { raw })
     }
 
+    pub fn set_variable(
+        &mut self,
+        name: impl AsRef<CStr>,
+        value: impl AsRef<CStr>,
+    ) -> eyre::Result<()> {
+        let succeed = unsafe {
+            capi::TessBaseAPISetVariable(
+                self.raw.as_ptr(),
+                name.as_ref().as_ptr(),
+                value.as_ref().as_ptr(),
+            )
+        };
+        if succeed != 1 {
+            bail!("failed to set variable {succeed:x}");
+        }
+        Ok(())
+    }
+
     pub fn results_iter(&mut self, level: PageIteratorLevel) -> ResultIter {
         let iter_ptr = unsafe { TessBaseAPIGetIterator(self.raw.as_ptr()) };
         ResultIter {

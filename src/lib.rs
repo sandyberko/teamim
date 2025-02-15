@@ -4,7 +4,12 @@ pub mod leptonica_ext;
 pub mod tesseract_ext;
 pub mod training_diff;
 
-use std::{ffi::CStr, fmt::Write, fs, path::Path};
+use std::{
+    ffi::{CStr, CString},
+    fmt::Write,
+    fs,
+    path::Path,
+};
 
 use eyre::{bail, eyre, Context, OptionExt};
 use glyph::{Placement, GLYPHS};
@@ -29,6 +34,16 @@ impl TeamimCtx {
         let tess = Tess::new(DATAPATH, LANG)?;
         tess.set_page_seg_mode(PageSegMode::default());
         Ok(Self { tess })
+    }
+
+    pub fn with_debug_file(mut self, debug_file: impl AsRef<Path>) -> eyre::Result<Self> {
+        let debug_file = debug_file.as_ref();
+        let debug_file = debug_file
+            .to_str()
+            .ok_or_else(|| eyre!("non-utf8 path: {debug_file:?}"))?;
+        self.tess
+            .set_variable(c"debug_file", CString::new(debug_file)?)?;
+        Ok(self)
     }
 
     pub fn file_text(&mut self, img: impl AsRef<Path>) -> eyre::Result<Text> {
