@@ -30,6 +30,7 @@ phf = { workspace = true }
 thiserror = { workspace = true }
 similar = { version = "2.7.0", features = ["unicode"] }
 serde = { version = "1.0.217", features = ["derive"] }
+maud = "0.27.0"
 
 
 [lints]

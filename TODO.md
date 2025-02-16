@@ -1,6 +1,14 @@
 # TODO
 
 - tesstrain make (line images!), langdata_ltsm
+
+### Tesstrain Make
+I think I'll stick with box files:
+- existing boxedit infrastructure
+- unclear how to text2image
+- unclear how to finetune with different chars
+However, still check for things like disambigs in `langdata_ltsm`, and plot
+
 - 248/088 "ישלם המבער את הבער" is a mistake seemingly?
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!

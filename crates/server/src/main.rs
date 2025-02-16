@@ -12,12 +12,11 @@ use axum::{
     Json, Router,
 };
 use eyre::eyre;
-use maud::{html, Markup};
+use maud::Markup;
 use serde::Serialize;
 use teamim::{
-    into_geometry, parse_box_line, place_teamim,
-    training_diff::{BoundingBoxDiff, DiffOp},
-    MismatchError, OriginPos, PlaceError, PlaceOptions,
+    into_geometry, parse_box_line, place_teamim, training_diff::Div, MismatchError, OriginPos,
+    PlaceError, PlaceOptions,
 };
 use thiserror::Error;
 use tower_http::services::ServeDir;
@@ -72,7 +71,7 @@ async fn main() -> eyre::Result<()> {
     let _browser = tokio::spawn(async move {
         let url = "http://localhost:3000";
         println!("Opening browser at {url}");
-        open::that(url).unwrap();
+        _ = open::that(url);
     });
 
     axum::serve(listener, app).await?;
@@ -120,32 +119,6 @@ async fn post_recognize(
     .into_iter()
     .collect::<HeaderMap>();
     Ok((headers, box_file))
-}
-
-struct Div {
-    width: u32,
-    height: u32,
-    tess_box: Vec<BoundingBoxDiff>,
-}
-
-impl From<Div> for Markup {
-    fn from(val: Div) -> Self {
-        html! {
-            div #box-container style={"width: "(val.width)"px; height: "(val.height)"px;"} {
-                @for tess_box in val.tess_box {
-                    tess-box top=(tess_box.top) left=(tess_box.left) right=(tess_box.right) bottom=(tess_box.bottom) {
-                        @for op in tess_box.value {
-                            @match op {
-                                DiffOp::Equal(value) => (value),
-                                DiffOp::Insert { err } => insert err=(err) {},
-                                DiffOp::Delete(value) => delete { (value) },
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[axum::debug_handler]

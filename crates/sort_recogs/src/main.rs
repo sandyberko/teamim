@@ -1,5 +1,6 @@
 use eyre::{bail, eyre, Context};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use maud::Markup;
 use rayon::prelude::*;
 use similar::{get_diff_ratio, utils::TextDiffRemapper, Algorithm, TextDiff};
 use std::{
@@ -13,7 +14,10 @@ use std::{
     },
     time::Duration,
 };
-use teamim::{TeamimCtx, TRAINING_TEXT};
+use teamim::{
+    training_diff::{self, Div},
+    TeamimCtx, TRAINING_TEXT,
+};
 
 use clap::Parser;
 
@@ -35,7 +39,11 @@ fn main() -> eyre::Result<()> {
     fs::create_dir(&args.out_dir)
         .wrap_err_with(|| eyre!("Failed to create output dir {:?}", args.out_dir))?;
 
-    let old = TRAINING_TEXT;
+    let test_cutoff = {
+        let snippet = "במה אדע כי אירשנה";
+        TRAINING_TEXT.find(snippet).unwrap() + snippet.len()
+    };
+    let old = &TRAINING_TEXT[..test_cutoff];
 
     let bars = MultiProgress::with_draw_target(ProgressDrawTarget::stdout());
     bars.set_move_cursor(true);
@@ -68,7 +76,7 @@ fn main() -> eyre::Result<()> {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             files.sort_unstable();
-            
+
             let dir_name = path
                 .file_name()
                 .ok_or_else(|| eyre!("invalid dir {path:?}"))?
@@ -119,6 +127,7 @@ fn main() -> eyre::Result<()> {
 
             let mut ocr_text = String::new();
             let mut page_ranges = Vec::with_capacity(imgs.len());
+            let mut page_boxes = Vec::with_capacity(imgs.len());
 
             for img in imgs {
                 if !running.load(atomic::Ordering::SeqCst) {
@@ -132,26 +141,31 @@ fn main() -> eyre::Result<()> {
                 bar.set_message(format!("🔍 recognizing {img_name:?}"));
                 bar.tick();
 
-                let ocr_page_text = CTX
-                    .with_borrow_mut(|ctx| {
-                        let ctx = if let Some(ctx) = ctx.as_mut() {
-                            ctx
-                        } else {
-                            ctx.insert(
-                                TeamimCtx::new()?
-                                    .with_debug_file(args.out_dir.join("tesseract.log"))?,
-                            )
-                        };
+                CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
+                    let ctx = if let Some(ctx) = ctx.as_mut() {
+                        ctx
+                    } else {
+                        ctx.insert(
+                            TeamimCtx::new()?
+                                .with_debug_file(args.out_dir.join("tesseract.log"))?,
+                        )
+                    };
 
-                        ctx.file_text(img)
-                    })?
-                    .as_str()?
-                    .replace('\n', " ");
-                ocr_text.push_str(&ocr_page_text);
-                ocr_text.push(PAGE_SEP);
-                page_ranges.push(
-                    ocr_text.len()..ocr_text.len() + ocr_page_text.len() + PAGE_SEP.len_utf8(),
-                );
+                    let mut text_len = 0;
+                    let mut boxes = Vec::new();
+                    for bx in ctx.file_boxes(img)? {
+                        ocr_text.push_str(bx.value.trim_end_matches('\n'));
+                        ocr_text.push(' ');
+
+                        boxes.push(bx.with_value(text_len..bx.value.len()));
+                        text_len += bx.value.len();
+                    }
+                    ocr_text.push(PAGE_SEP);
+                    page_ranges
+                        .push(ocr_text.len()..ocr_text.len() + text_len + PAGE_SEP.len_utf8());
+                    page_boxes.push(boxes);
+                    Ok(())
+                })?;
                 bar.inc(1);
                 overall_pb.inc(1);
             }
@@ -169,8 +183,9 @@ fn main() -> eyre::Result<()> {
             let mut old_start = 0;
             let distances =
                 imgs.iter()
-                    .zip(page_ranges.iter())
-                    .map(|(img, new_page_range)| -> eyre::Result<_> {
+                    .zip(&page_ranges)
+                    .zip(&page_boxes)
+                    .map(|((img, new_page_range), boxes)| -> eyre::Result<_> {
                         let sep_op = {
                             let mut iter = 0..ops.len();
                             loop {
@@ -192,19 +207,30 @@ fn main() -> eyre::Result<()> {
                             .sum::<usize>();
 
                         if args.emit_text {
+                            let new = remapper
+                                .slice_new(new_page_range.clone())
+                                .ok_or_else(|| eyre!("failed to remap new"))?;
+
+                            let old = remapper
+                                .slice_old(old_start..old_start + old_len)
+                                .ok_or_else(|| eyre!("failed to remap old"))?;
+
+                            let tess_box = training_diff::diff(boxes, new, old);
+                            let width = 0;
+                            let height = 0;
+                            let div = Div {
+                                width,
+                                height,
+                                tess_box,
+                            };
                             let img_name = img
                                 .file_name()
                                 .ok_or_else(|| eyre!("invalid img {img:?}"))?;
-                            let txt_file = out_dir.join(img_name).with_extension("txt");
-                            BufWriter::new(fs::File::create(&txt_file).wrap_err_with(|| {
-                                eyre!("failed to create text file: {txt_file:?}")
-                            })?)
-                            .write_all(
-                                remapper
-                                    .slice_old(old_start..old_start + old_len)
-                                    .ok_or_else(|| eyre!("failed to remap"))?
-                                    .as_bytes(),
-                            )?;
+                            let out_file = out_dir.join(img_name).with_extension("html");
+                            let mut w = BufWriter::new(fs::File::create(&out_file).wrap_err_with(
+                                || eyre!("failed to create diff file: {out_file:?}"),
+                            )?);
+                            write!(w, "{}", Markup::from(div).into_string())?;
                         }
 
                         let ratio = get_diff_ratio(page_ops, old_len, new_page_range.len());
