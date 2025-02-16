@@ -26,11 +26,13 @@ struct Args {
     input_dir: PathBuf,
     out_dir: PathBuf,
 
-    #[arg(long)]
-    emit_text: bool,
+    #[arg(short, long)]
+    /// Hide progress bars
+    quiet: bool,
 }
 
 const PAGE_SEP: char = '\n';
+const LINE_SEP: char = ' ';
 
 #[allow(clippy::too_many_lines)]
 fn main() -> eyre::Result<()> {
@@ -45,7 +47,12 @@ fn main() -> eyre::Result<()> {
     };
     let old = &TRAINING_TEXT[..test_cutoff];
 
-    let bars = MultiProgress::with_draw_target(ProgressDrawTarget::stdout());
+    let draw_target = if args.quiet {
+        ProgressDrawTarget::hidden()
+    } else {
+        ProgressDrawTarget::stdout()
+    };
+    let bars = MultiProgress::with_draw_target(draw_target);
     bars.set_move_cursor(true);
 
     let overall_pb = bars.add(ProgressBar::new_spinner());
@@ -121,9 +128,8 @@ fn main() -> eyre::Result<()> {
                 .ok_or_else(|| eyre!("non-utf8 dir name {dir:?}"))?;
 
             let out_dir = args.out_dir.join(dir_name);
-            if args.emit_text {
-                fs::create_dir(&out_dir)?;
-            }
+
+            fs::create_dir(&out_dir)?;
 
             let mut ocr_text = String::new();
             let mut page_ranges = Vec::with_capacity(imgs.len());
@@ -151,18 +157,31 @@ fn main() -> eyre::Result<()> {
                         )
                     };
 
-                    let mut text_len = 0;
+                    let page_start = ocr_text.len();
+                    let mut line_start = 0;
                     let mut boxes = Vec::new();
-                    for bx in ctx.file_boxes(img)? {
-                        ocr_text.push_str(bx.value.trim_end_matches('\n'));
-                        ocr_text.push(' ');
+                    for (idx, bx) in ctx.file_boxes(img)?.enumerate() {
+                        if idx > 0 {
+                            ocr_text.push(LINE_SEP);
+                        }
+                        let value = bx.value.trim_end();
+                        let value_len = value.len() + 1 /* line/page sep */;
+                        ocr_text.push_str(value);
 
-                        boxes.push(bx.with_value(text_len..bx.value.len()));
-                        text_len += bx.value.len();
+                        let range = line_start..line_start + value_len;
+                        {
+                            // debug
+                            if range == (75..152) {
+                                eprintln!("⚠️⚠️⚠️ {:?}, {value:?}, {value_len}", bx.value);
+                            }
+                        }
+                        boxes.push(bx.with_value(range));
+                        line_start += value_len;
                     }
                     ocr_text.push(PAGE_SEP);
-                    page_ranges
-                        .push(ocr_text.len()..ocr_text.len() + text_len + PAGE_SEP.len_utf8());
+                    let range = page_start..ocr_text.len();
+                    eprintln!("{range:?}");
+                    page_ranges.push(range);
                     page_boxes.push(boxes);
                     Ok(())
                 })?;
@@ -181,68 +200,63 @@ fn main() -> eyre::Result<()> {
 
             let mut ops = diff.ops();
             let mut old_start = 0;
-            let distances =
-                imgs.iter()
-                    .zip(&page_ranges)
-                    .zip(&page_boxes)
-                    .map(|((img, new_page_range), boxes)| -> eyre::Result<_> {
-                        let sep_op = {
-                            let mut iter = 0..ops.len();
-                            loop {
-                                let i = iter.next().ok_or_else(|| eyre!("no seperator "))?;
-                                if remapper
-                                    .slice_new(ops[i].new_range())
-                                    .ok_or_else(|| eyre!("can't slice: {:?}", ops[i]))?
-                                    .contains(PAGE_SEP)
-                                {
-                                    break i;
-                                }
+            let distances = imgs
+                .iter()
+                .zip(&page_ranges)
+                .zip(&page_boxes)
+                .map(|((img, new_page), boxes)| -> eyre::Result<_> {
+                    let sep_op = {
+                        let mut iter = 0..ops.len();
+                        loop {
+                            let i = iter.next().ok_or_else(|| eyre!("no seperator "))?;
+                            if remapper
+                                .slice_new(ops[i].new_range())
+                                .ok_or_else(|| eyre!("can't slice: {:?}", ops[i]))?
+                                .contains(PAGE_SEP)
+                            {
+                                break i;
                             }
-                        };
-                        // TODO what if sep_op is not exactly PAGE_SEP?``
-                        let page_ops = &ops[..sep_op];
-                        let old_len = page_ops
-                            .iter()
-                            .map(|op| op.old_range().len())
-                            .sum::<usize>();
-
-                        if args.emit_text {
-                            let new = remapper
-                                .slice_new(new_page_range.clone())
-                                .ok_or_else(|| eyre!("failed to remap new"))?;
-
-                            let old = remapper
-                                .slice_old(old_start..old_start + old_len)
-                                .ok_or_else(|| eyre!("failed to remap old"))?;
-
-                            let tess_box = training_diff::diff(boxes, new, old);
-                            let width = 0;
-                            let height = 0;
-                            let div = Div {
-                                width,
-                                height,
-                                tess_box,
-                            };
-                            let img_name = img
-                                .file_name()
-                                .ok_or_else(|| eyre!("invalid img {img:?}"))?;
-                            let out_file = out_dir.join(img_name).with_extension("html");
-                            let mut w = BufWriter::new(fs::File::create(&out_file).wrap_err_with(
-                                || eyre!("failed to create diff file: {out_file:?}"),
-                            )?);
-                            write!(w, "{}", Markup::from(div).into_string())?;
                         }
+                    };
+                    // TODO what if sep_op is not exactly PAGE_SEP?``
+                    let page_ops = &ops[..sep_op];
+                    let old_len = page_ops
+                        .iter()
+                        .map(|op| op.old_range().len())
+                        .sum::<usize>();
 
-                        let ratio = get_diff_ratio(page_ops, old_len, new_page_range.len());
-                        ops = &ops[sep_op + 1..];
-                        old_start += old_len;
-                        Ok((ratio, img))
-                    })
-                    .enumerate()
-                    .map(|(page_idx, res)| {
-                        res.wrap_err_with(|| eyre!("failed diffing page #{page_idx}"))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    let old = remapper
+                        .slice_old(old_start..old_start + old_len)
+                        .ok_or_else(|| eyre!("failed to remap old"))?;
+
+                    let tess_box = training_diff::diff(boxes, &ocr_text[new_page.clone()], old);
+                    let width = 0;
+                    let height = 0;
+                    let div = Div {
+                        width,
+                        height,
+                        tess_box,
+                    };
+                    let img_name = img
+                        .file_name()
+                        .ok_or_else(|| eyre!("invalid img {img:?}"))?;
+                    let out_file = out_dir.join(img_name).with_extension("html");
+                    let mut w = BufWriter::new(
+                        fs::File::create(&out_file)
+                            .wrap_err_with(|| eyre!("failed to create diff file: {out_file:?}"))?,
+                    );
+                    write!(w, "{}", Markup::from(div).into_string())?;
+
+                    let ratio = get_diff_ratio(page_ops, old_len, new_page.len());
+                    ops = &ops[sep_op + 1..];
+                    old_start += old_len;
+                    Ok((ratio, img))
+                })
+                .enumerate()
+                .map(|(page_idx, res)| {
+                    res.wrap_err_with(|| eyre!("failed diffing page #{page_idx}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(distances)
         })
         .collect::<Result<Vec<_>, _>>()?

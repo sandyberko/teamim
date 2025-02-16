@@ -72,7 +72,11 @@ pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Ve
         .iter()
         .flat_map(move |op| remapper.iter_slices(op));
 
+    eprintln!("======= PAGE ======");
+    eprintln!("new:\t\t{new}");
     'changes: for (tag, mut change) in changes {
+        eprintln!("===");
+        eprintln!("change:\t{tag} {change:?}");
         match tag {
             ChangeTag::Delete => {
                 let Some((_, (_, line))) = lines_iter.peek_mut() else {
@@ -80,21 +84,28 @@ pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Ve
                 };
                 line.value.push(DiffOp::Delete(change.to_owned()));
             }
-            ChangeTag::Equal | ChangeTag::Insert => 'change: loop {
-                let Some((_line_idx, (line_text, line_diff))) = lines_iter.peek_mut() else {
+            ChangeTag::Equal | ChangeTag::Insert => 'lines: loop {
+                let Some((_line_idx, (new_line, line_diff))) = lines_iter.peek_mut() else {
                     break 'changes;
                 };
 
-                eprintln!("===");
-                eprintln!("{change}");
-                eprintln!("{line_text:?}");
-                eprintln!("{}", &new[line_text.clone()]);
-                eprintln!("===");
+                eprintln!("---");
+                eprintln!("new_line:\t{new_line:?}");
+                // FIXME: it crashes upon PAGE_SEP
+                eprintln!("new_line:\t{:?}", &new[new_line.clone()]);
+                eprintln!("new_line_len:\t{:?}", new_line.len());
 
-                let end = change.len().min(line_text.len());
-                let chunk = &change[..end];
-                change = &change[end..];
-                line_text.start += end;
+                let chunk_len = change.len().min(new_line.len());
+
+                eprintln!("chunk_len:\t{chunk_len}");
+
+                let chunk = &change[..chunk_len];
+
+                eprintln!("chunk:\t\t{chunk:?}");
+                eprintln!("---");
+
+                change = &change[chunk_len..];
+                new_line.start += chunk_len;
                 let op = match tag {
                     ChangeTag::Equal => DiffOp::Equal(chunk.to_owned()),
                     ChangeTag::Insert => DiffOp::insert(chunk.to_owned()),
@@ -102,14 +113,15 @@ pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Ve
                 };
                 line_diff.value.push(op);
 
-                if line_text.is_empty() {
+                if Range::<usize>::is_empty(new_line) {
                     lines_iter.next();
                 }
                 if change.is_empty() {
-                    break 'change;
+                    break 'lines;
                 }
             },
         }
+        eprintln!("===");
     }
     diffs
 }
