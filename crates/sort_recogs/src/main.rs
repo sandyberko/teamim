@@ -1,4 +1,4 @@
-use eyre::{bail, eyre, Context, OptionExt};
+use eyre::{bail, eyre, Context};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rayon::prelude::*;
 use similar::{get_diff_ratio, utils::TextDiffRemapper, Algorithm, TextDiff};
@@ -35,11 +35,7 @@ fn main() -> eyre::Result<()> {
     fs::create_dir(&args.out_dir)
         .wrap_err_with(|| eyre!("Failed to create output dir {:?}", args.out_dir))?;
 
-    let test_cutoff = {
-        let snippet = "במה אדע כי אירשנה";
-        TRAINING_TEXT.find(snippet).unwrap() + snippet.len()
-    };
-    let old = &TRAINING_TEXT[..test_cutoff];
+    let old = TRAINING_TEXT;
 
     let bars = MultiProgress::with_draw_target(ProgressDrawTarget::stdout());
     bars.set_move_cursor(true);
@@ -52,13 +48,14 @@ fn main() -> eyre::Result<()> {
         .tick_chars("◐◓◑◒"),
     );
     overall_pb.enable_steady_tick(Duration::from_millis(200));
-    let dir_bar_style =
-        ProgressStyle::with_template("{prefix:>12} |{bar:40.cyan/black}| <{pos:>7}/{len:7}> {msg}")?;
+    let dir_bar_style = ProgressStyle::with_template(
+        "{prefix:>12} |{bar:40.cyan/black}| <{pos:>3}/{len:3}> {msg}",
+    )?;
 
     let dirs = fs::read_dir(args.input_dir)?
         .map(|dir| {
             let path = dir?.path();
-            let files = fs::read_dir(&path)?
+            let mut files = fs::read_dir(&path)?
                 .map(|file| {
                     let path = file?.path();
                     if !path
@@ -70,7 +67,8 @@ fn main() -> eyre::Result<()> {
                     Ok(path)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-
+            files.sort_unstable();
+            
             let dir_name = path
                 .file_name()
                 .ok_or_else(|| eyre!("invalid dir {path:?}"))?
@@ -173,14 +171,19 @@ fn main() -> eyre::Result<()> {
                 imgs.iter()
                     .zip(page_ranges.iter())
                     .map(|(img, new_page_range)| -> eyre::Result<_> {
-                        let sep_op = ops
-                            .iter()
-                            .position(|op| {
-                                remapper
-                                    .slice_new(op.new_range())
-                                    .is_some_and(|s| s.contains(PAGE_SEP))
-                            })
-                            .ok_or_eyre("no separator")?;
+                        let sep_op = {
+                            let mut iter = 0..ops.len();
+                            loop {
+                                let i = iter.next().ok_or_else(|| eyre!("no seperator "))?;
+                                if remapper
+                                    .slice_new(ops[i].new_range())
+                                    .ok_or_else(|| eyre!("can't slice: {:?}", ops[i]))?
+                                    .contains(PAGE_SEP)
+                                {
+                                    break i;
+                                }
+                            }
+                        };
                         // TODO what if sep_op is not exactly PAGE_SEP?``
                         let page_ops = &ops[..sep_op];
                         let old_len = page_ops
@@ -208,6 +211,10 @@ fn main() -> eyre::Result<()> {
                         ops = &ops[sep_op + 1..];
                         old_start += old_len;
                         Ok((ratio, img))
+                    })
+                    .enumerate()
+                    .map(|(page_idx, res)| {
+                        res.wrap_err_with(|| eyre!("failed diffing page #{page_idx}"))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
             Ok(distances)

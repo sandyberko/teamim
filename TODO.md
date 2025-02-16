@@ -1,6 +1,6 @@
 # TODO
 
-- sort distances: levenshtein never ends at the last images. use similar with deadline? multiple attempts at finding the truth text?
+- tesstrain make (line images!), langdata_ltsm
 - 248/088 "ישלם המבער את הבער" is a mistake seemingly?
 - "failed to read consonants" error
 - IMPORTANT: qri-ktiv!
