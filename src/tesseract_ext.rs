@@ -10,14 +10,16 @@ use leptess::{capi, leptonica};
 use crate::leptonica_ext::Boxes;
 
 #[derive(Copy, Clone)]
-#[repr(i32)]
+#[cfg_attr(not(target_os = "windows"), repr(u32))]
+#[cfg_attr(target_os = "windows", repr(i32))]
 pub enum PageIteratorLevel {
     Textline = capi::TessPageIteratorLevel_RIL_TEXTLINE,
     Symbol = capi::TessPageIteratorLevel_RIL_SYMBOL,
 }
 
 #[derive(Default)]
-#[repr(i32)]
+#[cfg_attr(not(target_os = "windows"), repr(u32))]
+#[cfg_attr(target_os = "windows", repr(i32))]
 pub enum PageSegMode {
     #[default]
     Auto = capi::TessPageSegMode_PSM_AUTO,
