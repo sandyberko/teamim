@@ -30,11 +30,23 @@ imageInput.addEventListener("change", (event) => {
     setImage(imageData);
 });
 
-const boxInput = document.getElementById("box-input");
-if (boxInput instanceof HTMLInputElement === false) throw new Error("where box input?");
+const boxInput = document.getElementById("box-input") as HTMLInputElement;
 boxInput.addEventListener("change", (event) => {
     const file = event.target as HTMLInputElement;
     const files = Array.from(file.files!);
+
+    if (targetInput.value === "training-preproc") {
+        const html = files.find((file) => file.name.endsWith(".html"));
+        if (!html) throw new Error("expected html");
+        const reader = new FileReader();
+        reader.onload = function (event) {
+            const text = event.target?.result as string;
+            boxContainer().outerHTML = text;
+        }
+        reader.readAsText(html, 'UTF-8');
+        return true;
+    }
+
     let imageFile = files.find((file) => file.name.endsWith(".jpg") || file.name.endsWith(".jpeg"));
     if (imageFile) {
         setImage(imageFile);
@@ -130,8 +142,6 @@ function renderTrainingBoxes(text: string) {
 // #endregion
 
 {// Visibility
-    const hideTextAttr = "data-hide-text";
-    const soloAttr = "data-solo";
     const keyMap: Record<string, HTMLElement | null> = {
         // image
         "1": document.getElementById('view-image'),
@@ -161,8 +171,20 @@ function renderTrainingBoxes(text: string) {
     });
 }
 
-const targetInput = document.getElementById("recognize-target");
-if (targetInput instanceof HTMLSelectElement === false) throw new Error("where target input?");
+const targetInput = document.getElementById("recognize-target") as HTMLInputElement;
+targetInput.addEventListener("change", () => {
+    switch (targetInput.value) {
+        case "training":
+            boxInput.accept = ".box,image/*";
+            break;
+        case "training-preproc":
+            boxInput.accept = "text/html";
+            break;
+        case "recognition":
+            boxInput.accept = ".box";
+            break;
+    }
+});
 {
     let outputFile: FileSystemFileHandle | null = null;
     document.getElementById("box-save")!.addEventListener("click", async () => {

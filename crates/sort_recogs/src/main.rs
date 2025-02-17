@@ -41,11 +41,7 @@ fn main() -> eyre::Result<()> {
     fs::create_dir(&args.out_dir)
         .wrap_err_with(|| eyre!("Failed to create output dir {:?}", args.out_dir))?;
 
-    let test_cutoff = {
-        let snippet = "במה אדע כי אירשנה";
-        TRAINING_TEXT.find(snippet).unwrap() + snippet.len()
-    };
-    let old = &TRAINING_TEXT[..test_cutoff];
+    let old = TRAINING_TEXT;
 
     let draw_target = if args.quiet {
         ProgressDrawTarget::hidden()
@@ -53,8 +49,7 @@ fn main() -> eyre::Result<()> {
         ProgressDrawTarget::stdout()
     };
     let bars = MultiProgress::with_draw_target(draw_target);
-    bars.set_move_cursor(true);
-
+    
     let overall_pb = bars.add(ProgressBar::new_spinner());
     overall_pb.set_style(
         ProgressStyle::with_template(
@@ -131,58 +126,60 @@ fn main() -> eyre::Result<()> {
 
             fs::create_dir(&out_dir)?;
 
-            let mut ocr_text = String::new();
-            let mut page_ranges = Vec::with_capacity(imgs.len());
-            let mut page_boxes = Vec::with_capacity(imgs.len());
+            let pages = imgs
+                .par_iter()
+                .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
+                .map(|img| {
+                    let img_name = img
+                        .file_name()
+                        .ok_or_else(|| eyre!("invalid img {img:?}"))?;
+                    bar.set_message(format!("🔍 recognizing {img_name:?}"));
+                    bar.tick();
 
-            for img in imgs {
-                if !running.load(atomic::Ordering::SeqCst) {
-                    bar.abandon_with_message("🚩 interrupted");
-                    return Ok(vec![]);
-                }
+                    CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
+                        let ctx = if let Some(ctx) = ctx.as_mut() {
+                            ctx
+                        } else {
+                            ctx.insert(
+                                TeamimCtx::new()?
+                                    .with_debug_file(args.out_dir.join("tesseract.log"))?,
+                            )
+                        };
 
-                let img_name = img
-                    .file_name()
-                    .ok_or_else(|| eyre!("invalid img {img:?}"))?;
-                bar.set_message(format!("🔍 recognizing {img_name:?}"));
-                bar.tick();
+                        let mut line_start = 0;
+                        let mut boxes = Vec::new();
+                        let mut ocr_text = String::new();
+                        for (idx, bx) in ctx.file_boxes(img)?.enumerate() {
+                            if idx > 0 {
+                                ocr_text.push(LINE_SEP);
+                            }
+                            let value = bx.value.trim_end();
+                            let value_len = value.len() + 1 /* line/page sep */;
+                            ocr_text.push_str(value);
 
-                CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
-                    let ctx = if let Some(ctx) = ctx.as_mut() {
-                        ctx
-                    } else {
-                        ctx.insert(
-                            TeamimCtx::new()?
-                                .with_debug_file(args.out_dir.join("tesseract.log"))?,
-                        )
-                    };
-
-                    let page_start = ocr_text.len();
-                    let mut line_start = 0;
-                    let mut boxes = Vec::new();
-                    for (idx, bx) in ctx.file_boxes(img)?.enumerate() {
-                        if idx > 0 {
-                            ocr_text.push(LINE_SEP);
+                            let range = line_start..line_start + value_len;
+                            boxes.push(bx.with_value(range));
+                            line_start += value_len;
                         }
-                        let value = bx.value.trim_end();
-                        let value_len = value.len() + 1 /* line/page sep */;
-                        ocr_text.push_str(value);
+                        ocr_text.push(PAGE_SEP);
+                        bar.inc(1);
+                        overall_pb.inc(1);
+                        Ok((img, ocr_text, boxes))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-                        let range = line_start..line_start + value_len;
-                        boxes.push(bx.with_value(range));
-                        line_start += value_len;
-                    }
-                    ocr_text.push(PAGE_SEP);
-                    let range = page_start..ocr_text.len();
-                    page_ranges.push(range);
-                    page_boxes.push(boxes);
-                    Ok(())
-                })?;
-                bar.inc(1);
-                overall_pb.inc(1);
+            if !running.load(atomic::Ordering::SeqCst) {
+                bar.abandon_with_message("🚩 interrupted");
+                return Ok(vec![]);
             }
 
             bar.set_message("± diffing...");
+
+            let ocr_text = pages
+                .iter()
+                .map(|(_, ocr_text, _)| ocr_text.as_str())
+                .collect::<String>();
 
             let diff = TextDiff::configure()
                 .algorithm(Algorithm::Myers)
@@ -193,11 +190,11 @@ fn main() -> eyre::Result<()> {
 
             let mut ops = diff.ops();
             let mut old_start = 0;
-            let distances = imgs
-                .iter()
-                .zip(&page_ranges)
-                .zip(&page_boxes)
-                .map(|((img, new_page), boxes)| -> eyre::Result<_> {
+            let distances = pages
+                .into_iter()
+                .map(|(img, new_page, boxes)| -> eyre::Result<_> {
+                    bar.set_message(format!("🗺️ mapping {}", img.display()));
+
                     let sep_op = {
                         let mut iter = 0..ops.len();
                         loop {
@@ -222,7 +219,7 @@ fn main() -> eyre::Result<()> {
                         .slice_old(old_start..old_start + old_len)
                         .ok_or_else(|| eyre!("failed to remap old"))?;
 
-                    let tess_box = training_diff::diff(boxes, &ocr_text[new_page.clone()], old);
+                    let tess_box = training_diff::diff(&boxes, &new_page, old);
                     let width = 0;
                     let height = 0;
                     let div = Div {
@@ -240,6 +237,7 @@ fn main() -> eyre::Result<()> {
                     );
                     write!(w, "{}", Markup::from(div).into_string())?;
 
+                    bar.set_message(format!("📊 calculating ratio {}", img.display()));
                     let ratio = get_diff_ratio(page_ops, old_len, new_page.len());
                     ops = &ops[sep_op + 1..];
                     old_start += old_len;
