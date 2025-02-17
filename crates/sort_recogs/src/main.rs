@@ -169,18 +169,11 @@ fn main() -> eyre::Result<()> {
                         ocr_text.push_str(value);
 
                         let range = line_start..line_start + value_len;
-                        {
-                            // debug
-                            if range == (75..152) {
-                                eprintln!("⚠️⚠️⚠️ {:?}, {value:?}, {value_len}", bx.value);
-                            }
-                        }
                         boxes.push(bx.with_value(range));
                         line_start += value_len;
                     }
                     ocr_text.push(PAGE_SEP);
                     let range = page_start..ocr_text.len();
-                    eprintln!("{range:?}");
                     page_ranges.push(range);
                     page_boxes.push(boxes);
                     Ok(())
