@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use maud::{html, Markup};
 use similar::utils::TextDiffRemapper;
 use similar::ChangeTag;
@@ -51,10 +49,10 @@ impl From<Div> for Markup {
 
 /// IMPORTANT: `ocr_text_lines` should have trailing spaces
 #[must_use]
-pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Vec<BoundingBoxDiff> {
+pub fn diff(ocr_lines: &[BoundingBox<&str>], new: &str, old: &str) -> Vec<BoundingBoxDiff> {
     let (mut texts, mut diffs): (Vec<_>, Vec<_>) = ocr_lines
         .iter()
-        .map(|bb_line| (bb_line.value.clone(), bb_line.with_value(Vec::new())))
+        .map(|bb_line| (bb_line.value, bb_line.with_value(Vec::new())))
         .unzip();
 
     let mut lines_iter = texts
@@ -80,25 +78,27 @@ pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Ve
                 };
                 line.value.push(DiffOp::Delete(change.to_owned()));
             }
-            ChangeTag::Equal | ChangeTag::Insert => 'lines: loop {
-                let Some((_line_idx, (new_line, line_diff))) = lines_iter.peek_mut() else {
+            ChangeTag::Equal | ChangeTag::Insert => 'change: loop {
+                let Some((_line_idx, (line_text, line_diff))) = lines_iter.peek_mut() else {
                     break 'changes;
                 };
-                let chunk_len = change.len().min(new_line.len());
-                let chunk = &change[..chunk_len];
-                change = &change[chunk_len..];
-                new_line.start += chunk_len;
+
+                let end = change.len().min(line_text.len());
+                let chunk = &change[..end];
+                change = &change[end..];
+                **line_text = &line_text[end..];
                 let op = match tag {
                     ChangeTag::Equal => DiffOp::Equal(chunk.to_owned()),
                     ChangeTag::Insert => DiffOp::insert(chunk.to_owned()),
                     ChangeTag::Delete => unreachable!(),
                 };
                 line_diff.value.push(op);
-                if Range::<usize>::is_empty(new_line) {
+
+                if line_text.is_empty() {
                     lines_iter.next();
                 }
                 if change.is_empty() {
-                    break 'lines;
+                    break 'change;
                 }
             },
         }
@@ -106,32 +106,32 @@ pub fn diff(ocr_lines: &[BoundingBox<Range<usize>>], new: &str, old: &str) -> Ve
     diffs
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_diff() {
-//         let truth_text = "hello world how are you";
-//         let new = "hello wrld how are you foo ";
-//         let ocr_lines = vec![
-//             BoundingBox::new("hello wrld ", 1, 2, 3, 4),
-//             BoundingBox::new("how are you foo ", 5, 6, 7, 8),
-//         ];
-//         let diff = diff(&ocr_lines, new, truth_text);
-//         assert_eq!(
-//             diff,
-//             vec![
-//                 ocr_lines[0].with_value(vec![
-//                     DiffOp::Equal("hello w".to_owned()),
-//                     DiffOp::Delete("o".to_owned()),
-//                     DiffOp::Equal("rld ".to_owned()),
-//                 ]),
-//                 ocr_lines[1].with_value(vec![
-//                     DiffOp::Equal("how are you".to_owned()),
-//                     DiffOp::insert(" foo ".to_owned()),
-//                 ])
-//             ]
-//         );
-//     }
-// }
+    #[test]
+    fn test_diff() {
+        let truth_text = "hello world how are you";
+        let new = "hello wrld how are you foo ";
+        let ocr_lines = vec![
+            BoundingBox::new("hello wrld ", 1, 2, 3, 4),
+            BoundingBox::new("how are you foo ", 5, 6, 7, 8),
+        ];
+        let diff = diff(&ocr_lines, new, truth_text);
+        assert_eq!(
+            diff,
+            vec![
+                ocr_lines[0].with_value(vec![
+                    DiffOp::Equal("hello w".to_owned()),
+                    DiffOp::Delete("o".to_owned()),
+                    DiffOp::Equal("rld ".to_owned()),
+                ]),
+                ocr_lines[1].with_value(vec![
+                    DiffOp::Equal("how are you".to_owned()),
+                    DiffOp::insert(" foo ".to_owned()),
+                ])
+            ]
+        );
+    }
+}

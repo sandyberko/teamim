@@ -42,6 +42,10 @@ boxInput.addEventListener("change", (event) => {
         reader.onload = function (event) {
             const text = event.target?.result as string;
             boxContainer().outerHTML = text;
+            if (image) {
+                boxContainer().style.width = image.width + 'px';
+                boxContainer().style.height = image.height + 'px';
+            }
         }
         reader.readAsText(html, 'UTF-8');
         return true;

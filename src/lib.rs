@@ -56,19 +56,20 @@ impl TeamimCtx {
     pub fn file_boxes(
         &mut self,
         img: impl AsRef<Path>,
-    ) -> eyre::Result<impl Iterator<Item = BoundingBox<&str>>> {
+    ) -> eyre::Result<(impl Iterator<Item = BoundingBox<&str>>, u32, u32)> {
         let pix = leptonica::pix_read(img.as_ref())?;
         self.tess.set_image(&pix);
         self.tess.recognize()?;
 
-        Ok(self
+        let boxes = self
             .tess
             .results_iter(PageIteratorLevel::Textline)
             .map(|row| {
                 // TODO this could be a single call
                 let bounding_box = row.bounding_box();
                 bounding_box.with_value(row.text())
-            }))
+            });
+        Ok((boxes, pix.get_h(), pix.get_w()))
     }
 
     pub fn recognize(&mut self, img: &[u8]) -> eyre::Result<String> {
@@ -100,17 +101,13 @@ impl TeamimCtx {
 
         let truth_text = find_truth_text(&ocr_text).ok_or_eyre("not found")?;
 
-        let mut row_start = 0;
         let boxes = self
             .tess
             .results_iter(PageIteratorLevel::Textline)
             .map(|row| {
                 // TODO this could be a single call
                 let bounding_box = row.bounding_box();
-                let len = row.text().len();
-                let bx = bounding_box.with_value(row_start..row_start + len);
-                row_start += len;
-                bx
+                bounding_box.with_value(row.text())
             })
             .collect::<Box<[_]>>();
         let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);

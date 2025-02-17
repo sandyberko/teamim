@@ -159,7 +159,7 @@ body:has(#view-image:not(:checked)) img {
 }
 
 body:has(#view-boxes:not(:checked)) tess-box {
-    border-color: transparent;
+    outline-color: transparent;
 }
 
 body:has(#view-text:not(:checked)) tess-box {
