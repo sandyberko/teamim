@@ -1,8 +1,9 @@
+use color_eyre::Section;
 use eyre::{bail, eyre, Context, OptionExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use maud::Markup;
 use rayon::prelude::*;
-use similar::{get_diff_ratio, utils::TextDiffRemapper, Algorithm, ChangeTag, TextDiff};
+use similar::{get_diff_ratio, utils::TextDiffRemapper, Algorithm, TextDiff};
 use std::{
     cell::RefCell,
     fs,
@@ -15,11 +16,7 @@ use std::{
     },
     time::Duration,
 };
-use teamim::{
-    tesseract_ext::BoundingBox,
-    training_diff::{BoundingBoxDiff, Div},
-    TeamimCtx, TRAINING_TEXT,
-};
+use teamim::{tesseract_ext::BoundingBox, training_diff::Div, TeamimCtx, TRAINING_TEXT};
 
 use clap::Parser;
 
@@ -35,9 +32,6 @@ struct Args {
     #[arg(long)]
     test_cutoff: Option<String>,
 }
-
-const PAGE_SEP: char = '\n';
-const LINE_SEP: char = ' ';
 
 #[allow(clippy::too_many_lines)]
 fn main() -> eyre::Result<()> {
@@ -163,18 +157,19 @@ fn main() -> eyre::Result<()> {
                         let mut ocr_text = String::new();
                         let (boxes_iter, width, height) = ctx.file_boxes(img)?;
                         for (idx, bx) in boxes_iter.enumerate() {
-                            if idx > 0 {
-                                ocr_text.push(LINE_SEP);
-                            }
-                            let value = bx.value.trim_end();
-                            let value_len = value.len() + 1 /* line/page sep */;
+                            const NEWLINE: &str = "\n";
+                            let Some(value) = bx.value.strip_suffix('\n') else {
+                                bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
+                            };
+                            let value_len = value.chars().count() + NEWLINE.len();
                             ocr_text.push_str(value);
+                            ocr_text.push(' ');
 
                             let range = line_start..line_start + value_len;
+                            eprintln!("[{range:<10?}]{:?}", bx.value);
                             boxes.push(bx.with_value(range));
                             line_start += value_len;
                         }
-                        ocr_text.push(PAGE_SEP);
                         bar.inc(1);
                         overall_pb.inc(1);
                         Ok((img, ocr_text, boxes, width, height))
@@ -194,6 +189,7 @@ fn main() -> eyre::Result<()> {
                 .map(|(_, ocr_text, ..)| ocr_text.as_str())
                 .collect::<String>();
 
+            // TODO diff hook?
             // diff
             let diff = TextDiff::configure()
                 .algorithm(Algorithm::Myers)
@@ -201,54 +197,220 @@ fn main() -> eyre::Result<()> {
                 .diff_chars(old, &ocr_text);
 
             let remapper = TextDiffRemapper::from_text_diff(&diff, old, &ocr_text);
+            let ops = diff.ops().to_vec();
+            let mut ops_iter = ops.iter().copied().peekable();
+            let mut page_ops = Vec::new();
 
-            let mut ops = diff.ops();
             let distances = pages
                 .into_iter()
-                .map(|(img, new_page, boxes, width, height)| -> eyre::Result<_> {
-                    bar.set_message(format!("🗺️ mapping {}", img.display()));
+                .map(
+                    |(img, _new_page, boxes, width, height)| -> eyre::Result<_> {
+                        bar.set_message(format!("🗺️ mapping {}", img.display()));
 
-                    let sep_op = {
-                        let mut iter = 0..ops.len();
-                        loop {
-                            let i = iter.next().ok_or_else(|| eyre!("no seperator "))?;
-                            if remapper
-                                .slice_new(ops[i].new_range())
-                                .ok_or_else(|| eyre!("can't slice: {:?}", ops[i]))?
-                                .contains(PAGE_SEP)
-                            {
-                                break i;
+                        let (tess_box, old_len, new_len) = {
+                            use teamim::training_diff::DiffOp;
+                            let remapper: &TextDiffRemapper<str> = &remapper;
+                            let ocr_lines: &[BoundingBox<Range<usize>>] = &boxes;
+
+                            let (mut texts, mut diffs): (Vec<_>, Vec<_>) = ocr_lines
+                                .iter()
+                                .map(|bb_line| {
+                                    (bb_line.value.clone(), bb_line.with_value(Vec::new()))
+                                })
+                                .unzip();
+
+                            let mut lines_iter = texts
+                                .iter_mut()
+                                .zip(diffs.iter_mut())
+                                .enumerate()
+                                .peekable();
+
+                            let mut page_old_len = 0;
+                            let mut page_new_len = 0;
+                            'page: while let Some(op) = ops_iter.peek_mut() {
+                                let tag = op.tag();
+                                eprintln!("=== {tag:?} ===");
+                                eprintln!(
+                                    "old: {:?}",
+                                    remapper.slice_old(op.old_range()).unwrap_or("<err>")
+                                );
+                                eprintln!(
+                                    "new: {:?}",
+                                    remapper.slice_new(op.new_range()).unwrap_or("<err>")
+                                );
+                                match op {
+                                    similar::DiffOp::Delete {
+                                        old_index,
+                                        old_len,
+                                        new_index: _,
+                                    } => {
+                                        let Some((_, (_, line))) = lines_iter.peek_mut() else {
+                                            break 'page;
+                                        };
+                                        let text = remapper
+                                            .slice_old(*old_index..*old_index + *old_len)
+                                            .ok_or_eyre("-")?;
+                                        line.value.push(DiffOp::Delete(text.to_owned()));
+                                        page_old_len += *old_len;
+                                        page_ops.push(*op);
+                                        ops_iter.next();
+                                    }
+                                    similar::DiffOp::Equal {
+                                        old_index,
+                                        new_index,
+                                        len: new_len,
+                                    }
+                                    | similar::DiffOp::Insert {
+                                        old_index,
+                                        new_index,
+                                        new_len,
+                                    } => 'lines: loop {
+                                        let Some((_line_idx, (new_line, line_diff))) =
+                                            lines_iter.peek_mut()
+                                        else {
+                                            break 'page;
+                                        };
+                                        eprintln!("--- line ---");
+                                        eprintln!("[{new_line:?}|{}]{:?}", new_line.len(), remapper.slice_new(new_line.clone()).unwrap_or("<err>"));
+                                        let chunk_len = (*new_len).min(new_line.len());
+                                        let chunk = remapper
+                                            .slice_new(*new_index..*new_index + chunk_len)
+                                            .ok_or_else(|| {
+                                                eyre!("byte index {chunk_len} is not a char boundary")
+                                                    .section(format!("line: {new_line:?}"))
+                                            })?;
+                                        eprintln!("chunk: {chunk:?}");
+
+                                        page_new_len += *new_len;
+                                        match tag {
+                                            similar::DiffTag::Equal => {
+                                                line_diff.value.push(DiffOp::Equal(chunk.to_owned()));
+                                                page_ops.push(similar::DiffOp::Equal {
+                                                    old_index: *old_index,
+                                                    new_index: *new_index,
+                                                    len: chunk_len,
+                                                });
+                                            },
+                                            similar::DiffTag::Insert => {
+                                                line_diff.value.push(DiffOp::insert(chunk.to_owned()));
+                                                page_ops.push(similar::DiffOp::Insert {
+                                                    old_index: *old_index,
+                                                    new_index: *new_index,
+                                                    new_len: chunk_len,
+                                                });
+                                            }
+                                            _ => unreachable!(),
+                                        };
+
+                                        // advance
+                                        *old_index += chunk_len;
+                                        *new_index += chunk_len;
+                                        *new_len -= chunk_len;
+
+                                        new_line.start += chunk_len;
+                                        if Range::<usize>::is_empty(new_line) {
+                                            lines_iter.next();
+                                        }
+                                        if *new_len == 0 {
+                                            ops_iter.next();
+                                            break 'lines;
+                                        }
+                                    }
+                                    similar::DiffOp::Replace {
+                                        old_index,
+                                        old_len,
+                                        new_index,
+                                        new_len,
+                                    } => {
+                                        // TODO dedup
+                                        // delete
+                                        {
+                                            let Some((_, (_, line))) = lines_iter.peek_mut() else {
+                                                break 'page;
+                                            };
+                                            let text = remapper
+                                                .slice_old(*old_index..*old_index + *old_len)
+                                                .ok_or_eyre("-")?;
+                                            line.value.push(DiffOp::Delete(text.to_owned()));
+                                            page_old_len += *old_len;
+                                            page_ops.push(similar::DiffOp::Delete {
+                                                old_index: *old_index,
+                                                old_len: *old_len,
+                                                new_index: *new_index,
+                                            });
+                                        };
+                                        // advance
+                                        let next_op = similar::DiffOp::Insert { old_index: *old_index, new_index: *new_index, new_len: *new_len };
+                                        *op = next_op;
+                                        let similar::DiffOp::Insert { old_index, new_index, new_len } = op else {
+                                            unreachable!()
+                                        };
+                                        // insert
+                                        'lines: loop {
+                                            let Some((_line_idx, (new_line, line_diff))) =
+                                                lines_iter.peek_mut()
+                                            else {
+                                                break 'page;
+                                            };
+                                            eprintln!("--- line ---");
+                                            eprintln!("[{new_line:?}|{}]{:?}", new_line.len(), remapper.slice_new(new_line.clone()).unwrap_or("<err>"));
+                                            let chunk_len = (*new_len).min(new_line.len());
+                                            let chunk = remapper
+                                                .slice_new(*new_index..*new_index + chunk_len)
+                                                .ok_or_else(|| {
+                                                    eyre!("byte index {chunk_len} is not a char boundary")
+                                                        .section(format!("line: {new_line:?}"))
+                                                })?;
+                                            eprintln!("chunk: {chunk:?}");
+                                            line_diff.value.push(DiffOp::insert(chunk.to_owned()));
+
+                                            page_new_len += *new_len;
+                                            page_ops.push(similar::DiffOp::Insert {
+                                                old_index: *old_index,
+                                                new_index: *new_index,
+                                                new_len: chunk_len,
+                                            });
+
+                                            // advance
+                                            *old_index += chunk_len;
+                                            *new_index += chunk_len;
+                                            *new_len -= chunk_len;
+
+                                            new_line.start += chunk_len;
+                                            if Range::<usize>::is_empty(new_line) {
+                                                lines_iter.next();
+                                            }
+                                            if *new_len == 0 {
+                                                ops_iter.next();
+                                                break 'lines;
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    };
-                    // TODO what if sep_op is not exactly PAGE_SEP?``
-                    let page_ops = &ops[..sep_op];
-                    let old_len = page_ops
-                        .iter()
-                        .map(|op| op.old_range().len())
-                        .sum::<usize>() + 1 /* for the deleted space */;
+                            (diffs, page_old_len, page_new_len)
+                        };
+                        let div = Div {
+                            width,
+                            height,
+                            tess_box,
+                        };
+                        let img_name = img
+                            .file_name()
+                            .ok_or_else(|| eyre!("invalid img {img:?}"))?;
+                        let out_file = out_dir.join(img_name).with_extension("html");
+                        let mut w =
+                            BufWriter::new(fs::File::create(&out_file).wrap_err_with(|| {
+                                eyre!("failed to create diff file: {out_file:?}")
+                            })?);
+                        write!(w, "{}", Markup::from(div).into_string())?;
 
-                    let tess_box = map_diff(&remapper, page_ops, &boxes);
-                    let div = Div {
-                        width,
-                        height,
-                        tess_box,
-                    };
-                    let img_name = img
-                        .file_name()
-                        .ok_or_else(|| eyre!("invalid img {img:?}"))?;
-                    let out_file = out_dir.join(img_name).with_extension("html");
-                    let mut w = BufWriter::new(
-                        fs::File::create(&out_file)
-                            .wrap_err_with(|| eyre!("failed to create diff file: {out_file:?}"))?,
-                    );
-                    write!(w, "{}", Markup::from(div).into_string())?;
-
-                    bar.set_message(format!("📊 calculating ratio {}", img.display()));
-                    let ratio = get_diff_ratio(page_ops, old_len, new_page.len());
-                    ops = &ops[sep_op + 1..];
-                    Ok((ratio, img))
-                })
+                        bar.set_message(format!("📊 calculating ratio {}", img.display()));
+                        let ratio = get_diff_ratio(&page_ops, old_len, new_len);
+                        page_ops.clear();
+                        Ok((ratio, img))
+                    },
+                )
                 .enumerate()
                 .map(|(page_idx, res)| {
                     res.wrap_err_with(|| eyre!("failed diffing page #{page_idx}"))
@@ -275,58 +437,4 @@ fn main() -> eyre::Result<()> {
     }
     w.flush()?;
     Ok(())
-}
-
-#[must_use]
-fn map_diff(
-    remapper: &TextDiffRemapper<str>,
-    ops: &[similar::DiffOp],
-    ocr_lines: &[BoundingBox<Range<usize>>],
-) -> Vec<BoundingBoxDiff> {
-    use teamim::training_diff::DiffOp;
-
-    let (mut texts, mut diffs): (Vec<_>, Vec<_>) = ocr_lines
-        .iter()
-        .map(|bb_line| (bb_line.value.clone(), bb_line.with_value(Vec::new())))
-        .unzip();
-
-    let mut lines_iter = texts
-        .iter_mut()
-        .zip(diffs.iter_mut())
-        .enumerate()
-        .peekable();
-
-    let changes = ops.iter().flat_map(|op| remapper.iter_slices(op));
-    'changes: for (tag, mut change) in changes {
-        match tag {
-            ChangeTag::Delete => {
-                let Some((_, (_, line))) = lines_iter.peek_mut() else {
-                    break 'changes;
-                };
-                line.value.push(DiffOp::Delete(change.to_owned()));
-            }
-            ChangeTag::Equal | ChangeTag::Insert => 'lines: loop {
-                let Some((_line_idx, (new_line, line_diff))) = lines_iter.peek_mut() else {
-                    break 'changes;
-                };
-                let chunk_len = change.len().min(new_line.len());
-                let chunk = &change[..chunk_len];
-                change = &change[chunk_len..];
-                new_line.start += chunk_len;
-                let op = match tag {
-                    ChangeTag::Equal => DiffOp::Equal(chunk.to_owned()),
-                    ChangeTag::Insert => DiffOp::insert(chunk.to_owned()),
-                    ChangeTag::Delete => unreachable!(),
-                };
-                line_diff.value.push(op);
-                if Range::<usize>::is_empty(new_line) {
-                    lines_iter.next();
-                }
-                if change.is_empty() {
-                    break 'lines;
-                }
-            },
-        }
-    }
-    diffs
 }

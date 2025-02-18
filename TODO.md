@@ -1,6 +1,7 @@
 # TODO
 
 - tesstrain make (line images!), langdata_ltsm
+- FIX: line ranges are per page, they probably should be absolute (per scroll). this messes with parallelisation though
 
 ### Tesstrain Make
 I think I'll stick with box files:
