@@ -32,7 +32,7 @@ pub struct TeamimCtx {
 impl TeamimCtx {
     pub fn new() -> eyre::Result<Self> {
         let tess = Tess::new(DATAPATH, LANG)?;
-        tess.set_page_seg_mode(PageSegMode::default());
+        tess.set_page_seg_mode(PageSegMode::SingleColumn);
         Ok(Self { tess })
     }
 

@@ -30,6 +30,7 @@ pub enum PageIteratorLevel {
 pub enum PageSegMode {
     #[default]
     Auto = capi::TessPageSegMode_PSM_AUTO,
+    SingleColumn = capi::TessPageSegMode_PSM_SINGLE_COLUMN,
 }
 
 #[derive(Clone)]
