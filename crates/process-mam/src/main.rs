@@ -94,6 +94,7 @@ async fn main() -> eyre::Result<()> {
         );
         ctx.parse_chapters(&mut xml, &mut buf, &mut writer).await?;
     }
+    writer.flush().await?;
     Ok(())
 }
 
