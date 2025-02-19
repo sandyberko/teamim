@@ -133,22 +133,21 @@ main {
             font-family: 'Guttman Stam';
             color: red;
             white-space: pre;
-
             &:focus {
                 outline-color: rgba(255, 0, 0, .5);
             }
 
             insert {
-                border: 5px solid magenta;
-
+                outline: solid magenta;
+                min-width: 2px;
                 &:hover::after {
                     content: attr(err);
                 }
             }
 
             delete {
-                outline: 2px solid cyan;
-                color: blueviolet;
+                outline: solid cyan;
+                color: cyan;
             }
         }
     }
@@ -158,15 +157,19 @@ body:has(#view-image:not(:checked)) img {
     opacity: 0;
 }
 
-body:has(#view-boxes:not(:checked)) tess-box {
+body:has(#view-boxes:not(:checked)) :is(tess-box, tess-box *) {
     outline-color: transparent;
 }
 
 body:has(#view-text:not(:checked)) tess-box {
-    color: transparent !important;
+    color: transparent;
 
     &::selection {
         background-color: transparent;
+    }
+
+    &>* {
+        opacity: 0;
     }
 }
 

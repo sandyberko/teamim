@@ -1,3 +1,5 @@
+import { ZOOM } from './index.js'
+
 /**
  * Clockwise from top
  */
@@ -33,9 +35,9 @@ export function newBox(char: string, left: string, top: string, width: number, h
 }
 
 function eventDir(event: MouseEvent): Direction {
-    if (event.target instanceof HTMLElement === false) throw new Error("where target?");
+    if (event.currentTarget instanceof HTMLElement === false) throw new Error("where target?");
 
-    const rect = event.target.getBoundingClientRect();
+    const rect = event.currentTarget.getBoundingClientRect();
     return getDir(
         event.y - rect.top < 4, // top
         rect.right - event.x < 4, // right
@@ -69,47 +71,43 @@ export class TessBox extends HTMLElement {
     // #region mouse-resize
     #focusController: AbortController | null = null;
     handleFocus(event: FocusEvent) {
-        if (event.target instanceof TessBox === false) return false;
-        event.target.style.zIndex = "2";
+        this.style.zIndex = "2";
         if (this.#focusController === null) {
             this.#focusController = new AbortController();
             const signal = this.#focusController.signal;
-            event.target.addEventListener("mousemove", this.handleMouseMove.bind(this), { signal });
-            event.target.addEventListener("mousedown", this.handleMouseDown.bind(this), { signal });
+            this.addEventListener("mousemove", this.handleMouseMove.bind(this), { signal });
+            this.addEventListener("mousedown", this.handleMouseDown.bind(this), { signal });
         }
     }
-    handleBlur(event: FocusEvent) {
-        if (event.target instanceof TessBox === false) return false;
-        event.target.style.zIndex = "0";
-        event.target.style.cursor = "default";
+    handleBlur(_: FocusEvent) {
+        this.style.zIndex = "0";
+        this.style.cursor = "default";
         this.#focusController?.abort();
         this.#focusController = null;
     }
     handleMouseDown(downEvent: MouseEvent) {
-        if (downEvent.target instanceof TessBox === false) return false;
         downEvent.preventDefault();
 
-        const elem = downEvent.target;
         const dir = eventDir(downEvent);
 
         const controller = new AbortController();
         const signal = controller.signal;
 
-        let prevX = downEvent.clientX, prevY = downEvent.clientY;
+        let prevX = downEvent.clientX/ZOOM, prevY = downEvent.clientY/ZOOM;
         this.addEventListener("mousemove", (moveEvent) => {
-            const dx = moveEvent.clientX - prevX, dy = moveEvent.clientY - prevY;
-            prevX = moveEvent.clientX;
-            prevY = moveEvent.clientY;
+            const dx = moveEvent.clientX/ZOOM - prevX, dy = moveEvent.clientY/ZOOM - prevY;
+            prevX = moveEvent.clientX/ZOOM;
+            prevY = moveEvent.clientY/ZOOM;
 
             this.resize(dir, dy, dx);
         }, { signal });
 
         this.addEventListener("mouseup", () => controller.abort(), { signal });
+        this.addEventListener("mouseleave", () => controller.abort(), { signal });
     }
     handleMouseMove(event: MouseEvent) {
-        if (event.target instanceof TessBox === false) return false;
         const dir = eventDir(event);
-        event.target.style.cursor = cursor.get(dir) || (() => { throw new Error(`invalid cursor ${dir.toString(2)}`); })();
+        this.style.cursor = cursor.get(dir) || (() => { throw new Error(`invalid cursor ${dir.toString(2)}`); })();
     }
     // #endregion
 

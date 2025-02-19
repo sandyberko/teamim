@@ -1,12 +1,13 @@
 "use strict";
 
-import { TessBox, TAG_NAME, newBox } from "./tess-box.js";
+import { TessBox, newBox } from "./tess-box.js";
 
 let image: HTMLImageElement | null = null;
 
 const main = document.getElementById("main");
 if (main instanceof HTMLElement === false) throw new Error("where main?");
 
+export const ZOOM = 0.4;
 function boxContainer(): HTMLElement {
     const elem = document.getElementById("box-container");
     if (elem instanceof HTMLElement) {
@@ -31,6 +32,7 @@ imageInput.addEventListener("change", (event) => {
 });
 
 const boxInput = document.getElementById("box-input") as HTMLInputElement;
+boxInput.addEventListener("click", () => boxInput.value = '');
 boxInput.addEventListener("change", (event) => {
     const file = event.target as HTMLInputElement;
     const files = Array.from(file.files!);
