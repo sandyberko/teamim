@@ -70,7 +70,7 @@ export class TessBox extends HTMLElement {
 
     // #region mouse-resize
     #focusController: AbortController | null = null;
-    handleFocus(event: FocusEvent) {
+    handleFocus(_: FocusEvent) {
         this.style.zIndex = "2";
         if (this.#focusController === null) {
             this.#focusController = new AbortController();

@@ -1,7 +1,12 @@
 # TODO
 
 - tesstrain make (line images!), langdata_ltsm
-- FIX: line ranges are per page, they probably should be absolute (per scroll). this messes with parallelisation though
+- sort: remove trailing spaces. check also in existing corrected_boxfiles
+- sort: compact?
+- sort+boxedit: use style instead of attrs
+- boxedit: split line
+- boxedit: save as html to preserve diff
+- boxedit: serve images+diffs from server, maybe even save them there. 
 
 ### Tesstrain Make
 I think I'll stick with box files:

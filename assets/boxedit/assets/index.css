@@ -163,6 +163,7 @@ body:has(#view-boxes:not(:checked)) :is(tess-box, tess-box *) {
 
 body:has(#view-text:not(:checked)) tess-box {
     color: transparent;
+    caret-color: transparent;
 
     &::selection {
         background-color: transparent;
