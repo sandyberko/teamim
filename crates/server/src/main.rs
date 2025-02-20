@@ -52,11 +52,18 @@ async fn main() -> eyre::Result<()> {
 
     // build our application with a single route
     let app = Router::new()
-        .route("/recognize", post(post_recognize))
-        .route("/recognizeTraining", post(post_recognize_training))
-        .route("/renderTeamim", post(post_render_teamim))
-        .route("/diff", post(post_diff))
+        .nest(
+            "/api",
+            Router::new()
+                .route("/recognize", post(post_recognize))
+                .route("/recognizeTraining", post(post_recognize_training))
+                .route("/renderTeamim", post(post_render_teamim))
+                .route("/diff", post(post_diff)),
+        )
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
+        .nest_service("/images", ServeDir::new("assets/images"))
+        .nest_service("/diffs", ServeDir::new("assets/diffs"))
+        .nest_service("/correctedDiffs", ServeDir::new("assets/corrected-diffs"))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
         .fallback_service(ServeDir::new(boxedit_dir.join("assets")))

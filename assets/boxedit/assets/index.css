@@ -133,13 +133,26 @@ main {
             font-family: 'Guttman Stam';
             color: red;
             white-space: pre;
+
             &:focus {
                 outline-color: rgba(255, 0, 0, .5);
             }
 
             insert {
-                outline: solid magenta;
-                min-width: 2px;
+                border: solid magenta;
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                
+
                 &:hover::after {
                     content: attr(err);
                 }
@@ -176,4 +189,24 @@ body:has(#view-text:not(:checked)) tess-box {
 
 body:has(#view-solo:not(:checked)) tess-box:not(:focus) {
     opacity: 0;
+}
+
+main>table#distances {
+    cursor: pointer;
+    border-collapse: collapse;
+
+    &>tbody>tr {
+        padding: .2em 0;
+    
+        &:hover {
+            background-color: rgba(0, 0, 0, .1);
+        }
+    
+        &>td {
+            padding: 0 .5em;
+            &:first-child {
+                text-align: left;
+            }
+        }
+    }
 }

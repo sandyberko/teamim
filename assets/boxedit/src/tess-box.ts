@@ -93,11 +93,11 @@ export class TessBox extends HTMLElement {
         const controller = new AbortController();
         const signal = controller.signal;
 
-        let prevX = downEvent.clientX/ZOOM, prevY = downEvent.clientY/ZOOM;
+        let prevX = downEvent.clientX / ZOOM, prevY = downEvent.clientY / ZOOM;
         this.addEventListener("mousemove", (moveEvent) => {
-            const dx = moveEvent.clientX/ZOOM - prevX, dy = moveEvent.clientY/ZOOM - prevY;
-            prevX = moveEvent.clientX/ZOOM;
-            prevY = moveEvent.clientY/ZOOM;
+            const dx = moveEvent.clientX / ZOOM - prevX, dy = moveEvent.clientY / ZOOM - prevY;
+            prevX = moveEvent.clientX / ZOOM;
+            prevY = moveEvent.clientY / ZOOM;
 
             this.resize(dir, dy, dx);
         }, { signal });
@@ -178,16 +178,23 @@ export class TessBox extends HTMLElement {
         this.tabIndex = 0;
         this.contentEditable = "true";
 
-        const left = this.getAttribute("left");
-        const bottom = this.getAttribute("bottom");
-        const right = this.getAttribute("right");
-        const top = this.getAttribute("top");
+        if (this.hasAttribute("style")) {
+            this.removeAttribute("left");
+            this.removeAttribute("bottom");
+            this.removeAttribute("right");
+            this.removeAttribute("top");
+        } else {
+            const left = this.getAttribute("left");
+            const bottom = this.getAttribute("bottom");
+            const right = this.getAttribute("right");
+            const top = this.getAttribute("top");
 
-        if (left !== null && bottom !== null && right !== null && top !== null) {
-            this.style.left = left + 'px';
-            this.style.height = parseInt(bottom) - parseInt(top) + 'px';
-            this.style.width = parseInt(right) - parseInt(left) + 'px';
-            this.style.top = top + 'px';
+            if (left !== null && bottom !== null && right !== null && top !== null) {
+                this.style.left = left + 'px';
+                this.style.height = parseInt(bottom) - parseInt(top) + 'px';
+                this.style.width = parseInt(right) - parseInt(left) + 'px';
+                this.style.top = top + 'px';
+            }
         }
 
         this.addEventListener("dblclick", this.handleDoubleClick.bind(this));

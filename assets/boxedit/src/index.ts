@@ -4,13 +4,17 @@ import { TessBox, newBox } from "./tess-box.js";
 
 let image: HTMLImageElement | null = null;
 
-const main = document.getElementById("main");
-if (main instanceof HTMLElement === false) throw new Error("where main?");
-
 export const ZOOM = 0.4;
+const main = document.getElementById("main") as HTMLElement;
+
 function boxContainer(): HTMLElement {
     const elem = document.getElementById("box-container");
-    if (elem instanceof HTMLElement) {
+    if (elem === null) {
+        const container = document.createElement("div");
+        container.id = "box-container";
+        main.appendChild(container);
+        return container;
+    } else if (elem instanceof HTMLElement) {
         return elem;
     } else {
         throw new Error("where box container?");
@@ -80,14 +84,8 @@ function setImage(imageData: File) {
     const url = URL.createObjectURL(imageData);
     if (image === null) {
         image = new Image();
-        document.getElementById("main")!.appendChild(image);
+        main.appendChild(image);
     }
-    image.onload = (event) => {
-        if (event.target instanceof HTMLImageElement === false) throw new Error("where image?");
-        boxContainer().style.width = event.target.width + 'px';
-        boxContainer().style.height = event.target.height + 'px';
-    };
-
     image.src = url;
 }
 
@@ -195,13 +193,21 @@ targetInput.addEventListener("change", () => {
     let outputFile: FileSystemFileHandle | null = null;
     document.getElementById("box-save")!.addEventListener("click", async () => {
         switch (targetInput.value) {
-            case "training":
+            case "training": {
                 const [origin, suggestedName]: [BoxFileOrigin, string | undefined] =
-                    boxInput.files !== null && boxInput.files.length > 0
-                        ? ["file", Array.from(boxInput.files).find((file) => file.name.endsWith(".box"))?.name]
-                        : ["server", (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name)];
+                    boxContainer().hasAttribute("data-from-server")
+                        ? ["server", location.hash.substring(1).replaceAll("/", "_")]
+                        : boxInput.files !== null && boxInput.files.length > 0
+                            ? ["file", Array.from(boxInput.files).find((file) => file.name.endsWith(".box"))?.name]
+                            : ["server", (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name)];
                 outputFile = await writeTrainingBoxes(outputFile, suggestedName, origin);
                 break;
+            }
+            case "training-preproc": {
+                const suggestedName = (($) => $ && $.substring(0, $.lastIndexOf('.')))(imageInput.files?.[0]?.name);
+                outputFile = await writeTrainingBoxes(outputFile, suggestedName, "server");
+                break;
+            }
             case "recognition":
                 // create a new handle
                 if (!outputFile) outputFile = await window.showSaveFilePicker();
@@ -288,7 +294,7 @@ document.getElementById("recognize")!.addEventListener("click", async (event) =>
     const icon = event.target.value;
     event.target.value = "⏳";
     try {
-        const response = await fetch(`/recognize${targetInput.value === "training" ? "Training" : ""}`, {
+        const response = await fetch(`/api/recognize${targetInput.value === "training" ? "Training" : ""}`, {
             method: "POST",
             body: imageData
         });
@@ -321,7 +327,7 @@ document.getElementById("render-teamim")!.addEventListener("click", async (event
     const formData = new FormData();
     formData.append("image", imageInput.files![0]);
     formData.append("boxes", getBoxes());
-    const response = await fetch("/renderTeamim", {
+    const response = await fetch("/api/renderTeamim", {
         method: "POST",
         body: formData,
     });
@@ -396,7 +402,7 @@ async function diff() {
         const body = Array.from(boxContainer().children)
             .map((box) => box instanceof TessBox && box.innerText)
             .join(" ");
-        const response = await fetch("/diff", {
+        const response = await fetch("/api/diff", {
             method: "POST",
             body,
         });
@@ -438,3 +444,72 @@ fontSizeInput.addEventListener("input", (event) => {
     const fontSize = parseFloat(fontSizeInput.value);
     main.style.fontSize = fontSize + 'em';
 });
+
+// NOTE: this should be last
+// diffs
+async function loadDiff(url: string) {
+    main.innerHTML = "";
+
+    if (url === '') {
+        // index
+        const distancesRes = await fetch("/diffs/distances.txt");
+        if (distancesRes.status !== 200) {
+            const errorElem = document.createElement("p");
+            errorElem.classList.add("error");
+            errorElem.innerText = "שגיאה בהורדת הרשימה"
+            main.appendChild(errorElem);
+            throw new Error("failed to load diffs/distances.txt");
+        }
+        const distances = await distancesRes.text();
+        const table = document.createElement("table");
+        table.id = "distances";
+        const tbody = document.createElement("tbody");
+        for (const line of distances.split("\n")) {
+            const [distance, url] = line.split("\t");
+            const tr = document.createElement("tr");
+            tr.addEventListener("click", () => location.hash = url);
+            {
+                const td = document.createElement("td");
+                td.innerText = distance;
+                tr.appendChild(td);
+            }
+            {
+                const td = document.createElement("td");
+                td.innerText = url;
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        main.appendChild(table);
+    } else {
+        // image
+        image = new Image();
+        image.src = `/images/${url}.jpg`;
+        main.appendChild(image);
+
+        // boxes
+        let response = await fetch(`/correctedDiffs/${url}.html`);
+        if (response.status === 404) {
+            response = await fetch(`/diffs/${url}.html`);
+        }
+        if (response.status !== 200) {
+            throw new Error("Failed to load diffs");
+        }
+        const text = await response.text();
+        boxContainer().outerHTML = text;
+        boxContainer().toggleAttribute("data-from-server", true);
+        if (image.complete) {
+            boxContainer().style.width = image.width + 'px';
+            boxContainer().style.height = image.height + 'px';
+        } else {
+            image.addEventListener("load", () => {
+                boxContainer().style.width = image!.width + 'px';
+                boxContainer().style.height = image!.height + 'px';
+            }, { once: true });
+        }
+    }
+}
+window.addEventListener("hashchange", () => loadDiff(location.hash.substring(1)));
+let diffUrl = location.hash.substring(1);
+loadDiff(diffUrl);

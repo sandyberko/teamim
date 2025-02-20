@@ -1,12 +1,13 @@
 # TODO
 
 - tesstrain make (line images!), langdata_ltsm
+- is the leak reported by tesseract at shutdown real?
 - sort: remove trailing spaces. check also in existing corrected_boxfiles
 - sort: compact?
 - sort+boxedit: use style instead of attrs
 - boxedit: split line
 - boxedit: save as html to preserve diff
-- boxedit: serve images+diffs from server, maybe even save them there. 
+- boxedit: recognition doesn't work
 
 ### Tesstrain Make
 I think I'll stick with box files:
