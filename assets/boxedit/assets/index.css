@@ -100,10 +100,18 @@ kbd {
         align-items: center;
     }
 
-    th[scope="rowgroup"] {
-        color: gray;
-        font-style: italic;
-        text-align: start;
+    table {
+        border-spacing: .75em 0;
+
+        th[scope="rowgroup"] {
+            color: gray;
+            font-style: italic;
+            text-align: start;
+        }
+
+        td:has(kbd) {
+            direction: ltr;
+        }
     }
 }
 
@@ -140,18 +148,18 @@ main {
 
             insert {
                 border: solid magenta;
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
+
+
+
+
+
+
+
+
+
+
+
+
 
                 &:hover::after {
                     content: attr(err);
@@ -197,13 +205,14 @@ main>table#distances {
 
     &>tbody>tr {
         padding: .2em 0;
-    
+
         &:hover {
             background-color: rgba(0, 0, 0, .1);
         }
-    
+
         &>td {
             padding: 0 .5em;
+
             &:first-child {
                 text-align: left;
             }

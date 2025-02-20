@@ -5,9 +5,10 @@
 - sort: remove trailing spaces. check also in existing corrected_boxfiles
 - sort: compact?
 - sort+boxedit: use style instead of attrs
-- boxedit: split line
+- boxedit: move text to new line
 - boxedit: save as html to preserve diff
 - boxedit: recognition doesn't work
+- boxedit: change resize scheme to the MS Word one
 
 ### Tesstrain Make
 I think I'll stick with box files:

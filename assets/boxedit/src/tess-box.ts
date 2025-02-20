@@ -86,8 +86,6 @@ export class TessBox extends HTMLElement {
         this.#focusController = null;
     }
     handleMouseDown(downEvent: MouseEvent) {
-        downEvent.preventDefault();
-
         const dir = eventDir(downEvent);
 
         const controller = new AbortController();
@@ -102,8 +100,8 @@ export class TessBox extends HTMLElement {
             this.resize(dir, dy, dx);
         }, { signal });
 
-        this.addEventListener("mouseup", () => controller.abort(), { signal });
-        this.addEventListener("mouseleave", () => controller.abort(), { signal });
+        this.addEventListener("mouseup", () => controller.abort(), { once: true, signal });
+        this.addEventListener("mouseleave", () => controller.abort(), { once: true, signal });
     }
     handleMouseMove(event: MouseEvent) {
         const dir = eventDir(event);
@@ -129,6 +127,23 @@ export class TessBox extends HTMLElement {
             );
             this.after(newBoxElemt);
             newBoxElemt.focus();
+            return true;
+        }
+        if (event.key === "Enter") {
+            event.preventDefault();
+            if (event.shiftKey && this.nextElementSibling instanceof TessBox) {
+                this.newLine(this.nextElementSibling);
+            } else {
+                const targetBox = newBox(
+                    "",
+                    this.offsetLeft.toString(),
+                    (this.offsetTop + this.offsetHeight + 15).toString(),
+                    this.offsetWidth,
+                    this.offsetHeight
+                );
+                this.after(targetBox);
+                this.newLine(targetBox);
+            }
             return true;
         }
 
@@ -173,6 +188,28 @@ export class TessBox extends HTMLElement {
         }
     }
     // #endregion
+
+    newLine(targetBox: TessBox) {
+        // move text to new line
+        const selection = window.getSelection();
+        if (selection === null) throw new Error("where selection?");
+        let beforeNode = selection.anchorNode;
+        if (beforeNode === null) throw new Error("where selection.anchorNode?");
+        if (beforeNode instanceof Text === false) throw new Error(`startContainer is not text. it is a ${beforeNode.nodeName} with "${beforeNode.textContent}"`);
+        let afterNode: ChildNode = beforeNode.splitText(selection.anchorOffset);
+        if (beforeNode.parentNode && beforeNode.parentNode.nodeName === "DELETE") {
+            const newDelete = document.createElement("delete");
+            newDelete.append(afterNode);
+            beforeNode = beforeNode.parentNode;
+            afterNode = newDelete;
+        }
+        targetBox.prepend(afterNode);
+        while (beforeNode.nextSibling !== null) {
+            const nextNode = beforeNode.nextSibling;
+            afterNode.after(nextNode);
+            afterNode = nextNode;
+        }
+    }
 
     connectedCallback() {
         this.tabIndex = 0;
