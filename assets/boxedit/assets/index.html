@@ -1,135 +1,166 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <meta charset="utf-8">
+<!doctype html>
+<html lang="heb">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <title>טעמים</title>
 
     <script src="build/index.js" type="module" async></script>
-    <link rel="stylesheet" href="index.css">
-</head>
+    <link rel="stylesheet" href="index.css" />
+  </head>
 
-<body>
+  <body>
     <header>
-        <fieldset>
-            <legend>תמונה</legend>
-            <input id="image-input" name="image-input" type="file" accept="image/*" title="בחר תמונה">
-            <a id="image-save" download="טעמים.png" title="שמור תמונה">💾</a>
-        </fieldset>
-        <fieldset>
-            <legend>זיהוי</legend>
-            <select id="recognize-target" title="סוג זיהוי">
-                <option value="training">אימון</option>
-                <option value="training-preproc">אימון מוכן</option>
-                <option value="recognition">זיהוי</option>
-            </select>
-            <input id="recognize" type="submit" value="🔍" title="הרץ זיהוי">
-            <input id="box-input" name="box-input" type="file" accept=".box,image/*" multiple title="בחר קובץ זיהוי">
-            <input id="box-save" name="box-save" type="submit" value="💾" title="שמור קובץ זיהוי">
-        </fieldset>
-        <fieldset>
-            <legend>עיבוד</legend>
-            <input id="render-teamim" type="submit" value="✍️" title="צייר טעמים">
-            <input id="diff" type="submit" value="📑" title="הראה הבדלים">
-        </fieldset>
-        <fieldset>
-            <legend>תצוגה</legend>
-            <button onclick="document.getElementById('legend').showModal()">מקרא</button>
-            <label>
-                <input id="view-image" type="checkbox" checked title="תמונה">
-                <span>תמונה</span>
-            </label>
-            <label>
-                <input id="view-boxes" type="checkbox" checked title="ריבועים">
-                <span>ריבועים</span>
-            </label>
-            <label>
-                <input id="view-text" type="checkbox" checked title="טקסט">
-                <span>טקסט</span>
-            </label>
-            <label>
-                <input id="view-solo" type="checkbox" checked title="ריבוע נבחר בלבד">
-                <span>ריבוע נבחר בלבד</span>
-            </label>
-        </fieldset>
-        <fieldset>
-            <legend>גודל גופן</legend>
-            <input type="range" id="font-size" min="4" max="9" value="6.6" step="0.05">
-        </fieldset>
+      <fieldset>
+        <legend>תמונה</legend>
+        <input
+          id="image-input"
+          name="image-input"
+          type="file"
+          accept="image/*"
+          title="בחר תמונה"
+        />
+        <a id="image-save" download="טעמים.png" title="שמור תמונה">💾</a>
+      </fieldset>
+      <fieldset>
+        <legend>זיהוי</legend>
+        <select id="recognize-target" title="סוג זיהוי">
+          <option value="training">אימון</option>
+          <option value="training-preproc">אימון מוכן</option>
+          <option value="recognition">זיהוי</option>
+        </select>
+        <input id="recognize" type="submit" value="🔍" title="הרץ זיהוי" />
+        <input
+          id="box-input"
+          name="box-input"
+          type="file"
+          accept=".box,image/*"
+          multiple
+          title="בחר קובץ זיהוי"
+        />
+        <input
+          id="box-save"
+          name="box-save"
+          type="submit"
+          value="💾"
+          title="שמור קובץ זיהוי"
+        />
+      </fieldset>
+      <fieldset>
+        <legend>עיבוד</legend>
+        <input id="render-teamim" type="submit" value="✍️" title="צייר טעמים" />
+        <input id="diff" type="submit" value="📑" title="הראה הבדלים" />
+      </fieldset>
+      <fieldset>
+        <legend>תצוגה</legend>
+        <button onclick="document.getElementById('legend').showModal()">
+          מקרא
+        </button>
+        <label>
+          <input id="view-image" type="checkbox" checked title="תמונה" />
+          <span>תמונה</span>
+        </label>
+        <label>
+          <input id="view-boxes" type="checkbox" checked title="ריבועים" />
+          <span>ריבועים</span>
+        </label>
+        <label>
+          <input id="view-text" type="checkbox" checked title="טקסט" />
+          <span>טקסט</span>
+        </label>
+        <label>
+          <input
+            id="view-solo"
+            type="checkbox"
+            checked
+            title="ריבוע נבחר בלבד"
+          />
+          <span>ריבוע נבחר בלבד</span>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>גודל גופן</legend>
+        <input
+          type="range"
+          id="font-size"
+          min="4"
+          max="9"
+          value="6.6"
+          step="0.05"
+        />
+      </fieldset>
     </header>
-    <main id="main">
-    </main>
+    <main id="main"></main>
     <dialog id="legend">
-        <header>
-            <h2>מקרא</h2>
-            <form method="dialog">
-                <button type="submit">❌</button>
-            </form>
-        </header>
-        <table>
-            <thead>
-                <tr>
-                    <th id="keys" scope="col">מקשים</th>
-                    <th id="action" scope="col">פעולה</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <th scope="rowgroup" headers="keys action" colspan="2">תצוגה</td>
-                </tr>
-                <tr>
-                    <td><kbd>1</kbd></td>
-                    <td>הסתר תמונה</td>
-                </tr>
-                <tr>
-                    <td><kbd>2</kbd></td>
-                    <td>הסתר ריבועים</td>
-                </tr>
-                <tr>
-                    <td><kbd>3</kbd></td>
-                    <td>הסתר טקסט</td>
-                </tr>
-                <tr>
-                    <td><kbd>4</kbd></td>
-                    <td>ריבוע נבחר בלבד</td>
-                </tr>
-            </tbody>
-            <tbody>
-                <tr>
-                    <th scope="rowgroup" headers="keys action" colspan="2">עריכה</td>
-                </tr>
-                <tr>
-                    <td><kbd>Tab ⭾</kbd></td>
-                    <td>ריבוע הבא</td>
-                </tr>
-                <tr>
-                    <td><kbd>⇧ Shift</kbd> + <kbd>Tab ⭾</kbd></td>
-                    <td>ריבוע קודם</td>
-                </tr>
-                <tr>
-                    <td><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></td>
-                    <td>הזז ריבוע</td>
-                </tr>
-                <tr>
-                    <td><kbd>+ =</kbd></td>
-                    <td>ריבוע חדש אחרי הנבחר</td>
-                </tr>
-                <tr>
-                    <td><kbd>⇧ Shift</kbd> + <kbd>Delete</kbd></td>
-                    <td>מחק ריבוע</td>
-                </tr>
-                <tr>
-                    <td><kbd>⏎ Enter</kbd></td>
-                    <td>העבר לשורה חדשה</td>
-                </tr>
-                <tr>
-                    <td><kbd>⇧ Shift</kbd> + <kbd>⏎ Enter</kbd></td>
-                    <td>העבר לשורה הבאה</td>
-                </tr>
-            </tbody>
-        </table>
+      <header>
+        <h2>מקרא</h2>
+        <form method="dialog">
+          <button type="submit">❌</button>
+        </form>
+      </header>
+      <table>
+        <thead>
+          <tr>
+            <th id="keys" scope="col">מקשים</th>
+            <th id="action" scope="col">פעולה</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="rowgroup" headers="keys action" colspan="2">תצוגה</th>
+          </tr>
+          <tr>
+            <td><kbd>1</kbd></td>
+            <td>הסתר תמונה</td>
+          </tr>
+          <tr>
+            <td><kbd>2</kbd></td>
+            <td>הסתר ריבועים</td>
+          </tr>
+          <tr>
+            <td><kbd>3</kbd></td>
+            <td>הסתר טקסט</td>
+          </tr>
+          <tr>
+            <td><kbd>4</kbd></td>
+            <td>ריבוע נבחר בלבד</td>
+          </tr>
+        </tbody>
+        <tbody>
+          <tr>
+            <th scope="rowgroup" headers="keys action" colspan="2">עריכה</th>
+          </tr>
+          <tr>
+            <td><kbd>Tab ⭾</kbd></td>
+            <td>ריבוע הבא</td>
+          </tr>
+          <tr>
+            <td><kbd>⇧ Shift</kbd> + <kbd>Tab ⭾</kbd></td>
+            <td>ריבוע קודם</td>
+          </tr>
+          <tr>
+            <td><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></td>
+            <td>הזז ריבוע</td>
+          </tr>
+          <tr>
+            <td><kbd>+ =</kbd></td>
+            <td>ריבוע חדש אחרי הנבחר</td>
+          </tr>
+          <tr>
+            <td><kbd>⇧ Shift</kbd> + <kbd>Delete</kbd></td>
+            <td>מחק ריבוע</td>
+          </tr>
+          <tr>
+            <td><kbd>⏎ Enter</kbd></td>
+            <td>העבר לשורה חדשה</td>
+          </tr>
+          <tr>
+            <td><kbd>⇧ Shift</kbd> + <kbd>⏎ Enter</kbd></td>
+            <td>העבר לשורה הבאה</td>
+          </tr>
+        </tbody>
+      </table>
     </dialog>
-</body>
-
+  </body>
 </html>
