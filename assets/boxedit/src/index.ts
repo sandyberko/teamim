@@ -505,7 +505,7 @@ if (fontSizeInput instanceof HTMLInputElement === false)
   throw new Error("where font size input?");
 fontSizeInput.addEventListener("input", () => {
   const fontSize = parseFloat(fontSizeInput.value);
-  main.style.fontSize = fontSize + "em";
+  boxContainer().style.fontSize = fontSize + "em";
 });
 
 // NOTE: this should be last
