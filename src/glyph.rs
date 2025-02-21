@@ -1,7 +1,7 @@
 use std::{cell::LazyCell, thread::LocalKey};
 
 use leptess::leptonica::Pix;
-use phf::{phf_map, Map};
+use phf::{Map, phf_map};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {

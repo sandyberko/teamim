@@ -11,8 +11,8 @@ use std::{
     path::Path,
 };
 
-use eyre::{bail, eyre, Context, OptionExt};
-use glyph::{Placement, GLYPHS};
+use eyre::{Context, OptionExt, bail, eyre};
+use glyph::{GLYPHS, Placement};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
 use serde::Serialize;
@@ -254,7 +254,7 @@ pub fn place_teamim(
                     "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
                     c as u32
                 )
-                .into())
+                .into());
             }
         }
     }

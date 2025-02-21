@@ -7,7 +7,7 @@ use std::{
 };
 
 use eyre::Context;
-use phf::{phf_map, Map};
+use phf::{Map, phf_map};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 static WIDE_LETTERS: Map<char, char> = phf_map! {

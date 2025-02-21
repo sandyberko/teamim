@@ -1,10 +1,10 @@
 use std::{borrow::Cow, fmt::Display, path::PathBuf, str::from_utf8};
 
 use clap::{Parser, ValueEnum};
-use eyre::{bail, ensure, Ok};
+use eyre::{Ok, bail, ensure};
 use futures::TryStreamExt;
-use phf::{phf_map, Map};
-use quick_xml::events::{attributes::Attribute, BytesStart, Event};
+use phf::{Map, phf_map};
+use quick_xml::events::{BytesStart, Event, attributes::Attribute};
 use reqwest::Client;
 use tokio::{
     fs::File,
@@ -61,7 +61,9 @@ async fn main() -> eyre::Result<()> {
     let mut buf = Vec::new();
     for book in books {
         println!("Processing {book}...");
-        let url = format!("https://raw.githubusercontent.com/bdenckla/MAM-XML/{COMMIT}/out/xml-vtrad-mam/{book}.xml");
+        let url = format!(
+            "https://raw.githubusercontent.com/bdenckla/MAM-XML/{COMMIT}/out/xml-vtrad-mam/{book}.xml"
+        );
         let response = client
             .get(&url)
             .send()

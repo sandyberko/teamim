@@ -4,11 +4,11 @@ use std::{
     mem::{self, MaybeUninit},
 };
 
-use eyre::{bail, ContextCompat};
+use eyre::{ContextCompat, bail};
 use leptess::{
     capi::{
-        boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb, pixRenderBoxaArb, pixScale,
-        pixWriteAutoFormat, PIX_DST, PIX_SRC,
+        PIX_DST, PIX_SRC, boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb,
+        pixRenderBoxaArb, pixScale, pixWriteAutoFormat,
     },
     leptonica::{BoxGeometry, Pix},
 };
@@ -52,11 +52,7 @@ impl PixExt for Pix {
     ) -> Result<(), Error> {
         let r#box = unsafe { boxCreate(x, y, w, h) };
         let result = unsafe { pixRenderBoxArb(*self.raw.as_ref(), r#box, width, rval, gval, bval) };
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(Error)
-        }
+        if result == 0 { Ok(()) } else { Err(Error) }
     }
 
     /// ⚠️ `y` should be the bottom of the `src` image!

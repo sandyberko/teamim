@@ -1,6 +1,6 @@
-use maud::{html, Markup};
-use similar::utils::TextDiffRemapper;
+use maud::{Markup, html};
 use similar::ChangeTag;
+use similar::utils::TextDiffRemapper;
 use similar::{Algorithm, TextDiff};
 
 use crate::tesseract_ext::BoundingBox;

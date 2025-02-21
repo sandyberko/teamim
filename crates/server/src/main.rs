@@ -4,19 +4,19 @@ use std::{
 };
 
 use axum::{
+    Json, Router,
     body::Bytes,
-    extract::{multipart::MultipartError, Multipart, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{Multipart, State, multipart::MultipartError},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
-    Json, Router,
 };
 use eyre::eyre;
 use maud::Markup;
 use serde::Serialize;
 use teamim::{
-    into_geometry, parse_box_line, place_teamim, training_diff::Div, MismatchError, OriginPos,
-    PlaceError, PlaceOptions,
+    MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, parse_box_line,
+    place_teamim, training_diff::Div,
 };
 use thiserror::Error;
 use tower_http::services::ServeDir;

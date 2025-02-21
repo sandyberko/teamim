@@ -1,11 +1,11 @@
 use std::{
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     fmt::Display,
     marker::PhantomData,
     ptr::{self, NonNull},
 };
 
-use eyre::{bail, OptionExt};
+use eyre::{OptionExt, bail};
 use leptess::{
     capi::{
         self, TessBaseAPI, TessBaseAPICreate, TessBaseAPIDelete, TessBaseAPIEnd,

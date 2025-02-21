@@ -1,21 +1,20 @@
 use std::{
     ffi::{CString, OsStr},
     fs::{self, File, OpenOptions},
-    io::{stdin, stdout, BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write, stdin, stdout},
     path::PathBuf,
 };
 
 use clap::Parser;
-use eyre::{bail, Context, ContextCompat, OptionExt};
+use eyre::{Context, ContextCompat, OptionExt, bail};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use teamim::{
-    fuzzy_find,
-    glyph::{Placement, GLYPHS},
+    OriginPos, fuzzy_find,
+    glyph::{GLYPHS, Placement},
     into_geometry,
     leptonica_ext::PixExt,
     parse_box_line,
     tesseract_ext::{BoundingBox, PageIteratorLevel, Tess},
-    OriginPos,
 };
 
 #[derive(Parser)]

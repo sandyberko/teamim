@@ -1,9 +1,9 @@
 use color_eyre::Section;
-use eyre::{bail, eyre, Context, OptionExt};
+use eyre::{Context, OptionExt, bail, eyre};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use maud::Markup;
 use rayon::prelude::*;
-use similar::{get_diff_ratio, utils::TextDiffRemapper, Algorithm, TextDiff};
+use similar::{Algorithm, TextDiff, get_diff_ratio, utils::TextDiffRemapper};
 use std::{
     cell::RefCell,
     fs,
@@ -12,16 +12,16 @@ use std::{
     ops::Range,
     path::PathBuf,
     sync::{
-        atomic::{self, AtomicBool},
         Arc,
+        atomic::{self, AtomicBool},
     },
     thread::LocalKey,
     time::Duration,
 };
 use teamim::{
+    TRAINING_TEXT, TeamimCtx,
     tesseract_ext::BoundingBox,
     training_diff::{self, Div},
-    TeamimCtx, TRAINING_TEXT,
 };
 
 use clap::Parser;
