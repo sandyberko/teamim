@@ -6,19 +6,23 @@ use std::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Multipart, State, multipart::MultipartError},
+    extract::{Multipart, Query, State, multipart::MultipartError},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
 };
 use eyre::eyre;
 use maud::Markup;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use teamim::{
     MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, parse_box_line,
     place_teamim, training_diff::Div,
 };
 use thiserror::Error;
+use tokio::{
+    fs::File,
+    io::{self, AsyncWriteExt, BufWriter},
+};
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -58,7 +62,8 @@ async fn main() -> eyre::Result<()> {
                 .route("/recognize", post(post_recognize))
                 .route("/recognizeTraining", post(post_recognize_training))
                 .route("/renderTeamim", post(post_render_teamim))
-                .route("/diff", post(post_diff)),
+                .route("/diff", post(post_diff))
+                .route("/saveDiff", post(save_diff)),
         )
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
         .nest_service("/images", ServeDir::new("assets/images"))
@@ -258,6 +263,31 @@ impl IntoResponse for DiffError {
 async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, DiffError> {
     Ok(teamim::diff(&text).map(Json)?)
 }
+
+// #region Save diff
+#[derive(Debug, Error)]
+#[error("Something went wrong: {0}")]
+struct SaveDiffError(#[from] io::Error);
+
+impl IntoResponse for SaveDiffError {
+    fn into_response(self) -> Response {
+        (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
+    }
+}
+#[derive(Deserialize)]
+struct SaveDiffQuery {
+    file: String,
+}
+#[axum::debug_handler]
+async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(), SaveDiffError> {
+    let path = PathBuf::from("assets/corrected-diffs")
+        .join(query.file)
+        .with_extension("html");
+    let mut w = BufWriter::new(File::create(path).await?);
+    w.write_all(diff.as_bytes()).await?;
+    Ok(())
+}
+// #endregion
 
 #[cfg(test)]
 mod tests {

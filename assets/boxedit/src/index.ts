@@ -229,14 +229,30 @@ targetInput.addEventListener("change", () => {
         break;
       }
       case "training-preproc": {
-        const suggestedName = (($) => $ && $.substring(0, $.lastIndexOf(".")))(
-          imageInput.files?.[0]?.name,
-        );
-        outputFile = await writeTrainingBoxes(
-          outputFile,
-          suggestedName,
-          "server",
-        );
+        const fileName = location.hash.substring(1);
+        if (fileName === "") throw new Error(`not a preprocessed file`);
+        const icon = boxSaveButton.value;
+        boxSaveButton.value = "⏳";
+        boxSaveButton.disabled = true;
+        try {
+          const res = await fetch(`/api/saveDiff?file=${fileName}`, {
+            method: "POST",
+            body: boxContainer().outerHTML,
+          });
+
+          if (res.status !== 200) {
+            throw new Error("Failed to save preprocessed file");
+          }
+          boxSaveButton.value = "✅";
+        } catch (e) {
+          boxSaveButton.value = "⚠️";
+          throw e;
+        } finally {
+          setTimeout(() => {
+            boxSaveButton.value = icon;
+            boxSaveButton.disabled = false;
+          }, 2000);
+        }
         break;
       }
       case "recognition": {

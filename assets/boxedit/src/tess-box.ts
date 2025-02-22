@@ -273,11 +273,6 @@ export class TessBox extends HTMLElement {
     this.contentEditable = "true";
 
     if (this.hasAttribute("style")) {
-      this.removeAttribute("left");
-      this.removeAttribute("bottom");
-      this.removeAttribute("right");
-      this.removeAttribute("top");
-    } else {
       const left = this.getAttribute("left");
       const bottom = this.getAttribute("bottom");
       const right = this.getAttribute("right");
@@ -290,6 +285,11 @@ export class TessBox extends HTMLElement {
         this.style.top = top + "px";
       }
     }
+
+    this.removeAttribute("left");
+    this.removeAttribute("bottom");
+    this.removeAttribute("right");
+    this.removeAttribute("top");
 
     this.addEventListener("dblclick", this.handleDoubleClick.bind(this));
     this.addEventListener("focus", this.handleFocus.bind(this));
