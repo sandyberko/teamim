@@ -1,5 +1,3 @@
-import { ZOOM } from "./index.js";
-
 /**
  * Clockwise from top
  */
@@ -50,11 +48,12 @@ function eventDir(event: MouseEvent): Direction {
     throw new Error("where target?");
 
   const rect = event.currentTarget.getBoundingClientRect();
+  const threshold = 6;
   return getDir(
-    event.y - rect.top < 4, // top
-    rect.right - event.x < 4, // right
-    rect.bottom - event.y < 4, // bottom
-    event.x - rect.left < 4, // left
+    event.y - rect.top < threshold, // top
+    rect.right - event.x < threshold, // right
+    rect.bottom - event.y < threshold, // bottom
+    event.x - rect.left < threshold, // left
   );
 }
 
@@ -110,28 +109,23 @@ export class TessBox extends HTMLElement {
     const controller = new AbortController();
     const signal = controller.signal;
 
-    let prevX = downEvent.clientX / ZOOM,
-      prevY = downEvent.clientY / ZOOM;
-    this.addEventListener(
+    let prevX = downEvent.clientX,
+      prevY = downEvent.clientY;
+    window.addEventListener(
       "mousemove",
       (moveEvent) => {
-        const dx = moveEvent.clientX / ZOOM - prevX,
-          dy = moveEvent.clientY / ZOOM - prevY;
-        prevX = moveEvent.clientX / ZOOM;
-        prevY = moveEvent.clientY / ZOOM;
+        const dx = moveEvent.clientX - prevX,
+          dy = moveEvent.clientY - prevY;
+        prevX = moveEvent.clientX;
+        prevY = moveEvent.clientY;
 
         this.resize(dir, dy, dx);
       },
       { signal },
     );
 
-    this.addEventListener("mouseup", () => controller.abort(), {
+    window.addEventListener("mouseup", () => controller.abort(), {
       once: true,
-      signal,
-    });
-    this.addEventListener("mouseleave", () => controller.abort(), {
-      once: true,
-      signal,
     });
   }
   handleMouseMove(event: MouseEvent) {
@@ -272,10 +266,10 @@ export class TessBox extends HTMLElement {
       afterNode.after(nextNode);
       afterNode = nextNode;
     }
+    targetBox.focus();
   }
 
   connectedCallback() {
-    this.tabIndex = 0;
     this.contentEditable = "true";
 
     if (this.hasAttribute("style")) {

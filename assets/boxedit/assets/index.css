@@ -47,26 +47,6 @@ header {
     border: var(--border);
     border-radius: var(--border-radius);
     background-color: var(--background-color);
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 
     & > legend {
       font-weight: bold;
@@ -143,8 +123,6 @@ main {
   position: relative;
   overflow: scroll;
   zoom: 0.4;
-  
-  
 
   & > img {
     position: absolute;
@@ -216,18 +194,6 @@ main > table#distances {
   cursor: pointer;
   border-collapse: collapse;
   font-size: 4em;
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
 
   & > tbody > tr {
     padding: 0.2em 0;

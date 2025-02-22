@@ -527,10 +527,16 @@ async function loadDiff(url: string) {
     const table = document.createElement("table");
     table.id = "distances";
     const tbody = document.createElement("tbody");
+    let i = 0;
     for (const line of distances.split("\n")) {
       const [distance, url] = line.split("\t");
       const tr = document.createElement("tr");
       tr.addEventListener("click", () => (location.hash = url));
+      {
+        const td = document.createElement("td");
+        td.innerText = i.toString();
+        tr.appendChild(td);
+      }
       {
         const td = document.createElement("td");
         td.innerText = distance;
@@ -542,6 +548,7 @@ async function loadDiff(url: string) {
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
+      i++;
     }
     table.appendChild(tbody);
     main.appendChild(table);
