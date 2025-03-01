@@ -9,9 +9,10 @@
   height: 100%;
   overflow: hidden;
   font-family: system-ui;
+  color-scheme: light dark;
   --border-radius: 0.5em;
-  --border: 1px solid #ccc;
-  --background-color: #eee;
+  --border: 1px solid light-dark(#ccc, #666);
+  --background-color: light-dark(#eee, #333);
   --padding: 0.75em;
 }
 
@@ -59,14 +60,9 @@ header {
     }
 
     & > :is(input, select, button) {
-      background-color: white;
       border-radius: var(--border-radius);
       border: var(--border);
       padding: 0.2em var(--padding) 0.2em var(--padding);
-
-      &:hover {
-        background-color: transparent;
-      }
     }
 
     input::file-selector-button {

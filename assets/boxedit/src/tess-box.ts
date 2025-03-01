@@ -272,7 +272,7 @@ export class TessBox extends HTMLElement {
   connectedCallback() {
     this.contentEditable = "true";
 
-    if (this.hasAttribute("style")) {
+    if (!this.hasAttribute("style")) {
       const left = this.getAttribute("left");
       const bottom = this.getAttribute("bottom");
       const right = this.getAttribute("right");
