@@ -98,8 +98,8 @@ export class TessBox extends HTMLElement {
     }
   }
   handleBlur() {
-    this.style.zIndex = "0";
-    this.style.cursor = "default";
+    this.style.removeProperty("z-index");
+    this.style.removeProperty("cursor");
     this.#focusController?.abort();
     this.#focusController = null;
   }
