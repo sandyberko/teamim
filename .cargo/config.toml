@@ -1,2 +1,2 @@
-[env]
-# VCPKGRS_DYNAMIC = "true"
+[build]
+rustflags = ["-Ctarget-feature=+crt-static"]

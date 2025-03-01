@@ -56,19 +56,12 @@ impl TeamimCtx {
     pub fn file_boxes(
         &mut self,
         img: impl AsRef<Path>,
-    ) -> eyre::Result<(impl Iterator<Item = BoundingBox<&str>>, u32, u32)> {
+    ) -> eyre::Result<(impl Iterator<Item = BoundingBox<Text>>, u32, u32)> {
         let pix = leptonica::pix_read(img.as_ref())?;
         self.tess.set_image(&pix);
         self.tess.recognize()?;
 
-        let boxes = self
-            .tess
-            .results_iter(PageIteratorLevel::Textline)
-            .map(|row| {
-                // TODO this could be a single call
-                let bounding_box = row.bounding_box();
-                bounding_box.with_value(row.text())
-            });
+        let boxes = self.tess.results_iter(PageIteratorLevel::Textline);
         Ok((boxes, pix.get_h(), pix.get_w()))
     }
 
@@ -79,10 +72,7 @@ impl TeamimCtx {
 
         let mut w = String::new();
         for result in self.tess.results_iter(PageIteratorLevel::Symbol) {
-            // TODO this could be a single call
-            let char = result.text().chars().next().ok_or_eyre("no char")?;
-            let bounding_box = result.bounding_box().with_value(char);
-            writeln!(&mut w, "{bounding_box}")?;
+            writeln!(&mut w, "{result}")?;
         }
         Ok(w)
     }
@@ -104,12 +94,13 @@ impl TeamimCtx {
         let boxes = self
             .tess
             .results_iter(PageIteratorLevel::Textline)
-            .map(|row| {
-                // TODO this could be a single call
-                let bounding_box = row.bounding_box();
-                bounding_box.with_value(row.text())
-            })
-            .collect::<Box<[_]>>();
+            .collect::<Vec<_>>();
+
+        let boxes = boxes
+            .iter()
+            .map(|bb| bb.with_value(bb.value.as_str().unwrap()))
+            .collect::<Vec<_>>();
+
         let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
 
         let w = pix.get_w();

@@ -1,7 +1,6 @@
 use std::{
     ffi::{CStr, c_char},
     fmt::Display,
-    marker::PhantomData,
     ptr::{self, NonNull},
 };
 
@@ -77,7 +76,6 @@ impl Tess {
             raw: NonNull::new(iter_ptr).unwrap(),
             level,
             is_first: true,
-            __phantom: PhantomData,
         }
     }
 
@@ -151,21 +149,20 @@ impl Display for Text {
     }
 }
 
-pub struct ResultIter<'tess> {
+pub struct ResultIter {
     raw: NonNull<capi::TessResultIterator>,
     level: PageIteratorLevel,
     is_first: bool,
-    __phantom: PhantomData<&'tess mut capi::TessResultIterator>,
 }
 
-impl Drop for ResultIter<'_> {
+impl Drop for ResultIter {
     fn drop(&mut self) {
         unsafe { capi::TessResultIteratorDelete(self.raw.as_ptr()) };
     }
 }
 
-impl<'tess> Iterator for ResultIter<'tess> {
-    type Item = ResultItem<'tess>;
+impl Iterator for ResultIter {
+    type Item = BoundingBox<Text>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_first {
@@ -177,33 +174,19 @@ impl<'tess> Iterator for ResultIter<'tess> {
                 return None;
             }
         }
-        Some(ResultItem {
-            raw: self.raw,
-            level: self.level,
-            __phantom: PhantomData,
-        })
+        let bb = self.bounding_box();
+        let text = self.text();
+        Some(bb.with_value(text))
     }
 }
 
-pub struct ResultItem<'tess> {
-    raw: NonNull<capi::TessResultIterator>,
-    level: PageIteratorLevel,
-    __phantom: PhantomData<&'tess mut capi::TessResultIterator>,
-}
-
-impl Drop for ResultItem<'_> {
-    fn drop(&mut self) {
-        unsafe { capi::TessResultIteratorDelete(self.raw.as_ptr()) };
-    }
-}
-
-impl ResultItem<'_> {
+impl ResultIter {
     #[must_use]
-    pub fn text<'s>(&self) -> &'s str {
+    pub fn text(&self) -> Text {
         let cstr =
             unsafe { capi::TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level as _) };
-        assert!(!cstr.is_null(), "failed to get text");
-        unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
+        let cstr = NonNull::new(cstr).expect("failed to get text");
+        Text(cstr)
     }
     #[must_use]
     pub fn bounding_box(&self) -> BoundingBox<()> {

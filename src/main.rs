@@ -14,7 +14,7 @@ use teamim::{
     into_geometry,
     leptonica_ext::PixExt,
     parse_box_line,
-    tesseract_ext::{BoundingBox, PageIteratorLevel, Tess},
+    tesseract_ext::{PageIteratorLevel, Tess},
 };
 
 #[derive(Parser)]
@@ -117,16 +117,8 @@ fn main() -> eyre::Result<()> {
 
             let mut w = BufWriter::new(file);
 
-            for char in tess.results_iter(PageIteratorLevel::Symbol) {
-                let text = char.text();
-                let BoundingBox {
-                    value: (),
-                    left,
-                    bottom,
-                    right,
-                    top,
-                } = char.bounding_box();
-                writeln!(&mut w, "{text} {left} {bottom} {right} {top} 0")?;
+            for bb in tess.results_iter(PageIteratorLevel::Symbol) {
+                writeln!(&mut w, "{bb}")?;
             }
 
             w.flush()?;
@@ -135,7 +127,7 @@ fn main() -> eyre::Result<()> {
             // Boxes
             let boxes = tess
                 .results_iter(PageIteratorLevel::Symbol)
-                .map(|r| Ok(into_geometry(r.bounding_box(), OriginPos::TopLeft)));
+                .map(|r| Ok(into_geometry(r, OriginPos::TopLeft)));
             place_teamim(&pix, &args, text.as_str()?, boxes)?;
         }
     }
