@@ -6,15 +6,7 @@ use std::{
 };
 
 use eyre::{OptionExt, bail};
-use leptess::{
-    capi::{
-        self, TessBaseAPI, TessBaseAPICreate, TessBaseAPIDelete, TessBaseAPIEnd,
-        TessBaseAPIGetComponentImages, TessBaseAPIGetIterator, TessBaseAPIGetUTF8Text,
-        TessBaseAPIInit3, TessBaseAPIRecognize, TessBaseAPISetImage2, TessPageIteratorBoundingBox,
-        TessResultIterator, TessResultIteratorGetUTF8Text, TessResultIteratorNext,
-    },
-    leptonica,
-};
+use leptess::{capi, leptonica};
 
 use crate::leptonica_ext::Boxes;
 
@@ -35,7 +27,7 @@ pub enum PageSegMode {
 
 #[derive(Clone)]
 pub struct Tess {
-    raw: NonNull<TessBaseAPI>,
+    raw: NonNull<capi::TessBaseAPI>,
 }
 
 // TODO are you sure?
@@ -43,17 +35,17 @@ unsafe impl Send for Tess {}
 
 impl Drop for Tess {
     fn drop(&mut self) {
-        unsafe { TessBaseAPIEnd(self.raw.as_ptr()) }
-        unsafe { TessBaseAPIDelete(self.raw.as_ptr()) }
+        unsafe { capi::TessBaseAPIDelete(self.raw.as_ptr()) }
     }
 }
 
 impl Tess {
     pub fn new(datapath: &CStr, language: &CStr) -> eyre::Result<Self> {
-        let raw = NonNull::new(unsafe { TessBaseAPICreate() })
+        let raw = NonNull::new(unsafe { capi::TessBaseAPICreate() })
             .ok_or_eyre("failed to create tesseract")?;
 
-        let err = unsafe { TessBaseAPIInit3(raw.as_ptr(), datapath.as_ptr(), language.as_ptr()) };
+        let err =
+            unsafe { capi::TessBaseAPIInit3(raw.as_ptr(), datapath.as_ptr(), language.as_ptr()) };
 
         if err != 0 {
             bail!("failed to init tesseract {err:x}");
@@ -80,7 +72,7 @@ impl Tess {
     }
 
     pub fn results_iter(&mut self, level: PageIteratorLevel) -> ResultIter {
-        let iter_ptr = unsafe { TessBaseAPIGetIterator(self.raw.as_ptr()) };
+        let iter_ptr = unsafe { capi::TessBaseAPIGetIterator(self.raw.as_ptr()) };
         ResultIter {
             raw: NonNull::new(iter_ptr).unwrap(),
             level,
@@ -90,11 +82,11 @@ impl Tess {
     }
 
     pub fn set_image(&mut self, img: &leptonica::Pix) {
-        unsafe { TessBaseAPISetImage2(self.raw.as_ptr(), *img.raw.as_ref()) }
+        unsafe { capi::TessBaseAPISetImage2(self.raw.as_ptr(), *img.raw.as_ref()) }
     }
 
     pub fn recognize(&mut self) -> eyre::Result<()> {
-        let err = unsafe { TessBaseAPIRecognize(self.raw.as_ptr(), ptr::null_mut()) };
+        let err = unsafe { capi::TessBaseAPIRecognize(self.raw.as_ptr(), ptr::null_mut()) };
         if err != 0 {
             bail!("failed to recognize: {err:x}");
         }
@@ -107,7 +99,7 @@ impl Tess {
         text_only: bool,
     ) -> eyre::Result<Boxes> {
         let ptr = unsafe {
-            TessBaseAPIGetComponentImages(
+            capi::TessBaseAPIGetComponentImages(
                 self.raw.as_ptr(),
                 level as _,
                 text_only.into(),
@@ -123,7 +115,7 @@ impl Tess {
     }
 
     pub fn get_text(&self) -> eyre::Result<Text> {
-        let cstr = unsafe { TessBaseAPIGetUTF8Text(self.raw.as_ptr()) };
+        let cstr = unsafe { capi::TessBaseAPIGetUTF8Text(self.raw.as_ptr()) };
         if cstr.is_null() {
             bail!("failed to get text");
         } else {
@@ -144,20 +136,32 @@ impl Text {
     }
 }
 
+impl Drop for Text {
+    fn drop(&mut self) {
+        unsafe { capi::TessDeleteText(self.0.as_ptr()) }
+    }
+}
+
 impl Display for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = unsafe { CStr::from_ptr(self.0.as_ptr()) }
             .to_str()
             .map_err(|_| std::fmt::Error)?;
-        write!(f, "{str}")
+        f.write_str(str)
     }
 }
 
 pub struct ResultIter<'tess> {
-    raw: NonNull<TessResultIterator>,
+    raw: NonNull<capi::TessResultIterator>,
     level: PageIteratorLevel,
     is_first: bool,
-    __phantom: PhantomData<&'tess mut TessResultIterator>,
+    __phantom: PhantomData<&'tess mut capi::TessResultIterator>,
+}
+
+impl Drop for ResultIter<'_> {
+    fn drop(&mut self) {
+        unsafe { capi::TessResultIteratorDelete(self.raw.as_ptr()) };
+    }
 }
 
 impl<'tess> Iterator for ResultIter<'tess> {
@@ -167,7 +171,8 @@ impl<'tess> Iterator for ResultIter<'tess> {
         if self.is_first {
             self.is_first = false;
         } else {
-            let has_next = unsafe { TessResultIteratorNext(self.raw.as_ptr(), self.level as _) };
+            let has_next =
+                unsafe { capi::TessResultIteratorNext(self.raw.as_ptr(), self.level as _) };
             if has_next != 1 {
                 return None;
             }
@@ -181,15 +186,22 @@ impl<'tess> Iterator for ResultIter<'tess> {
 }
 
 pub struct ResultItem<'tess> {
-    raw: NonNull<TessResultIterator>,
+    raw: NonNull<capi::TessResultIterator>,
     level: PageIteratorLevel,
-    __phantom: PhantomData<&'tess mut TessResultIterator>,
+    __phantom: PhantomData<&'tess mut capi::TessResultIterator>,
+}
+
+impl Drop for ResultItem<'_> {
+    fn drop(&mut self) {
+        unsafe { capi::TessResultIteratorDelete(self.raw.as_ptr()) };
+    }
 }
 
 impl ResultItem<'_> {
     #[must_use]
     pub fn text<'s>(&self) -> &'s str {
-        let cstr = unsafe { TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level as _) };
+        let cstr =
+            unsafe { capi::TessResultIteratorGetUTF8Text(self.raw.as_ptr(), self.level as _) };
         assert!(!cstr.is_null(), "failed to get text");
         unsafe { CStr::from_ptr(cstr) }.to_str().unwrap()
     }
@@ -197,7 +209,7 @@ impl ResultItem<'_> {
     pub fn bounding_box(&self) -> BoundingBox<()> {
         let mut r#box = BoundingBox::default();
         let err = unsafe {
-            TessPageIteratorBoundingBox(
+            capi::TessPageIteratorBoundingBox(
                 self.raw.as_ptr() as _,
                 self.level as _,
                 &mut r#box.left,
