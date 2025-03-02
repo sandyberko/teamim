@@ -6,8 +6,9 @@ use std::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Multipart, Query, State, multipart::MultipartError},
+    extract::{Multipart, Query, Request, State, multipart::MultipartError},
     http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -23,6 +24,7 @@ use tokio::{
     fs::File,
     io::{self, AsyncWriteExt, BufWriter},
 };
+use tower::ServiceBuilder;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -71,7 +73,11 @@ async fn main() -> eyre::Result<()> {
         .nest_service("/correctedDiffs", ServeDir::new("assets/corrected-diffs"))
         // TODO disable this in production
         .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
-        .fallback_service(ServeDir::new(boxedit_dir.join("assets")))
+        .fallback_service(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(set_cache_control))
+                .service(ServeDir::new(boxedit_dir.join("assets"))),
+        )
         .with_state(state);
 
     // .layer(TraceLayer::new_for_http());
@@ -88,6 +94,15 @@ async fn main() -> eyre::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn set_cache_control(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
+    response
 }
 
 #[derive(Error, Debug)]

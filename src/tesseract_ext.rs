@@ -1,6 +1,7 @@
+use core::fmt;
 use std::{
-    ffi::{CStr, c_char},
-    fmt::Display,
+    ffi::{c_char, CStr},
+    fmt::{Debug, Display},
     ptr::{self, NonNull},
 };
 
@@ -143,11 +144,14 @@ impl Drop for Text {
 }
 
 impl Display for Text {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = unsafe { CStr::from_ptr(self.0.as_ptr()) }
-            .to_str()
-            .map_err(|_| std::fmt::Error)?;
-        f.write_str(str)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str().map_err(|_| fmt::Error)?)
+    }
+}
+
+impl Debug for Text {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.as_str().map_err(|_| fmt::Error)?)
     }
 }
 

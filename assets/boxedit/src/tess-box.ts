@@ -48,7 +48,7 @@ function eventDir(event: MouseEvent): Direction {
     throw new Error("where target?");
 
   const rect = event.currentTarget.getBoundingClientRect();
-  const threshold = 6;
+  const threshold = 10;
   return getDir(
     event.y - rect.top < threshold, // top
     rect.right - event.x < threshold, // right
@@ -92,7 +92,7 @@ export class TessBox extends HTMLElement {
       this.addEventListener("mousemove", this.handleMouseMove.bind(this), {
         signal,
       });
-      this.addEventListener("mousedown", this.handleMouseDown.bind(this), {
+      this.addEventListener("pointerdown", this.handlePointerDown.bind(this), {
         signal,
       });
     }
@@ -103,7 +103,7 @@ export class TessBox extends HTMLElement {
     this.#focusController?.abort();
     this.#focusController = null;
   }
-  handleMouseDown(downEvent: MouseEvent) {
+  handlePointerDown(downEvent: PointerEvent) {
     const dir = eventDir(downEvent);
 
     const controller = new AbortController();
@@ -112,7 +112,7 @@ export class TessBox extends HTMLElement {
     let prevX = downEvent.clientX,
       prevY = downEvent.clientY;
     window.addEventListener(
-      "mousemove",
+      "pointermove",
       (moveEvent) => {
         const dx = moveEvent.clientX - prevX,
           dy = moveEvent.clientY - prevY;
@@ -124,7 +124,7 @@ export class TessBox extends HTMLElement {
       { signal },
     );
 
-    window.addEventListener("mouseup", () => controller.abort(), {
+    window.addEventListener("pointerup", () => controller.abort(), {
       once: true,
     });
   }

@@ -191,7 +191,7 @@ impl Scroll {
                     let (boxes_iter, width, height) = ctx.file_boxes(img)?;
                     for (idx, bx) in boxes_iter.enumerate() {
                         const NEWLINE: &str = "\n";
-                        let Some(value) = bx.value.strip_suffix('\n') else {
+                        let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {
                             bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
                         };
                         let value_len = value.chars().count() + NEWLINE.len();

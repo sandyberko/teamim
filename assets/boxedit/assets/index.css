@@ -161,6 +161,14 @@ main {
   }
 }
 
+body:has(tess-box:focus) {
+  touch-action: none;
+
+  main {
+    touch-action: none;
+  }
+}
+
 body:has(#view-image:not(:checked)) img {
   opacity: 0;
 }

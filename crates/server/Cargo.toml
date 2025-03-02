@@ -17,6 +17,7 @@ open = "5.3.2"
 bytes = "1.9.0"
 mime = "0.3.17"
 maud = { version = "0.27.0", features = ["axum"] }
+tower = "0.5.2"
 
 [dev-dependencies]
 insta = "1.42.1"
