@@ -1,0 +1,31 @@
+{
+    "configurations": [
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "cargo run -p editor",
+            "cwd": "${workspaceFolder}",
+            "program": "D:\\.cargo\\target\\debug\\editor.exe",
+            "preLaunchTask": "rust: cargo build -p editor",
+            "environment": [
+                {
+                    "name": "RUST_BACKTRACE",
+                    "value": "short"
+                },
+                {
+                    "name": "RUSTC_TOOLCHAIN",
+                    "value": "C:\\Users\\elyba\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc"
+                },
+                {
+                    "name": "RUST_LOG",
+                    "value": "debug"
+                }
+            ],
+            "args": [],
+            "sourceFileMap": {},
+            "osx": {
+                "MIMode": "lldb"
+            }
+        }
+    ]
+}
