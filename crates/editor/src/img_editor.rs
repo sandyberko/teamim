@@ -1,52 +1,47 @@
 use eframe::egui::{
-    Align, Color32, CursorIcon, Image, Key, Rect, Response, Scene, Sense, TextEdit, Ui, Widget,
-    include_image, load::TexturePoll, pos2,
+    Align, Color32, CursorIcon, Image, Key, Layout, Response, Scene, Sense, Stroke, StrokeKind,
+    TextEdit, Ui, UiBuilder, Widget,
 };
-use teamim::tesseract_ext::BoundingBox;
 
-use crate::boxes_style;
+use crate::{LoadedData, boxes_style};
 
-pub(crate) struct ImgEditor {
-    scene_rect: Rect,
-    boxes: Vec<BoundingBox<String>>,
-}
-
-impl ImgEditor {
-    pub(crate) fn new(boxes: Vec<BoundingBox<String>>) -> Self {
-        Self {
-            scene_rect: Rect::ZERO,
-            boxes,
-        }
-    }
-}
-
-impl Widget for &mut ImgEditor {
+impl Widget for &mut LoadedData {
     fn ui(self, ui: &mut Ui) -> Response {
-        let image = Image::new(include_image!("../../../assets/images/245/007.jpg"));
-        let Ok(TexturePoll::Ready { texture }) = image.load_for_size(ui.ctx(), ui.available_size())
-        else {
-            return ui.spinner();
-        };
+        ui.visuals_mut().extreme_bg_color = Color32::TRANSPARENT;
+        ui.visuals_mut().override_text_color = Some(Color32::RED);
+        ui.style_mut().override_text_style = Some(boxes_style());
+
         Scene::new()
-            .max_inner_size(texture.size)
+            .max_inner_size(self.image_size)
             .zoom_range(0.1..=20.0)
             .show(ui, &mut self.scene_rect, |ui| {
-                ui.add_sized(texture.size, image);
-                for r#box in &mut self.boxes {
-                    #[expect(clippy::cast_precision_loss)]
-                    let max_rect = Rect::from_min_max(
-                        pos2(r#box.left as f32, texture.size.y - r#box.top as f32),
-                        pos2(r#box.right as f32, texture.size.y - r#box.bottom as f32),
+                ui.add_sized(self.image_size, Image::new(&self.texture));
+                for bx in &mut self.editable_rects {
+                    let resp = ui.allocate_new_ui(
+                        UiBuilder::new()
+                            .layout(Layout::right_to_left(Align::Min))
+                            .max_rect(bx.rect),
+                        |ui| {
+                            let resp = ui.add(
+                                TextEdit::singleline(&mut bx.text)
+                                    .clip_text(false)
+                                    .frame(false),
+                            );
+                            let color = if resp.has_focus() {
+                                Color32::RED
+                            } else {
+                                Color32::GRAY
+                            };
+                            ui.painter().rect_stroke(
+                                bx.rect,
+                                0.0,
+                                Stroke::new(5.0, color),
+                                StrokeKind::Outside,
+                            );
+                            resp
+                        },
                     );
-                    let resp = ui.put(
-                        max_rect,
-                        TextEdit::singleline(&mut r#box.value)
-                            .background_color(Color32::TRANSPARENT)
-                            .font(boxes_style())
-                            .text_color(Color32::RED)
-                            .horizontal_align(Align::Max)
-                            .clip_text(false),
-                    );
+                    let resp = resp.inner;
                     if resp.has_focus() {
                         ui.input(|inp| {
                             if inp.key_pressed(Key::Enter) {
@@ -58,12 +53,7 @@ impl Widget for &mut ImgEditor {
                             ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Move);
                         }
                         if resp.dragged() {
-                            let delta = resp.drag_delta();
-                            #[expect(clippy::cast_possible_truncation)]
-                            {
-                                r#box.left += delta.x.round() as i32;
-                                r#box.top -= delta.y.round() as i32;
-                            }
+                            bx.rect.min += resp.drag_delta();
                         }
                     }
                 }
