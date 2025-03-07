@@ -4,10 +4,14 @@ mod img_editor;
 
 use eframe::{
     App, Frame,
-    egui::{self, Context, FontData, FontFamily, FontId, Rect, TextStyle, TextureOptions, Vec2},
+    egui::{
+        self, ColorImage, Context, FontData, FontFamily, FontId, Rect, TextStyle, TextureOptions,
+        Vec2,
+    },
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
 };
 use eyre::{OptionExt, ensure};
+use img_editor::LoadedData;
 use std::{
     fs,
     path::Path,
@@ -20,13 +24,6 @@ use teamim::tesseract_ext::BoundingBox;
 struct EditableRect {
     rect: Rect,
     text: String,
-}
-
-struct LoadedData {
-    texture: egui::TextureHandle,
-    editable_rects: Vec<EditableRect>,
-    image_size: Vec2,
-    scene_rect: Rect,
 }
 
 enum LoadingState {
@@ -74,7 +71,7 @@ impl TextBoxApp {
             let image_buffer = image.to_rgba8();
             let pixels = image_buffer.as_flat_samples();
 
-            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+            let color_image = ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
 
             // read boxes
             let Ok(textboxes) = fs::read_to_string(Path::new(&boxes_path)) else {
@@ -113,28 +110,9 @@ impl TextBoxApp {
 
             // We'll set the texture later in the main thread
             let mut state_lock = state.lock().unwrap();
-            *state_lock = LoadingState::Loaded(LoadedData {
-                texture,
-                editable_rects,
-                image_size,
-                scene_rect: Rect::ZERO,
-            });
+            *state_lock =
+                LoadingState::Loaded(LoadedData::new(texture, image_size, editable_rects));
         });
-    }
-
-    // Convert EditableRects back to TextBoxes (bottom-left origin)
-    fn get_textboxes(loaded_data: &LoadedData) -> Vec<BoundingBox<String>> {
-        loaded_data
-            .editable_rects
-            .iter()
-            .map(|r| BoundingBox {
-                value: r.text.clone(),
-                left: r.rect.min.x as i32,
-                bottom: (loaded_data.image_size.y - r.rect.max.y) as i32,
-                right: r.rect.max.x as i32,
-                top: (loaded_data.image_size.y - r.rect.min.y) as i32,
-            })
-            .collect()
     }
 }
 
