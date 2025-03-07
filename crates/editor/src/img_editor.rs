@@ -1,6 +1,6 @@
 use eframe::egui::{
-    Align, Color32, CursorIcon, Image, Key, Layout, Rect, Response, Scene, Sense, Stroke,
-    StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget,
+    Color32, CursorIcon, Id, Image, Key, Rect, Response, Scene, Sense, Stroke, StrokeKind,
+    TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget,
 };
 use teamim::tesseract_ext::BoundingBox;
 
@@ -22,7 +22,7 @@ pub(crate) struct LoadedData {
     // ui
     scene_rect: Rect,
     display_opts: [bool; DISPLAY_OPT_LEN],
-    focused_rect: usize,
+    sselected_rect: usize,
 }
 
 impl LoadedData {
@@ -37,7 +37,7 @@ impl LoadedData {
             editable_rects,
             scene_rect: Rect::ZERO,
             display_opts: [true; DISPLAY_OPT_LEN],
-            focused_rect: 0,
+            sselected_rect: 0,
         }
     }
     // Convert EditableRects back to TextBoxes (bottom-left origin)
@@ -83,16 +83,21 @@ impl Widget for &mut LoadedData {
                     ui.add_sized(self.image_size, Image::new(&self.texture));
                 }
 
-                for (rect_i, bx) in self.editable_rects.iter_mut().enumerate() {
-                    let resp = ui.allocate_new_ui(
-                        UiBuilder::new()
-                            .layout(Layout::right_to_left(Align::Min))
-                            .max_rect(bx.rect),
-                        |ui| show_rect(bx, self.display_opts, ui),
-                    );
-                    if resp.inner.gained_focus() {
-                        self.focused_rect = rect_i;
+                if self.display_opts[3] {
+                    for (rect_i, bx) in self.editable_rects.iter_mut().enumerate() {
+                        let selected = self.sselected_rect == rect_i;
+                        let resp = show_rect(bx, self.display_opts, selected, ui);
+                        if resp.gained_focus() {
+                            self.sselected_rect = rect_i;
+                        }
                     }
+                } else {
+                    show_rect(
+                        &mut self.editable_rects[self.sselected_rect],
+                        self.display_opts,
+                        true,
+                        ui,
+                    );
                 }
                 ui.response()
             });
@@ -100,51 +105,109 @@ impl Widget for &mut LoadedData {
     }
 }
 
+const RESIZE_HANDLE_SIZE: f32 = 8.0;
 fn show_rect(
     bx: &mut EditableRect,
     display_opts: [bool; DISPLAY_OPT_LEN],
+    selected: bool,
     ui: &mut Ui,
 ) -> Response {
-    let text_color = if display_opts[3] {
+    let text_color = if display_opts[2] {
         Color32::RED
     } else {
         Color32::TRANSPARENT
     };
 
     // text
-    let resp = ui.add(
+    let resp = ui.allocate_new_ui(UiBuilder::new().max_rect(bx.rect), |ui| {
         TextEdit::singleline(&mut bx.text)
             .clip_text(false)
             .frame(false)
             .background_color(Color32::TRANSPARENT)
-            .text_color(text_color),
-    );
-
-    // interaction
-    if resp.has_focus() {
-        ui.input(|inp| {
-            if inp.key_pressed(Key::Enter) {
-                // TODO new line
-            }
-        });
-        let resp = resp.interact(Sense::drag() & Sense::hover());
-        if resp.hovered() {
-            ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Move);
-        }
-        if resp.dragged() {
-            bx.rect.min += resp.drag_delta();
-        }
-    }
+            .text_color(text_color)
+            .show(ui)
+    });
 
     // frame
     if display_opts[1] {
-        let color = if resp.has_focus() {
+        let frame_color = if selected {
             Color32::RED
         } else {
             Color32::GRAY
         };
-        ui.painter()
-            .rect_stroke(bx.rect, 0.0, Stroke::new(5.0, color), StrokeKind::Outside);
+        ui.painter().rect_stroke(
+            bx.rect,
+            0.0,
+            Stroke::new(5.0, frame_color),
+            StrokeKind::Outside,
+        );
     }
-    resp
+
+    // interaction
+    if selected {
+        macro_rules! corner {
+            ($corner_name:literal, $corner_pos:expr, $icon:expr, |$resp:ident| $resize:expr) => {{
+                ui.painter()
+                    .circle_filled($corner_pos, RESIZE_HANDLE_SIZE, Color32::WHITE);
+                ui.painter().circle_stroke(
+                    $corner_pos,
+                    RESIZE_HANDLE_SIZE,
+                    Stroke::new(2.0, Color32::LIGHT_BLUE),
+                );
+                let resp = ui.interact(
+                    Rect::from_center_size($corner_pos, Vec2::splat(RESIZE_HANDLE_SIZE * 2.0)),
+                    Id::new(concat!("resize_handle_", $corner_name)),
+                    Sense::click_and_drag(),
+                );
+                if resp.hovered() {
+                    ui.ctx().output_mut(|o| o.cursor_icon = $icon);
+                }
+                if resp.dragged() {
+                    let $resp = resp;
+                    $resize
+                }
+            }};
+        }
+
+        corner!(
+            "left_top",
+            bx.rect.left_top(),
+            CursorIcon::ResizeNwSe,
+            |resp| bx.rect.min += resp.drag_delta()
+        );
+        corner!(
+            "right_top",
+            bx.rect.right_top(),
+            CursorIcon::ResizeNeSw,
+            |resp| {
+                bx.rect.max.x += resp.drag_delta().x;
+                bx.rect.min.y += resp.drag_delta().y;
+            }
+        );
+        corner!(
+            "left_bottom",
+            bx.rect.left_bottom(),
+            CursorIcon::ResizeNeSw,
+            |resp| {
+                bx.rect.min.x += resp.drag_delta().x;
+                bx.rect.max.y += resp.drag_delta().y;
+            }
+        );
+        corner!(
+            "right_bottom",
+            bx.rect.right_bottom(),
+            CursorIcon::ResizeNwSe,
+            |resp| bx.rect.max += resp.drag_delta()
+        );
+
+        ui.input(|inp| {
+            // new line
+            if inp.key_pressed(Key::Enter) {
+                if let Some(cursor_range) = resp.inner.cursor_range {
+                    // cursor_range.primary.index
+                }
+            }
+        });
+    }
+    resp.inner.response
 }
