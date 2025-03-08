@@ -21,6 +21,7 @@ use std::{
 
 use teamim::tesseract_ext::BoundingBox;
 
+#[derive(Clone, PartialEq, Eq)]
 struct EditableRect {
     rect: Rect,
     text: String,

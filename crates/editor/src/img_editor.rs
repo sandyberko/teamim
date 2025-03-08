@@ -1,6 +1,7 @@
 use eframe::egui::{
-    Color32, CursorIcon, Id, Image, Key, Rect, Response, Scene, Sense, Stroke, StrokeKind,
-    TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget, pos2, vec2,
+    Align, Button, Color32, CursorIcon, Id, Image, Key, Layout, Rect, Response, Scene, Sense,
+    Stroke, StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget, pos2,
+    util::undoer::Undoer, vec2,
 };
 use teamim::tesseract_ext::BoundingBox;
 
@@ -23,6 +24,7 @@ pub(crate) struct LoadedData {
     scene_rect: Rect,
     display_opts: [bool; DISPLAY_OPT_LEN],
     sselected_rect: usize,
+    undoer: Undoer<Vec<EditableRect>>,
 }
 
 impl LoadedData {
@@ -38,6 +40,7 @@ impl LoadedData {
             scene_rect: Rect::ZERO,
             display_opts: [true; DISPLAY_OPT_LEN],
             sselected_rect: 0,
+            undoer: Undoer::default(),
         }
     }
     // Convert EditableRects back to TextBoxes (bottom-left origin)
@@ -57,6 +60,7 @@ impl LoadedData {
 
 impl Widget for &mut LoadedData {
     fn ui(self, ui: &mut Ui) -> Response {
+        // display options keyboard shortcuts
         ui.input(|inp| {
             for ((_, key), enabled) in DISPLAY_OPTS.iter().zip(&mut self.display_opts) {
                 if inp.key_pressed(*key) {
@@ -67,9 +71,27 @@ impl Widget for &mut LoadedData {
             }
         });
 
+        let can_undo = self.undoer.has_undo(&self.editable_rects);
+        let can_redo = self.undoer.has_redo(&self.editable_rects);
+
         ui.horizontal(|ui| {
             for ((name, _), enabled) in DISPLAY_OPTS.iter().zip(&mut self.display_opts) {
                 ui.checkbox(enabled, *name);
+            }
+            ui.separator();
+
+            let undo = ui.add_enabled(can_undo, Button::new("⟲ Undo")).clicked();
+            let redo = ui.add_enabled(can_redo, Button::new("⟳ Redo")).clicked();
+
+            if undo {
+                if let Some(undo_text) = self.undoer.undo(&self.editable_rects) {
+                    self.editable_rects = undo_text.clone();
+                }
+            }
+            if redo {
+                if let Some(redo_text) = self.undoer.redo(&self.editable_rects) {
+                    self.editable_rects = redo_text.clone();
+                }
             }
         });
 
@@ -101,6 +123,10 @@ impl Widget for &mut LoadedData {
                 }
                 ui.response()
             });
+
+        self.undoer
+            .feed_state(ui.ctx().input(|input| input.time), &self.editable_rects);
+
         ui.response()
     }
 }
@@ -119,14 +145,19 @@ fn show_rect(
     };
 
     // text
-    let resp = ui.allocate_new_ui(UiBuilder::new().max_rect(bx.rect), |ui| {
-        TextEdit::singleline(&mut bx.text)
-            .clip_text(false)
-            .frame(false)
-            .background_color(Color32::TRANSPARENT)
-            .text_color(text_color)
-            .show(ui)
-    });
+    let resp = ui.allocate_new_ui(
+        UiBuilder::new()
+            .layout(Layout::right_to_left(Align::Min))
+            .max_rect(bx.rect),
+        |ui| {
+            TextEdit::singleline(&mut bx.text)
+                .clip_text(false)
+                .frame(false)
+                .background_color(Color32::TRANSPARENT)
+                .text_color(text_color)
+                .show(ui)
+        },
+    );
 
     // frame
     if display_opts[1] {
@@ -147,6 +178,8 @@ fn show_rect(
     if selected {
         if ui.input(|inp| inp.modifiers.ctrl) {
             // move
+            let mut sense = Sense::drag();
+            sense.set(Sense::FOCUSABLE, false);
             let resp = ui.interact(
                 bx.rect.expand(FRAME_WIDTH),
                 Id::new("move_handle"),
@@ -176,7 +209,9 @@ fn show_rect(
 
 fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
     // resize handle size
-    const SZ: f32 = 8.0;
+    const SZ: f32 = 30.0;
+
+    let sense = Sense::DRAG | Sense::HOVER;
 
     let north = {
         let resp = ui.interact(
@@ -185,7 +220,7 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
                 vec2(bx.rect.width() + SZ * 2.0, SZ),
             ),
             Id::new("resize_handle_top"),
-            Sense::drag(),
+            sense,
         );
         if resp.dragged() {
             bx.rect.min.y += resp.drag_delta().y;
@@ -199,7 +234,7 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
                 pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
             ),
             Id::new("resize_handle_right"),
-            Sense::drag(),
+            sense,
         );
         if resp.dragged() {
             bx.rect.max.x += resp.drag_delta().x;
@@ -213,7 +248,7 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
                 pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
             ),
             Id::new("resize_handle_bottom"),
-            Sense::drag(),
+            sense,
         );
         if resp.dragged() {
             bx.rect.max.y += resp.drag_delta().y;
@@ -227,7 +262,7 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
                 pos2(bx.rect.min.x, bx.rect.max.y + SZ),
             ),
             Id::new("resize_handle_left"),
-            Sense::drag(),
+            sense,
         );
         if resp.dragged() {
             bx.rect.min.x += resp.drag_delta().x;
