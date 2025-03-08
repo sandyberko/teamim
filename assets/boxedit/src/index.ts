@@ -7,6 +7,15 @@ let image: HTMLImageElement | null = null;
 export const ZOOM = 0.4;
 const main = document.getElementById("main") as HTMLElement;
 
+window.addEventListener("keypress", (event) => {
+  if (event.key === "`" || event.key === ";") {
+    const legend = document.getElementById("legend");
+    if (legend instanceof HTMLDialogElement === false)
+      throw new Error("where legend?");
+    legend.showModal();
+  }
+});
+
 function boxContainer(): HTMLElement {
   const elem = document.getElementById("box-container");
   if (elem === null) {
