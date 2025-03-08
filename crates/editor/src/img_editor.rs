@@ -1,7 +1,7 @@
 use eframe::egui::{
-    Align, Button, Color32, CursorIcon, Id, Image, Key, Layout, Rect, Response, Scene, Sense,
-    Stroke, StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget, pos2,
-    util::undoer::Undoer, vec2,
+    Align, Button, Color32, CursorIcon, Id, Image, InputState, Key, Layout, Modifiers, Rect,
+    Response, Scene, Sense, Stroke, StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2,
+    Widget, pos2, util::undoer::Undoer, vec2,
 };
 use teamim::tesseract_ext::BoundingBox;
 
@@ -15,6 +15,14 @@ const DISPLAY_OPTS: [(&str, Key); DISPLAY_OPT_LEN] = [
     ("solo", Key::F4),
 ];
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResizeDir {
+    North,
+    East,
+    South,
+    West,
+}
+
 pub(crate) struct LoadedData {
     texture: TextureHandle,
     image_size: Vec2,
@@ -23,7 +31,8 @@ pub(crate) struct LoadedData {
     // ui
     scene_rect: Rect,
     display_opts: [bool; DISPLAY_OPT_LEN],
-    sselected_rect: usize,
+    selected_rect: usize,
+    kbd_resize_dir: Option<ResizeDir>,
     undoer: Undoer<Vec<EditableRect>>,
 }
 
@@ -39,8 +48,9 @@ impl LoadedData {
             editable_rects,
             scene_rect: Rect::ZERO,
             display_opts: [true; DISPLAY_OPT_LEN],
-            sselected_rect: 0,
+            selected_rect: 0,
             undoer: Undoer::default(),
+            kbd_resize_dir: None,
         }
     }
     // Convert EditableRects back to TextBoxes (bottom-left origin)
@@ -61,7 +71,7 @@ impl LoadedData {
 impl Widget for &mut LoadedData {
     fn ui(self, ui: &mut Ui) -> Response {
         // display options keyboard shortcuts
-        ui.input(|inp| {
+        ui.input_mut(|inp| {
             for ((_, key), enabled) in DISPLAY_OPTS.iter().zip(&mut self.display_opts) {
                 if inp.key_pressed(*key) {
                     *enabled = false;
@@ -69,6 +79,14 @@ impl Widget for &mut LoadedData {
                     *enabled = true;
                 }
             }
+
+            if inp.consume_key(Modifiers::NONE, Key::ArrowUp) {
+                self.selected_rect = self.selected_rect.saturating_sub(1);
+            } else if inp.consume_key(Modifiers::NONE, Key::ArrowDown) {
+                self.selected_rect = (self.selected_rect + 1).min(self.editable_rects.len() - 1);
+            }
+
+            self.handle_kbd_resize(inp);
         });
 
         let can_undo = self.undoer.has_undo(&self.editable_rects);
@@ -85,12 +103,12 @@ impl Widget for &mut LoadedData {
 
             if undo {
                 if let Some(undo_text) = self.undoer.undo(&self.editable_rects) {
-                    self.editable_rects = undo_text.clone();
+                    undo_text.clone_into(&mut self.editable_rects);
                 }
             }
             if redo {
                 if let Some(redo_text) = self.undoer.redo(&self.editable_rects) {
-                    self.editable_rects = redo_text.clone();
+                    redo_text.clone_into(&mut self.editable_rects);
                 }
             }
         });
@@ -105,19 +123,29 @@ impl Widget for &mut LoadedData {
                     ui.add_sized(self.image_size, Image::new(&self.texture));
                 }
 
+                let interactive = self.kbd_resize_dir.is_none();
                 if self.display_opts[3] {
                     for (rect_i, bx) in self.editable_rects.iter_mut().enumerate() {
-                        let selected = self.sselected_rect == rect_i;
-                        let resp = show_rect(bx, self.display_opts, selected, ui);
+                        let selected = self.selected_rect == rect_i;
+                        let resp = show_rect(
+                            bx,
+                            self.display_opts,
+                            selected,
+                            interactive,
+                            self.kbd_resize_dir,
+                            ui,
+                        );
                         if resp.gained_focus() {
-                            self.sselected_rect = rect_i;
+                            self.selected_rect = rect_i;
                         }
                     }
                 } else {
                     show_rect(
-                        &mut self.editable_rects[self.sselected_rect],
+                        &mut self.editable_rects[self.selected_rect],
                         self.display_opts,
                         true,
+                        interactive,
+                        self.kbd_resize_dir,
                         ui,
                     );
                 }
@@ -131,13 +159,58 @@ impl Widget for &mut LoadedData {
     }
 }
 
-const FRAME_WIDTH: f32 = 5.0;
+impl LoadedData {
+    fn handle_kbd_resize(&mut self, inp: &mut InputState) {
+        const SZ: f32 = 1.0;
+
+        if inp.key_pressed(Key::Escape) {
+            self.kbd_resize_dir = None;
+        } else if inp.modifiers.alt {
+            if inp.key_pressed(Key::W) {
+                self.kbd_resize_dir = Some(ResizeDir::North);
+            } else if inp.key_pressed(Key::A) {
+                self.kbd_resize_dir = Some(ResizeDir::West);
+            } else if inp.key_pressed(Key::S) {
+                self.kbd_resize_dir = Some(ResizeDir::South);
+            } else if inp.key_pressed(Key::D) {
+                self.kbd_resize_dir = Some(ResizeDir::East);
+            }
+        } else if let Some(dir) = self.kbd_resize_dir {
+            let bx = &mut self.editable_rects[self.selected_rect];
+            let xd = if inp.consume_key(Modifiers::NONE, Key::A) {
+                -SZ
+            } else if inp.consume_key(Modifiers::NONE, Key::D) {
+                SZ
+            } else {
+                0.0
+            };
+            let yd = if inp.consume_key(Modifiers::NONE, Key::W) {
+                -SZ
+            } else if inp.consume_key(Modifiers::NONE, Key::S) {
+                SZ
+            } else {
+                0.0
+            };
+            match dir {
+                ResizeDir::North => bx.rect.min.y += yd,
+                ResizeDir::East => bx.rect.min.x += xd,
+                ResizeDir::South => bx.rect.max.y += yd,
+                ResizeDir::West => bx.rect.max.x += xd,
+            }
+        }
+    }
+}
+
 fn show_rect(
     bx: &mut EditableRect,
     display_opts: [bool; DISPLAY_OPT_LEN],
     selected: bool,
+    interactive: bool,
+    kbd_resize_dir: Option<ResizeDir>,
     ui: &mut Ui,
 ) -> Response {
+    const SZ: f32 = 5.0;
+
     let text_color = if display_opts[2] {
         Color32::RED
     } else {
@@ -151,6 +224,7 @@ fn show_rect(
             .max_rect(bx.rect),
         |ui| {
             TextEdit::singleline(&mut bx.text)
+                .interactive(interactive)
                 .clip_text(false)
                 .frame(false)
                 .background_color(Color32::TRANSPARENT)
@@ -159,32 +233,58 @@ fn show_rect(
         },
     );
 
+    if selected {
+        resp.inner.response.request_focus();
+    }
+
     // frame
     if display_opts[1] {
-        let frame_color = if selected {
-            Color32::RED
+        if selected {
+            let north = Rect::from_min_size(
+                bx.rect.min - Vec2::splat(SZ),
+                vec2(bx.rect.width() + SZ * 2.0, SZ),
+            );
+            let east = Rect::from_min_max(
+                pos2(bx.rect.max.x, bx.rect.min.y - SZ),
+                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+            );
+            let south = Rect::from_min_max(
+                pos2(bx.rect.min.x - SZ, bx.rect.max.y),
+                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+            );
+            let west = Rect::from_min_max(
+                pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
+                pos2(bx.rect.min.x, bx.rect.max.y + SZ),
+            );
+
+            let dirs = [
+                (north, ResizeDir::North),
+                (east, ResizeDir::East),
+                (south, ResizeDir::South),
+                (west, ResizeDir::West),
+            ];
+            for (rect, dir) in dirs {
+                let fill_color = if kbd_resize_dir == Some(dir) {
+                    Color32::CYAN
+                } else {
+                    Color32::RED
+                };
+                ui.painter().rect_filled(rect, 0.0, fill_color);
+            }
         } else {
-            Color32::GRAY
+            ui.painter().rect_stroke(
+                bx.rect,
+                0.0,
+                Stroke::new(SZ, Color32::GRAY),
+                StrokeKind::Outside,
+            );
         };
-        ui.painter().rect_stroke(
-            bx.rect,
-            0.0,
-            Stroke::new(FRAME_WIDTH, frame_color),
-            StrokeKind::Outside,
-        );
     }
 
     // interaction
     if selected {
         if ui.input(|inp| inp.modifiers.ctrl) {
-            // move
-            let mut sense = Sense::drag();
-            sense.set(Sense::FOCUSABLE, false);
-            let resp = ui.interact(
-                bx.rect.expand(FRAME_WIDTH),
-                Id::new("move_handle"),
-                Sense::drag(),
-            );
+            let resp = &resp.inner.response;
             if resp.hovered() {
                 ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Move);
             }
@@ -214,56 +314,44 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
     let sense = Sense::DRAG | Sense::HOVER;
 
     let north = {
-        let resp = ui.interact(
-            Rect::from_min_size(
-                bx.rect.min - Vec2::splat(SZ),
-                vec2(bx.rect.width() + SZ * 2.0, SZ),
-            ),
-            Id::new("resize_handle_top"),
-            sense,
+        let rect = Rect::from_min_size(
+            bx.rect.min - Vec2::splat(SZ),
+            vec2(bx.rect.width() + SZ * 2.0, SZ),
         );
+        let resp = ui.interact(rect, Id::new("resize_handle_top"), sense);
         if resp.dragged() {
             bx.rect.min.y += resp.drag_delta().y;
         }
         resp.hovered()
     };
     let east = {
-        let resp = ui.interact(
-            Rect::from_min_max(
-                pos2(bx.rect.max.x, bx.rect.min.y - SZ),
-                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
-            ),
-            Id::new("resize_handle_right"),
-            sense,
+        let rect = Rect::from_min_max(
+            pos2(bx.rect.max.x, bx.rect.min.y - SZ),
+            pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
         );
+        let resp = ui.interact(rect, Id::new("resize_handle_right"), sense);
         if resp.dragged() {
             bx.rect.max.x += resp.drag_delta().x;
         }
         resp.hovered()
     };
     let south = {
-        let resp = ui.interact(
-            Rect::from_min_max(
-                pos2(bx.rect.min.x - SZ, bx.rect.max.y),
-                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
-            ),
-            Id::new("resize_handle_bottom"),
-            sense,
+        let rect = Rect::from_min_max(
+            pos2(bx.rect.min.x - SZ, bx.rect.max.y),
+            pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
         );
+        let resp = ui.interact(rect, Id::new("resize_handle_bottom"), sense);
         if resp.dragged() {
             bx.rect.max.y += resp.drag_delta().y;
         }
         resp.hovered()
     };
     let west = {
-        let resp = ui.interact(
-            Rect::from_min_max(
-                pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
-                pos2(bx.rect.min.x, bx.rect.max.y + SZ),
-            ),
-            Id::new("resize_handle_left"),
-            sense,
+        let rect = Rect::from_min_max(
+            pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
+            pos2(bx.rect.min.x, bx.rect.max.y + SZ),
         );
+        let resp = ui.interact(rect, Id::new("resize_handle_left"), sense);
         if resp.dragged() {
             bx.rect.min.x += resp.drag_delta().x;
         }
