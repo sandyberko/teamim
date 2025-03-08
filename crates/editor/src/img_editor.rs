@@ -80,10 +80,18 @@ impl Widget for &mut LoadedData {
                 }
             }
 
+            // move between rows
             if inp.consume_key(Modifiers::NONE, Key::ArrowUp) {
                 self.selected_rect = self.selected_rect.saturating_sub(1);
             } else if inp.consume_key(Modifiers::NONE, Key::ArrowDown) {
                 self.selected_rect = (self.selected_rect + 1).min(self.editable_rects.len() - 1);
+            }
+
+            // undo/redo
+            if inp.consume_key(Modifiers::CTRL, Key::Z) {
+                self.undoer.undo(&self.editable_rects);
+            } else if inp.consume_key(Modifiers::CTRL, Key::Y) {
+                self.undoer.redo(&self.editable_rects);
             }
 
             self.handle_kbd_resize(inp);
@@ -193,13 +201,15 @@ impl LoadedData {
             };
             match dir {
                 ResizeDir::North => bx.rect.min.y += yd,
-                ResizeDir::East => bx.rect.min.x += xd,
+                ResizeDir::East => bx.rect.max.x += xd,
                 ResizeDir::South => bx.rect.max.y += yd,
-                ResizeDir::West => bx.rect.max.x += xd,
+                ResizeDir::West => bx.rect.min.x += xd,
             }
         }
     }
 }
+
+const FRAME_W: f32 = 5.0;
 
 fn show_rect(
     bx: &mut EditableRect,
@@ -209,8 +219,6 @@ fn show_rect(
     kbd_resize_dir: Option<ResizeDir>,
     ui: &mut Ui,
 ) -> Response {
-    const SZ: f32 = 5.0;
-
     let text_color = if display_opts[2] {
         Color32::RED
     } else {
@@ -224,7 +232,7 @@ fn show_rect(
             .max_rect(bx.rect),
         |ui| {
             TextEdit::singleline(&mut bx.text)
-                .interactive(interactive)
+                .interactive(!selected || interactive)
                 .clip_text(false)
                 .frame(false)
                 .background_color(Color32::TRANSPARENT)
@@ -240,42 +248,12 @@ fn show_rect(
     // frame
     if display_opts[1] {
         if selected {
-            let north = Rect::from_min_size(
-                bx.rect.min - Vec2::splat(SZ),
-                vec2(bx.rect.width() + SZ * 2.0, SZ),
-            );
-            let east = Rect::from_min_max(
-                pos2(bx.rect.max.x, bx.rect.min.y - SZ),
-                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
-            );
-            let south = Rect::from_min_max(
-                pos2(bx.rect.min.x - SZ, bx.rect.max.y),
-                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
-            );
-            let west = Rect::from_min_max(
-                pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
-                pos2(bx.rect.min.x, bx.rect.max.y + SZ),
-            );
-
-            let dirs = [
-                (north, ResizeDir::North),
-                (east, ResizeDir::East),
-                (south, ResizeDir::South),
-                (west, ResizeDir::West),
-            ];
-            for (rect, dir) in dirs {
-                let fill_color = if kbd_resize_dir == Some(dir) {
-                    Color32::CYAN
-                } else {
-                    Color32::RED
-                };
-                ui.painter().rect_filled(rect, 0.0, fill_color);
-            }
+            show_selected_frame(bx, kbd_resize_dir, ui);
         } else {
             ui.painter().rect_stroke(
                 bx.rect,
                 0.0,
-                Stroke::new(SZ, Color32::GRAY),
+                Stroke::new(FRAME_W, Color32::GRAY),
                 StrokeKind::Outside,
             );
         };
@@ -291,8 +269,6 @@ fn show_rect(
             if resp.dragged() {
                 bx.rect = bx.rect.translate(resp.drag_delta());
             }
-        } else {
-            handle_resize(bx, ui);
         }
 
         ui.input(|inp| {
@@ -307,57 +283,73 @@ fn show_rect(
     resp.inner.response
 }
 
-fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
-    // resize handle size
-    const SZ: f32 = 30.0;
+fn show_selected_frame(bx: &mut EditableRect, kbd_resize_dir: Option<ResizeDir>, ui: &mut Ui) {
+    let rect_n = Rect::from_min_size(
+        bx.rect.min - Vec2::splat(FRAME_W),
+        vec2(bx.rect.width() + FRAME_W * 2.0, FRAME_W),
+    );
+    let rect_e = Rect::from_min_max(
+        pos2(bx.rect.max.x, bx.rect.min.y - FRAME_W),
+        pos2(bx.rect.max.x + FRAME_W, bx.rect.max.y + FRAME_W),
+    );
+    let rect_s = Rect::from_min_max(
+        pos2(bx.rect.min.x - FRAME_W, bx.rect.max.y),
+        pos2(bx.rect.max.x + FRAME_W, bx.rect.max.y + FRAME_W),
+    );
+    let rect_w = Rect::from_min_max(
+        pos2(bx.rect.min.x - FRAME_W, bx.rect.min.y - FRAME_W),
+        pos2(bx.rect.min.x, bx.rect.max.y + FRAME_W),
+    );
 
+    // resize
     let sense = Sense::DRAG | Sense::HOVER;
+    let threshold = 10.0;
 
-    let north = {
-        let rect = Rect::from_min_size(
-            bx.rect.min - Vec2::splat(SZ),
-            vec2(bx.rect.width() + SZ * 2.0, SZ),
+    let hover_n = {
+        let resp = ui.interact(
+            rect_n.expand(threshold),
+            Id::new("resize_handle_top"),
+            sense,
         );
-        let resp = ui.interact(rect, Id::new("resize_handle_top"), sense);
         if resp.dragged() {
             bx.rect.min.y += resp.drag_delta().y;
         }
         resp.hovered()
     };
-    let east = {
-        let rect = Rect::from_min_max(
-            pos2(bx.rect.max.x, bx.rect.min.y - SZ),
-            pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+    let hover_e = {
+        let resp = ui.interact(
+            rect_e.expand(threshold),
+            Id::new("resize_handle_right"),
+            sense,
         );
-        let resp = ui.interact(rect, Id::new("resize_handle_right"), sense);
         if resp.dragged() {
             bx.rect.max.x += resp.drag_delta().x;
         }
         resp.hovered()
     };
-    let south = {
-        let rect = Rect::from_min_max(
-            pos2(bx.rect.min.x - SZ, bx.rect.max.y),
-            pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+    let hover_s = {
+        let resp = ui.interact(
+            rect_s.expand(threshold),
+            Id::new("resize_handle_bottom"),
+            sense,
         );
-        let resp = ui.interact(rect, Id::new("resize_handle_bottom"), sense);
         if resp.dragged() {
             bx.rect.max.y += resp.drag_delta().y;
         }
         resp.hovered()
     };
-    let west = {
-        let rect = Rect::from_min_max(
-            pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
-            pos2(bx.rect.min.x, bx.rect.max.y + SZ),
+    let hover_w = {
+        let resp = ui.interact(
+            rect_w.expand(threshold),
+            Id::new("resize_handle_left"),
+            sense,
         );
-        let resp = ui.interact(rect, Id::new("resize_handle_left"), sense);
         if resp.dragged() {
             bx.rect.min.x += resp.drag_delta().x;
         }
         resp.hovered()
     };
-    let icon = match (north, east, south, west) {
+    let icon = match (hover_n, hover_e, hover_s, hover_w) {
         (true, false, false, false) | (false, false, true, false) => CursorIcon::ResizeVertical,
         (false, false, false, true) | (false, true, false, false) => CursorIcon::ResizeHorizontal,
         (true, false, false, true) | (false, true, true, false) => CursorIcon::ResizeNwSe,
@@ -366,4 +358,20 @@ fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
         _ => ui.ctx().output(|o| o.cursor_icon),
     };
     ui.ctx().output_mut(|o| o.cursor_icon = icon);
+
+    // frame
+    let dirs = [
+        (rect_n, ResizeDir::North),
+        (rect_e, ResizeDir::East),
+        (rect_s, ResizeDir::South),
+        (rect_w, ResizeDir::West),
+    ];
+    for (rect, dir) in dirs {
+        let fill_color = if kbd_resize_dir == Some(dir) {
+            Color32::CYAN
+        } else {
+            Color32::RED
+        };
+        ui.painter().rect_filled(rect, 0.0, fill_color);
+    }
 }
