@@ -1,11 +1,11 @@
 use eframe::egui::{
     Align, Button, Color32, CursorIcon, Id, Image, InputState, Key, Layout, Modifiers, Rect,
     Response, Scene, Sense, Stroke, StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2,
-    Widget, pos2, util::undoer::Undoer, vec2,
+    Widget, pos2, text::CursorRange, util::undoer::Undoer, vec2,
 };
 use teamim::tesseract_ext::BoundingBox;
 
-use crate::{EditableRect, boxes_style};
+use crate::{EditableRect, FONT_SIZE, boxes_style};
 
 const DISPLAY_OPT_LEN: usize = 4;
 const DISPLAY_OPTS: [(&str, Key); DISPLAY_OPT_LEN] = [
@@ -26,7 +26,7 @@ enum ResizeDir {
 pub(crate) struct LoadedData {
     texture: TextureHandle,
     image_size: Vec2,
-    pub(crate) editable_rects: Vec<EditableRect>,
+    pub(crate) boxes: Vec<EditableRect>,
 
     // ui
     scene_rect: Rect,
@@ -45,7 +45,7 @@ impl LoadedData {
         Self {
             texture,
             image_size,
-            editable_rects,
+            boxes: editable_rects,
             scene_rect: Rect::ZERO,
             display_opts: [true; DISPLAY_OPT_LEN],
             selected_rect: 0,
@@ -54,12 +54,13 @@ impl LoadedData {
         }
     }
     // Convert EditableRects back to TextBoxes (bottom-left origin)
+    #[expect(clippy::cast_possible_truncation, unused)]
     pub(crate) fn get_textboxes(&self) -> Vec<BoundingBox<String>> {
-        self.editable_rects
+        self.boxes
             .iter()
             .map(|r| BoundingBox {
                 value: r.text.clone(),
-                left: r.rect.min.x as i32,
+                left: r.rect.min.x.round() as i32,
                 bottom: (self.image_size.y - r.rect.max.y) as i32,
                 right: r.rect.max.x as i32,
                 top: (self.image_size.y - r.rect.min.y) as i32,
@@ -84,21 +85,21 @@ impl Widget for &mut LoadedData {
             if inp.consume_key(Modifiers::NONE, Key::ArrowUp) {
                 self.selected_rect = self.selected_rect.saturating_sub(1);
             } else if inp.consume_key(Modifiers::NONE, Key::ArrowDown) {
-                self.selected_rect = (self.selected_rect + 1).min(self.editable_rects.len() - 1);
+                self.selected_rect = (self.selected_rect + 1).min(self.boxes.len() - 1);
             }
 
             // undo/redo
             if inp.consume_key(Modifiers::CTRL, Key::Z) {
-                self.undoer.undo(&self.editable_rects);
+                self.undoer.undo(&self.boxes);
             } else if inp.consume_key(Modifiers::CTRL, Key::Y) {
-                self.undoer.redo(&self.editable_rects);
+                self.undoer.redo(&self.boxes);
             }
 
             self.handle_kbd_resize(inp);
         });
 
-        let can_undo = self.undoer.has_undo(&self.editable_rects);
-        let can_redo = self.undoer.has_redo(&self.editable_rects);
+        let can_undo = self.undoer.has_undo(&self.boxes);
+        let can_redo = self.undoer.has_redo(&self.boxes);
 
         ui.horizontal(|ui| {
             for ((name, _), enabled) in DISPLAY_OPTS.iter().zip(&mut self.display_opts) {
@@ -110,13 +111,13 @@ impl Widget for &mut LoadedData {
             let redo = ui.add_enabled(can_redo, Button::new("⟳ Redo")).clicked();
 
             if undo {
-                if let Some(undo_text) = self.undoer.undo(&self.editable_rects) {
-                    undo_text.clone_into(&mut self.editable_rects);
+                if let Some(undo_text) = self.undoer.undo(&self.boxes) {
+                    undo_text.clone_into(&mut self.boxes);
                 }
             }
             if redo {
-                if let Some(redo_text) = self.undoer.redo(&self.editable_rects) {
-                    redo_text.clone_into(&mut self.editable_rects);
+                if let Some(redo_text) = self.undoer.redo(&self.boxes) {
+                    redo_text.clone_into(&mut self.boxes);
                 }
             }
         });
@@ -133,23 +134,36 @@ impl Widget for &mut LoadedData {
 
                 let interactive = self.kbd_resize_dir.is_none();
                 if self.display_opts[3] {
-                    for (rect_i, bx) in self.editable_rects.iter_mut().enumerate() {
-                        let selected = self.selected_rect == rect_i;
+                    for bx_i in 0..self.boxes.len() {
+                        let selected = self.selected_rect == bx_i;
                         let resp = show_rect(
-                            bx,
+                            &mut self.boxes[bx_i],
                             self.display_opts,
                             selected,
                             interactive,
                             self.kbd_resize_dir,
                             ui,
                         );
-                        if resp.gained_focus() {
-                            self.selected_rect = rect_i;
+                        if resp.inner.gained_focus() {
+                            self.selected_rect = bx_i;
+                        }
+                        match resp.line_down {
+                            Some((LineDown::NextLine, text)) if bx_i < self.boxes.len() - 1 => {
+                                self.boxes[bx_i].text.insert_str(0, &text);
+                            }
+                            // new line
+                            Some((_, text)) => {
+                                let rect =
+                                    self.boxes[bx_i].rect.translate(vec2(0.0, FONT_SIZE + 10.0));
+                                self.boxes.insert(bx_i + 1, EditableRect { rect, text });
+                                self.selected_rect = bx_i + 1;
+                            }
+                            None => {}
                         }
                     }
                 } else {
                     show_rect(
-                        &mut self.editable_rects[self.selected_rect],
+                        &mut self.boxes[self.selected_rect],
                         self.display_opts,
                         true,
                         interactive,
@@ -161,7 +175,7 @@ impl Widget for &mut LoadedData {
             });
 
         self.undoer
-            .feed_state(ui.ctx().input(|input| input.time), &self.editable_rects);
+            .feed_state(ui.ctx().input(|input| input.time), &self.boxes);
 
         ui.response()
     }
@@ -184,7 +198,7 @@ impl LoadedData {
                 self.kbd_resize_dir = Some(ResizeDir::East);
             }
         } else if let Some(dir) = self.kbd_resize_dir {
-            let bx = &mut self.editable_rects[self.selected_rect];
+            let bx = &mut self.boxes[self.selected_rect];
             let xd = if inp.consume_key(Modifiers::NONE, Key::A) {
                 -SZ
             } else if inp.consume_key(Modifiers::NONE, Key::D) {
@@ -211,6 +225,16 @@ impl LoadedData {
 
 const FRAME_W: f32 = 5.0;
 
+struct BoxResponse {
+    inner: Response,
+    line_down: Option<(LineDown, String)>,
+}
+
+enum LineDown {
+    NextLine,
+    NewLine,
+}
+
 fn show_rect(
     bx: &mut EditableRect,
     display_opts: [bool; DISPLAY_OPT_LEN],
@@ -218,7 +242,7 @@ fn show_rect(
     interactive: bool,
     kbd_resize_dir: Option<ResizeDir>,
     ui: &mut Ui,
-) -> Response {
+) -> BoxResponse {
     let text_color = if display_opts[2] {
         Color32::RED
     } else {
@@ -260,6 +284,7 @@ fn show_rect(
     }
 
     // interaction
+    let mut line_down = None;
     if selected {
         if ui.input(|inp| inp.modifiers.ctrl) {
             let resp = &resp.inner.response;
@@ -274,13 +299,32 @@ fn show_rect(
         ui.input(|inp| {
             // new line
             if inp.key_pressed(Key::Enter) {
-                if let Some(cursor_range) = resp.inner.cursor_range {
-                    // cursor_range.primary.index
+                let cursor = resp
+                    .inner
+                    .cursor_range
+                    .as_ref()
+                    .and_then(CursorRange::single);
+                if let Some(cursor) = cursor {
+                    let ty = if inp.modifiers.shift {
+                        LineDown::NextLine
+                    } else {
+                        LineDown::NewLine
+                    };
+                    let Some((byte_idx, _)) = bx.text.char_indices().nth(cursor.ccursor.index)
+                    else {
+                        eprintln!("char index out of bounds");
+                        return;
+                    };
+                    line_down = Some((ty, bx.text.split_off(byte_idx)));
                 }
             }
         });
     }
-    resp.inner.response
+
+    BoxResponse {
+        inner: resp.inner.response,
+        line_down,
+    }
 }
 
 fn show_selected_frame(bx: &mut EditableRect, kbd_resize_dir: Option<ResizeDir>, ui: &mut Ui) {

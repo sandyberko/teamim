@@ -100,7 +100,7 @@ fn load(
             pos2(tb.left as _, image_size.y - tb.top as f32),
             pos2(tb.right as _, image_size.y - tb.bottom as f32),
         );
-        loaded_data.editable_rects.push(EditableRect {
+        loaded_data.boxes.push(EditableRect {
             rect,
             text: tb.value,
         });
@@ -168,6 +168,7 @@ fn boxes_style() -> TextStyle {
     TextStyle::Name("Boxes".into())
 }
 
+const FONT_SIZE: f32 = 127.0;
 fn configure_text_styles(ctx: &egui::Context) {
     let font_name = "Guttman Stam";
     let font_family = FontFamily::Name(font_name.into());
@@ -182,7 +183,7 @@ fn configure_text_styles(ctx: &egui::Context) {
     ctx.all_styles_mut(move |style| {
         style
             .text_styles
-            .insert(boxes_style(), FontId::new(127.0, font_family.clone()));
+            .insert(boxes_style(), FontId::new(FONT_SIZE, font_family.clone()));
     });
 }
 
