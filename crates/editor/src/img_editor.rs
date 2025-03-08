@@ -1,6 +1,6 @@
 use eframe::egui::{
     Color32, CursorIcon, Id, Image, Key, Rect, Response, Scene, Sense, Stroke, StrokeKind,
-    TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget,
+    TextEdit, TextureHandle, Ui, UiBuilder, Vec2, Widget, pos2, vec2,
 };
 use teamim::tesseract_ext::BoundingBox;
 
@@ -105,7 +105,7 @@ impl Widget for &mut LoadedData {
     }
 }
 
-const RESIZE_HANDLE_SIZE: f32 = 8.0;
+const FRAME_WIDTH: f32 = 5.0;
 fn show_rect(
     bx: &mut EditableRect,
     display_opts: [bool; DISPLAY_OPT_LEN],
@@ -138,67 +138,29 @@ fn show_rect(
         ui.painter().rect_stroke(
             bx.rect,
             0.0,
-            Stroke::new(5.0, frame_color),
+            Stroke::new(FRAME_WIDTH, frame_color),
             StrokeKind::Outside,
         );
     }
 
     // interaction
     if selected {
-        macro_rules! corner {
-            ($corner_name:literal, $corner_pos:expr, $icon:expr, |$resp:ident| $resize:expr) => {{
-                ui.painter()
-                    .circle_filled($corner_pos, RESIZE_HANDLE_SIZE, Color32::WHITE);
-                ui.painter().circle_stroke(
-                    $corner_pos,
-                    RESIZE_HANDLE_SIZE,
-                    Stroke::new(2.0, Color32::LIGHT_BLUE),
-                );
-                let resp = ui.interact(
-                    Rect::from_center_size($corner_pos, Vec2::splat(RESIZE_HANDLE_SIZE * 2.0)),
-                    Id::new(concat!("resize_handle_", $corner_name)),
-                    Sense::click_and_drag(),
-                );
-                if resp.hovered() {
-                    ui.ctx().output_mut(|o| o.cursor_icon = $icon);
-                }
-                if resp.dragged() {
-                    let $resp = resp;
-                    $resize
-                }
-            }};
+        if ui.input(|inp| inp.modifiers.ctrl) {
+            // move
+            let resp = ui.interact(
+                bx.rect.expand(FRAME_WIDTH),
+                Id::new("move_handle"),
+                Sense::drag(),
+            );
+            if resp.hovered() {
+                ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Move);
+            }
+            if resp.dragged() {
+                bx.rect = bx.rect.translate(resp.drag_delta());
+            }
+        } else {
+            handle_resize(bx, ui);
         }
-
-        corner!(
-            "left_top",
-            bx.rect.left_top(),
-            CursorIcon::ResizeNwSe,
-            |resp| bx.rect.min += resp.drag_delta()
-        );
-        corner!(
-            "right_top",
-            bx.rect.right_top(),
-            CursorIcon::ResizeNeSw,
-            |resp| {
-                bx.rect.max.x += resp.drag_delta().x;
-                bx.rect.min.y += resp.drag_delta().y;
-            }
-        );
-        corner!(
-            "left_bottom",
-            bx.rect.left_bottom(),
-            CursorIcon::ResizeNeSw,
-            |resp| {
-                bx.rect.min.x += resp.drag_delta().x;
-                bx.rect.max.y += resp.drag_delta().y;
-            }
-        );
-        corner!(
-            "right_bottom",
-            bx.rect.right_bottom(),
-            CursorIcon::ResizeNwSe,
-            |resp| bx.rect.max += resp.drag_delta()
-        );
 
         ui.input(|inp| {
             // new line
@@ -210,4 +172,75 @@ fn show_rect(
         });
     }
     resp.inner.response
+}
+
+fn handle_resize(bx: &mut EditableRect, ui: &mut Ui) {
+    // resize handle size
+    const SZ: f32 = 8.0;
+
+    let north = {
+        let resp = ui.interact(
+            Rect::from_min_size(
+                bx.rect.min - Vec2::splat(SZ),
+                vec2(bx.rect.width() + SZ * 2.0, SZ),
+            ),
+            Id::new("resize_handle_top"),
+            Sense::drag(),
+        );
+        if resp.dragged() {
+            bx.rect.min.y += resp.drag_delta().y;
+        }
+        resp.hovered()
+    };
+    let east = {
+        let resp = ui.interact(
+            Rect::from_min_max(
+                pos2(bx.rect.max.x, bx.rect.min.y - SZ),
+                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+            ),
+            Id::new("resize_handle_right"),
+            Sense::drag(),
+        );
+        if resp.dragged() {
+            bx.rect.max.x += resp.drag_delta().x;
+        }
+        resp.hovered()
+    };
+    let south = {
+        let resp = ui.interact(
+            Rect::from_min_max(
+                pos2(bx.rect.min.x - SZ, bx.rect.max.y),
+                pos2(bx.rect.max.x + SZ, bx.rect.max.y + SZ),
+            ),
+            Id::new("resize_handle_bottom"),
+            Sense::drag(),
+        );
+        if resp.dragged() {
+            bx.rect.max.y += resp.drag_delta().y;
+        }
+        resp.hovered()
+    };
+    let west = {
+        let resp = ui.interact(
+            Rect::from_min_max(
+                pos2(bx.rect.min.x - SZ, bx.rect.min.y - SZ),
+                pos2(bx.rect.min.x, bx.rect.max.y + SZ),
+            ),
+            Id::new("resize_handle_left"),
+            Sense::drag(),
+        );
+        if resp.dragged() {
+            bx.rect.min.x += resp.drag_delta().x;
+        }
+        resp.hovered()
+    };
+    let icon = match (north, east, south, west) {
+        (true, false, false, false) | (false, false, true, false) => CursorIcon::ResizeVertical,
+        (false, false, false, true) | (false, true, false, false) => CursorIcon::ResizeHorizontal,
+        (true, false, false, true) | (false, true, true, false) => CursorIcon::ResizeNwSe,
+        (true, true, false, false) | (false, false, true, true) => CursorIcon::ResizeNeSw,
+
+        _ => ui.ctx().output(|o| o.cursor_icon),
+    };
+    ui.ctx().output_mut(|o| o.cursor_icon = icon);
 }
