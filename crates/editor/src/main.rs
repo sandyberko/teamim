@@ -6,15 +6,17 @@ use eframe::{
     App, Frame,
     egui::{
         self, ColorImage, Context, FontData, FontFamily, FontId, Rect, TextStyle, TextureOptions,
-        Vec2,
+        pos2,
     },
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
 };
 use eyre::{OptionExt, ensure};
+use image::ImageReader;
 use img_editor::LoadedData;
 use std::{
-    fs,
-    path::Path,
+    fs::File,
+    io::{self, BufRead, BufReader},
+    ops::ControlFlow,
     sync::{Arc, Mutex},
     thread,
 };
@@ -31,7 +33,7 @@ enum LoadingState {
     NotStarted,
     Loading,
     Loaded(LoadedData),
-    Failed,
+    Failed(String),
 }
 
 struct TextBoxApp {
@@ -59,62 +61,51 @@ impl TextBoxApp {
         }
 
         thread::spawn(move || {
-            // Load image
-            let Ok(image) = image::open(Path::new(&image_path)) else {
-                // Handle loading error
-                let mut state_lock = state.lock().unwrap();
-                *state_lock = LoadingState::Failed;
-                return;
-            };
-
-            let size = [image.width() as _, image.height() as _];
-            let image_height = size[1] as f32;
-            let image_buffer = image.to_rgba8();
-            let pixels = image_buffer.as_flat_samples();
-
-            let color_image = ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-
-            // read boxes
-            let Ok(textboxes) = fs::read_to_string(Path::new(&boxes_path)) else {
-                // Handle loading error
-                let mut state_lock = state.lock().unwrap();
-                *state_lock = LoadingState::Failed;
-                return;
-            };
-
-            let Ok(textboxes) = parse_lstm_box(&textboxes) else {
-                // Handle loading error
-                let mut state_lock = state.lock().unwrap();
-                *state_lock = LoadingState::Failed;
-                return;
-            };
-
-            // Convert TextBoxes to EditableRects
-            let editable_rects = textboxes
-                .iter()
-                .map(|tb| {
-                    // Convert from bottom-left to top-left origin
-                    let top_left = egui::pos2(tb.left as f32, image_height - tb.top as f32);
-
-                    let bottom_right = egui::pos2(tb.right as f32, image_height - tb.bottom as f32);
-
-                    EditableRect {
-                        rect: Rect::from_min_max(top_left, bottom_right),
-                        text: tb.value.clone(),
-                    }
-                })
-                .collect();
-
-            let image_size = Vec2::new(size[0] as f32, size[1] as f32);
-
-            let texture = ctx.load_texture("image-texture", color_image, TextureOptions::default());
-
-            // We'll set the texture later in the main thread
-            let mut state_lock = state.lock().unwrap();
-            *state_lock =
-                LoadingState::Loaded(LoadedData::new(texture, image_size, editable_rects));
+            if let Err(err) = load(ctx, image_path, boxes_path, state.clone()) {
+                *state.lock().unwrap() = LoadingState::Failed(err.to_string());
+            }
         });
     }
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn load(
+    ctx: Context,
+    image_path: String,
+    boxes_path: String,
+    state: Arc<Mutex<LoadingState>>,
+) -> eyre::Result<()> {
+    // image
+    let image = ImageReader::open(image_path)?.decode()?;
+    let size = [image.width() as _, image.height() as _];
+    #[expect(clippy::cast_precision_loss)]
+    let image_size = size.map(|x| x as _).into();
+
+    let pixels = image.into_rgba8().into_flat_samples();
+    let color_image = ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+    let texture = ctx.load_texture("image-texture", color_image, TextureOptions::default());
+    *state.lock().unwrap() = LoadingState::Loaded(LoadedData::new(texture, image_size, Vec::new()));
+
+    // boxes
+    let lines = BufReader::new(File::open(boxes_path)?).lines();
+    for tb in BBIter::new(lines) {
+        let tb = tb?;
+        let LoadingState::Loaded(ref mut loaded_data) = *state.lock().unwrap() else {
+            return Err(eyre::eyre!("LoadedData is not Loaded"));
+        };
+
+        // Convert from bottom-left to top-left origin
+        #[expect(clippy::cast_precision_loss)]
+        let rect = Rect::from_min_max(
+            pos2(tb.left as _, image_size.y - tb.top as f32),
+            pos2(tb.right as _, image_size.y - tb.bottom as f32),
+        );
+        loaded_data.editable_rects.push(EditableRect {
+            rect,
+            text: tb.value,
+        });
+    }
+    Ok(())
 }
 
 impl App for TextBoxApp {
@@ -137,9 +128,10 @@ impl App for TextBoxApp {
                 LoadingState::Loaded(ref mut loaded_data) => {
                     ui.add(loaded_data);
                 }
-                LoadingState::Failed => {
+                LoadingState::Failed(ref err) => {
                     ui.centered_and_justified(|ui| {
-                        ui.label("Failed to load image!");
+                        ui.label("Failed to load image:");
+                        ui.label(err.to_string());
                     });
                 }
             }
@@ -194,41 +186,72 @@ fn configure_text_styles(ctx: &egui::Context) {
     });
 }
 
-fn parse_lstm_box(s: &str) -> eyre::Result<Vec<BoundingBox<String>>> {
-    let mut boxes = Vec::new();
-    let mut last_box: Option<BoundingBox<String>> = None;
-    for line in s.lines() {
-        let mut chars = line.chars();
-        let char = chars.next().ok_or_eyre("missing first char")?;
-        if char == '\t' {
-            boxes.push(last_box.ok_or_eyre("missing last box")?);
-            last_box = None;
-        } else if let Some(r#box) = last_box.as_mut() {
-            r#box.value.push(char);
-        } else {
-            let space = chars.next().ok_or_else(|| eyre::eyre!("missing space"))?;
-            ensure!(space == ' ', "expected space, found {char:?}");
-            let mut parts = chars.as_str().split(' ');
-            last_box = Some(BoundingBox {
-                value: char.to_string(),
-                left: parts
-                    .next()
-                    .ok_or_else(|| eyre::eyre!("missing left"))?
-                    .parse()?,
-                bottom: parts
-                    .next()
-                    .ok_or_else(|| eyre::eyre!("missing bottom"))?
-                    .parse()?,
-                right: parts
-                    .next()
-                    .ok_or_else(|| eyre::eyre!("missing right"))?
-                    .parse()?,
-                top: parts
-                    .next()
-                    .ok_or_else(|| eyre::eyre!("missing top"))?
-                    .parse()?,
-            });
-        }
+struct BBIter<I> {
+    iter: I,
+}
+
+impl<I> BBIter<I> {
+    fn new(iter: I) -> Self {
+        Self { iter }
     }
-    Ok(boxes)
+}
+
+impl<I> Iterator for BBIter<I>
+where
+    I: Iterator<Item = io::Result<String>>,
+{
+    type Item = eyre::Result<BoundingBox<String>>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut last_box: Option<BoundingBox<String>> = None;
+        for line in &mut self.iter {
+            match line
+                .map_err(eyre::Report::from)
+                .and_then(|line| parse_line(&mut last_box, &line))
+            {
+                Ok(ControlFlow::Break(())) => {
+                    return Some(last_box.ok_or_eyre("missing last box"));
+                }
+                Ok(ControlFlow::Continue(())) => {}
+                Err(e) => return Some(Err(e)),
+            }
+        }
+        last_box.map(Ok)
+    }
+}
+
+fn parse_line(
+    last_box: &mut Option<BoundingBox<String>>,
+    line: &str,
+) -> eyre::Result<ControlFlow<()>> {
+    let mut chars = line.chars();
+    let char = chars.next().ok_or_eyre("missing first char")?;
+    if char == '\t' {
+        return Ok(ControlFlow::Break(()));
+    } else if let Some(r#box) = last_box.as_mut() {
+        r#box.value.push(char);
+    } else {
+        let space = chars.next().ok_or_else(|| eyre::eyre!("missing space"))?;
+        ensure!(space == ' ', "expected space, found {char:?}");
+        let mut parts = chars.as_str().split(' ');
+        *last_box = Some(BoundingBox {
+            value: char.to_string(),
+            left: parts
+                .next()
+                .ok_or_else(|| eyre::eyre!("missing left"))?
+                .parse()?,
+            bottom: parts
+                .next()
+                .ok_or_else(|| eyre::eyre!("missing bottom"))?
+                .parse()?,
+            right: parts
+                .next()
+                .ok_or_else(|| eyre::eyre!("missing right"))?
+                .parse()?,
+            top: parts
+                .next()
+                .ok_or_else(|| eyre::eyre!("missing top"))?
+                .parse()?,
+        });
+    }
+    Ok(ControlFlow::Continue(()))
 }

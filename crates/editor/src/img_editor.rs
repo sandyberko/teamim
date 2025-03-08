@@ -26,7 +26,7 @@ enum ResizeDir {
 pub(crate) struct LoadedData {
     texture: TextureHandle,
     image_size: Vec2,
-    editable_rects: Vec<EditableRect>,
+    pub(crate) editable_rects: Vec<EditableRect>,
 
     // ui
     scene_rect: Rect,
