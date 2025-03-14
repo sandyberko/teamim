@@ -1,3 +1,5 @@
+import { ZOOM } from "./index.js";
+
 /**
  * Clockwise from top
  */
@@ -11,6 +13,13 @@ enum Direction {
   Left = 0b0001,
   LeftTop = 0b1001,
   Inside = 0b0000,
+}
+
+function dirToString(dir: Direction): string {
+  return [Direction.Top, Direction.Right, Direction.Bottom, Direction.Left]
+    .filter((d) => (dir & d) !== 0)
+    .map((d) => Direction[d])
+    .toString();
 }
 
 export function getDir(
@@ -119,7 +128,7 @@ export class TessBox extends HTMLElement {
         prevX = moveEvent.clientX;
         prevY = moveEvent.clientY;
 
-        this.resize(dir, dy, dx);
+        this.resize(dir, dy / ZOOM, dx / ZOOM);
       },
       { signal },
     );
@@ -133,7 +142,7 @@ export class TessBox extends HTMLElement {
     this.style.cursor =
       cursor.get(dir) ||
       (() => {
-        throw new Error(`invalid cursor ${dir.toString(2)}`);
+        throw new Error(`invalid cursor ${dirToString(dir)}`);
       })();
   }
   // #endregion
