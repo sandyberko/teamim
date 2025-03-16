@@ -32,6 +32,8 @@ similar = { version = "2.7.0", features = ["unicode"] }
 serde = { version = "1.0.217", features = ["derive"] }
 maud = "0.27.0"
 
+[patch.crates-io]
+eframe = { path = "../../egui/crates/eframe" }
 
 [lints]
 workspace = true

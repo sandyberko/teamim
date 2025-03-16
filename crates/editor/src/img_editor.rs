@@ -1,7 +1,7 @@
 use eframe::egui::{
     Align, Button, Color32, CursorIcon, Id, Image, InputState, Key, Layout, Modifiers, Rect,
     Response, Scene, Sense, Stroke, StrokeKind, TextEdit, TextureHandle, Ui, UiBuilder, Vec2,
-    Widget, pos2, text::CursorRange, util::undoer::Undoer, vec2,
+    Widget, pos2, util::undoer::Undoer, vec2,
 };
 use teamim::tesseract_ext::BoundingBox;
 
@@ -298,26 +298,26 @@ fn show_rect(
 
         ui.input(|inp| {
             // new line
-            if inp.key_pressed(Key::Enter) {
-                let cursor = resp
-                    .inner
-                    .cursor_range
-                    .as_ref()
-                    .and_then(CursorRange::single);
-                if let Some(cursor) = cursor {
-                    let ty = if inp.modifiers.shift {
-                        LineDown::NextLine
-                    } else {
-                        LineDown::NewLine
-                    };
-                    let Some((byte_idx, _)) = bx.text.char_indices().nth(cursor.ccursor.index)
-                    else {
-                        eprintln!("char index out of bounds");
-                        return;
-                    };
-                    line_down = Some((ty, bx.text.split_off(byte_idx)));
-                }
-            }
+            // if inp.key_pressed(Key::Enter) {
+            //     let cursor = resp
+            //         .inner
+            //         .cursor_range
+            //         .as_ref()
+            //         .and_then(CursorRange::single);
+            //     if let Some(cursor) = cursor {
+            //         let ty = if inp.modifiers.shift {
+            //             LineDown::NextLine
+            //         } else {
+            //             LineDown::NewLine
+            //         };
+            //         let Some((byte_idx, _)) = bx.text.char_indices().nth(cursor.ccursor.index)
+            //         else {
+            //             eprintln!("char index out of bounds");
+            //             return;
+            //         };
+            //         line_down = Some((ty, bx.text.split_off(byte_idx)));
+            //     }
+            // }
         });
     }
 

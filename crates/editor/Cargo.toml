@@ -8,7 +8,7 @@ teamim = { path = "../.." }
 eyre = { workspace = true }
 color-eyre = { workspace = true }
 egui_extras = { version = "0.31.0", features = ["default", "image"] }
-eframe = "0.31.0"
+eframe = "0.31.1"
 image = { version = "0.25.5", features = ["jpeg"] }
 env_logger = "0.11.6"
 

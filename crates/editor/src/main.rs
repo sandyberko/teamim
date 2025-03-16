@@ -140,6 +140,16 @@ impl App for TextBoxApp {
 }
 
 fn main() -> eframe::Result {
+    #[cfg(debug_assertions)]
+    {
+        // set console codepage to UTF-8
+        std::process::Command::new("cmd")
+            .args(["/C", "chcp 65001"])
+            .output()
+            .map_err(From::from)
+            .map_err(eframe::Error::AppCreation)?;
+    }
+
     color_eyre::install().unwrap();
     env_logger::init();
     let options = eframe::NativeOptions {
@@ -229,7 +239,7 @@ fn parse_line(
     if char == '\t' {
         return Ok(ControlFlow::Break(()));
     } else if let Some(r#box) = last_box.as_mut() {
-        r#box.value.push(char);
+        r#box.value.insert(0, char);
     } else {
         let space = chars.next().ok_or_else(|| eyre::eyre!("missing space"))?;
         ensure!(space == ' ', "expected space, found {char:?}");
