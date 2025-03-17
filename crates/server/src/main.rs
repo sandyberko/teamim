@@ -1,8 +1,3 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
-
 use axum::{
     Json, Router,
     body::Bytes,
@@ -12,9 +7,14 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use eyre::eyre;
+use eyre::{bail, eyre};
 use maud::Markup;
 use serde::{Deserialize, Serialize};
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use teamim::{
     MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, parse_box_line,
     place_teamim, training_diff::Div,
@@ -23,10 +23,11 @@ use thiserror::Error;
 use tokio::{
     fs::File,
     io::{self, AsyncWriteExt, BufWriter},
+    net::TcpListener,
 };
 use tower::ServiceBuilder;
-use tower_http::services::ServeDir;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tower_http::{services::ServeDir, trace::TraceLayer};
+use tracing::{error, info, instrument};
 
 #[derive(Clone)]
 struct AppState {
@@ -35,21 +36,19 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    color_eyre::install()?;
+    let _guead = tracing_init()?;
 
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                format!("{}=debug,tower_http=debug", env!("CARGO_CRATE_NAME")).into()
-            }),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    serve().await?;
 
+    Ok(())
+}
+
+#[instrument(err)]
+async fn serve() -> eyre::Result<()> {
     // ensure assets dir exists
     let boxedit_dir = PathBuf::from("assets/boxedit");
     if !boxedit_dir.exists() {
-        panic!("boxedit dir does not exist: {boxedit_dir:?}");
+        bail!("boxedit dir does not exist: {boxedit_dir:?}");
     }
 
     let state = AppState {
@@ -82,18 +81,50 @@ async fn main() -> eyre::Result<()> {
     #[cfg(debug_assertions)]
     let app = app.nest_service("/src", ServeDir::new(boxedit_dir.join("src")));
 
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    let app = app.layer(TraceLayer::new_for_http());
+
+    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3000)).await?;
 
     // launch browser
-    let _browser = tokio::spawn(async move {
-        let url = "http://localhost:3000";
-        println!("Opening browser at {url}");
-        _ = open::that(url);
+    let _browser = tokio::spawn({
+        let url = format!("http://{}", listener.local_addr()?);
+        async move {
+            info!("Opening browser at {url}");
+            if let Err(e) = open::that(url) {
+                error!("Failed to open browser: {e}");
+            }
+        }
     });
 
     axum::serve(listener, app).await?;
+
     Ok(())
+}
+
+fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_appender::{non_blocking, rolling};
+    use tracing_error::ErrorLayer;
+    use tracing_subscriber::{
+        EnvFilter, Registry, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+    };
+
+    let (non_blocking_appender, guard) = non_blocking(rolling::daily("logs", "teamim-server"));
+    let file_layer = fmt::layer()
+        .with_ansi(false)
+        .with_writer(non_blocking_appender);
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    Registry::default()
+        .with(fmt::layer().pretty().with_writer(std::io::stderr))
+        .with(file_layer)
+        .with(ErrorLayer::default())
+        .with(env_filter)
+        .init();
+
+    color_eyre::install()?;
+
+    Ok(guard)
 }
 
 async fn no_cache(request: Request, next: Next) -> Response {
@@ -292,7 +323,6 @@ impl IntoResponse for SaveDiffError {
 struct SaveDiffQuery {
     file: String,
 }
-#[axum::debug_handler]
 async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(), SaveDiffError> {
     let path = PathBuf::from("assets/corrected-diffs")
         .join(query.file)
