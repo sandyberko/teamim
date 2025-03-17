@@ -1,0 +1,31 @@
+{
+    "configurations": [
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "rust: cargo build -p server",
+            "name": "cargo run -p server",
+            "cwd": "${workspaceFolder}",
+            "program": "D:\\.cargo\\target\\debug\\server.exe",
+            "environment": [
+                {
+                    "name": "RUST_BACKTRACE",
+                    "value": "short"
+                },
+                {
+                    "name": "RUSTC_TOOLCHAIN",
+                    "value": "C:\\Users\\elyba\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc"
+                },
+                {
+                    "name": "RUST_LOG",
+                    "value": "debug"
+                }
+            ],
+            "args": [],
+            "sourceFileMap": {},
+            "osx": {
+                "MIMode": "lldb"
+            }
+        }
+    ]
+}

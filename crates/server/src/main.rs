@@ -70,17 +70,17 @@ async fn main() -> eyre::Result<()> {
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
         .nest_service("/images", ServeDir::new("assets/images"))
         .nest_service("/diffs", ServeDir::new("assets/diffs"))
-        .nest_service("/correctedDiffs", ServeDir::new("assets/corrected-diffs"))
-        // TODO disable this in production
-        .nest_service("/src", ServeDir::new(boxedit_dir.join("src")))
-        .fallback_service(
+        .nest_service(
+            "/correctedDiffs",
             ServiceBuilder::new()
-                .layer(middleware::from_fn(set_cache_control))
-                .service(ServeDir::new(boxedit_dir.join("assets"))),
+                .layer(middleware::from_fn(no_cache))
+                .service(ServeDir::new("assets/corrected-diffs")),
         )
+        .fallback_service(ServeDir::new(boxedit_dir.join("assets")))
         .with_state(state);
 
-    // .layer(TraceLayer::new_for_http());
+    #[cfg(debug_assertions)]
+    let app = app.nest_service("/src", ServeDir::new(boxedit_dir.join("src")));
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
@@ -96,12 +96,11 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn set_cache_control(request: Request, next: Next) -> Response {
+async fn no_cache(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     response
 }
 
