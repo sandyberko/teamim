@@ -10,6 +10,9 @@
   overflow: hidden;
   font-family: system-ui;
   color-scheme: light dark;
+
+  interpolate-size: allow-keywords;
+
   --border-radius: 0.5em;
   --border: 1px solid light-dark(#ccc, #666);
   --background-color: light-dark(#eee, #333);
@@ -145,17 +148,28 @@ main {
         outline-color: rgba(255, 0, 0, 0.5);
       }
 
-      insert {
-        border: solid magenta;
+      & > insert {
+        border-right: solid magenta .1em;
+        background-color: rgba(255, 0, 255, 0.3);
+        transition: width 0.2s;
+        cursor: help;
+        overflow: hidden;
+        display: inline-block;
+        height: 1lh;
+        vertical-align: top;
+
+        &:not(:hover) {
+          width: 0;
+        }
 
         &:hover::after {
           content: attr(err);
+          width: auto;
         }
       }
 
-      delete {
-        outline: solid cyan;
-        color: cyan;
+      & > delete {
+        background-color: rgba(0, 255, 255, 0.3);
       }
     }
   }
