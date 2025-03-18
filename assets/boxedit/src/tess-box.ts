@@ -57,7 +57,7 @@ function eventDir(event: MouseEvent): Direction {
     throw new Error("where target?");
 
   const rect = event.currentTarget.getBoundingClientRect();
-  const threshold = 10;
+  const threshold = 5;
   return getDir(
     event.y - rect.top < threshold, // top
     rect.right - event.x < threshold, // right
@@ -147,14 +147,95 @@ export class TessBox extends HTMLElement {
   }
   // #endregion
 
-  // #region keyboard-resize
-  #keyboardResizeDir: Direction = Direction.Inside;
+  // #region keyboard
+  #keyboardResize: Direction | null = null;
   handleKeyDown(event: KeyboardEvent) {
+    // init keyboard resize
+    if (event.altKey) {
+      switch (event.code) {
+        case "KeyQ": {
+          event.preventDefault();
+          this.#keyboardResize = Direction.Inside;
+          this.#internals.states.clear();
+          this.#internals.states.add("kbd-move");
+          return true;
+        }
+        case "ArrowUp":
+        case "KeyW": {
+          event.preventDefault();
+          this.#keyboardResize = Direction.Top;
+          this.#internals.states.clear();
+          this.#internals.states.add("kbd-rsz-top");
+          return true;
+        }
+        case "ArrowLeft":
+        case "KeyA": {
+          event.preventDefault();
+          this.#keyboardResize = Direction.Left;
+          this.#internals.states.clear();
+          this.#internals.states.add("kbd-rsz-left");
+          return true;
+        }
+        case "ArrowDown":
+        case "KeyS": {
+          event.preventDefault();
+          this.#keyboardResize = Direction.Bottom;
+          this.#internals.states.clear();
+          this.#internals.states.add("kbd-rsz-bottom");
+          return true;
+        }
+        case "ArrowRight":
+        case "KeyD": {
+          event.preventDefault();
+          this.#keyboardResize = Direction.Right;
+          this.#internals.states.clear();
+          this.#internals.states.add("kbd-rsz-right");
+          return true;
+        }
+      }
+    }
+
+    // keyboard resize
+    if (this.#keyboardResize !== null) {
+      event.preventDefault();
+
+      let dx = 0,
+        dy = 0;
+      switch (event.code) {
+        case "Escape":
+          this.#keyboardResize = null;
+          this.#internals.states.clear();
+          return true;
+        case "ArrowUp":
+        case "KeyW":
+          dy = -1;
+          break;
+        case "ArrowLeft":
+        case "KeyA":
+          dx = -1;
+          break;
+        case "ArrowDown":
+        case "KeyS":
+          dy = 1;
+          break;
+        case "ArrowRight":
+        case "KeyD":
+          dx = 1;
+          break;
+      }
+      this.resize(this.#keyboardResize, dy, dx);
+
+      return true;
+    }
+
+    // delete
     if (event.shiftKey && event.key === "Delete") {
       event.preventDefault();
       this.remove();
       return true;
     }
+
+    // new box
     if (event.key === "=") {
       event.preventDefault();
       const newBoxElemt = newBox(
@@ -167,56 +248,13 @@ export class TessBox extends HTMLElement {
       this.after(newBoxElemt);
       newBoxElemt.focus();
       return true;
-    } else if (event.key === "Enter") {
+    }
+
+    // split line
+    if (event.key === "Enter") {
       event.preventDefault();
       this.splitLine(event);
       return true;
-    }
-
-    const toggleDirFocus = (dir: Direction) => {
-      event.preventDefault();
-      if (dir === this.#keyboardResizeDir)
-        this.#keyboardResizeDir = Direction.Inside;
-      else this.#keyboardResizeDir = dir;
-    };
-
-    if (event.ctrlKey)
-      switch (event.key) {
-        case "ArrowUp":
-          toggleDirFocus(Direction.Top);
-          break;
-        case "ArrowDown":
-          toggleDirFocus(Direction.Bottom);
-          break;
-        case "ArrowLeft":
-          toggleDirFocus(Direction.Left);
-          break;
-        case "ArrowRight":
-          toggleDirFocus(Direction.Right);
-          break;
-      }
-    else if (event.shiftKey) {
-      let dx = 0,
-        dy = 0;
-      switch (event.key) {
-        case "ArrowUp":
-          event.preventDefault();
-          dy = -1;
-          break;
-        case "ArrowDown":
-          event.preventDefault();
-          dy = 1;
-          break;
-        case "ArrowLeft":
-          event.preventDefault();
-          dx = -1;
-          break;
-        case "ArrowRight":
-          event.preventDefault();
-          dx = 1;
-          break;
-      }
-      this.resize(this.#keyboardResizeDir, dy, dx);
     }
   }
 
@@ -316,7 +354,7 @@ export class TessBox extends HTMLElement {
       );
     // node after caret
     let nodeAfter: Node = nodeBefore.splitText(selection.anchorOffset);
-    // 
+    //
     if (nodeAfter.parentNode && nodeAfter.parentNode.nodeName === "DELETE") {
       const newDelete = document.createElement("delete");
       newDelete.append(nodeBefore);
@@ -355,11 +393,18 @@ export class TessBox extends HTMLElement {
     this.removeAttribute("bottom");
     this.removeAttribute("right");
     this.removeAttribute("top");
+  }
+
+  #internals: ElementInternals;
+  constructor() {
+    super();
 
     this.addEventListener("dblclick", this.handleDoubleClick.bind(this));
     this.addEventListener("focus", this.handleFocus.bind(this));
     this.addEventListener("blur", this.handleBlur.bind(this));
     this.addEventListener("keydown", this.handleKeyDown.bind(this));
+
+    this.#internals = this.attachInternals();
   }
 }
 

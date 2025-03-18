@@ -10,13 +10,12 @@
   overflow: hidden;
   font-family: system-ui;
   color-scheme: light dark;
-
   interpolate-size: allow-keywords;
-
   --border-radius: 0.5em;
   --border: 1px solid light-dark(#ccc, #666);
   --background-color: light-dark(#eee, #333);
   --padding: 0.75em;
+  --kbd-border: 0.1em dashed rgb(127 255 0 / 50%);
 }
 
 * {
@@ -121,7 +120,7 @@ main {
   grid-area: main;
   position: relative;
   overflow: scroll;
-  zoom: 0.4;
+  zoom: 0.6;
 
   & > img {
     position: absolute;
@@ -132,46 +131,70 @@ main {
     position: absolute;
     z-index: 1;
     font-size: 6.6em;
+  }
+}
 
-    & > tess-box {
-      position: absolute;
-      padding: 0;
-      margin: 0;
-      border: 0;
-      outline: solid rgba(0, 0, 255, 0.5);
-      overflow: visible;
-      font-family: "Guttman Stam";
-      color: red;
-      white-space: pre;
+tess-box {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: solid rgba(0, 0, 255, 0.5);
+  overflow: visible;
+  font-family: "Guttman Stam";
+  color: red;
+  white-space: pre;
 
-      &:focus {
-        outline-color: rgba(255, 0, 0, 0.5);
-      }
+  &:focus {
+    outline-color: rgba(255, 0, 0, 0.5);
+  }
 
-      & > insert {
-        border-right: solid magenta .1em;
-        background-color: rgba(255, 0, 255, 0.3);
-        transition: width 0.2s;
-        cursor: help;
-        overflow: hidden;
-        display: inline-block;
-        height: 1lh;
-        vertical-align: top;
+  /* keyboard resize */
+  &::before {
+    content: "";
+    position: absolute;
+    top: -0.1em;
+    left: -0.1em;
+    right: -0.1em;
+    bottom: -0.1em;
+    z-index: -1;
+  }
+  &:state(kbd-move)::before {
+    border: var(--kbd-border);
+  }
+  &:state(kbd-rsz-top)::before {
+    border-top: var(--kbd-border);
+  }
+  &:state(kbd-rsz-bottom)::before {
+    border-bottom: var(--kbd-border);
+  }
+  &:state(kbd-rsz-left)::before {
+    border-left: var(--kbd-border);
+  }
+  &:state(kbd-rsz-right)::before {
+    border-right: var(--kbd-border);
+  }
 
-        &:not(:hover) {
-          width: 0;
-        }
+  & > insert::before {
+    border-right: solid magenta 0.1em;
+    background-color: rgba(255, 0, 255, 0.3);
+    transition: width 0.2s;
+    cursor: help;
+    overflow: hidden;
+    display: inline-block;
+    height: 1lh;
+    vertical-align: top;
+    content: "";
+    width: 0;
+  }
 
-        &:hover::after {
-          content: attr(err);
-          width: auto;
-        }
-      }
+  & > insert:hover::before {
+    content: attr(err);
+    width: auto;
+  }
 
-      & > delete {
-        background-color: rgba(0, 255, 255, 0.3);
-      }
-    }
+  & > delete {
+    background-color: rgba(0, 255, 255, 0.3);
   }
 }
 
@@ -189,9 +212,20 @@ body:has(#view-image:not(:checked)) img {
 
 body:has(#view-boxes:not(:checked)) :is(tess-box, tess-box *) {
   outline-color: transparent;
+
+  &::before {
+    border-color: transparent;
+  }
 }
 
-body:has(#view-text:not(:checked)) tess-box {
+body:has(#view-text:not(:checked)) tess-box,
+tess-box:is(
+    :state(kbd-move),
+    :state(kbd-rsz-top),
+    :state(kbd-rsz-bottom),
+    :state(kbd-rsz-left),
+    :state(kbd-rsz-right)
+  ) {
   color: transparent;
   caret-color: transparent;
 

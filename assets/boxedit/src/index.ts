@@ -4,7 +4,7 @@ import { TessBox, newBox } from "./tess-box.js";
 
 let image: HTMLImageElement | null = null;
 
-export const ZOOM = 0.4;
+export const ZOOM = 0.6;
 const main = document.getElementById("main") as HTMLElement;
 
 window.addEventListener("keypress", (event) => {
@@ -183,7 +183,7 @@ function renderTrainingBoxes(text: string) {
     }
   });
   document.addEventListener("keyup", (event) => {
-    if (event.shiftKey) return;
+    if (event.altKey) return;
     if (event.key in keyMap) {
       event.preventDefault();
       const elem = keyMap[event.key];
