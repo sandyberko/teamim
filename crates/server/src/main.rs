@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use color_eyre::Section;
 use eyre::{bail, eyre};
 use maud::Markup;
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ use teamim::{
 };
 use thiserror::Error;
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::{self, AsyncWriteExt, BufWriter},
     net::TcpListener,
 };
@@ -327,6 +328,12 @@ async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(
     let path = PathBuf::from("assets/corrected-diffs")
         .join(query.file)
         .with_extension("html");
+    let parent_dir = path
+        .parent()
+        .ok_or_else(|| io::Error::other(eyre!("no parent dir").note("path: {path:?}")))?;
+    if !parent_dir.exists() {
+        fs::create_dir_all(parent_dir).await?;
+    }
     let mut w = BufWriter::new(File::create(path).await?);
     w.write_all(diff.as_bytes()).await?;
     Ok(())
