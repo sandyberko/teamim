@@ -336,6 +336,7 @@ async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(
     }
     let mut w = BufWriter::new(File::create(path).await?);
     w.write_all(diff.as_bytes()).await?;
+    w.flush().await?;
     Ok(())
 }
 // #endregion

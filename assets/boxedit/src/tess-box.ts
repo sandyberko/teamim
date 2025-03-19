@@ -167,22 +167,9 @@ export class TessBox extends HTMLElement {
       this.after(newBoxElemt);
       newBoxElemt.focus();
       return true;
-    }
-    if (event.key === "Enter") {
+    } else if (event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey && this.nextElementSibling instanceof TessBox) {
-        this.newLine(this.nextElementSibling);
-      } else {
-        const targetBox = newBox(
-          "",
-          this.offsetLeft.toString(),
-          (this.offsetTop + this.offsetHeight + 15).toString(),
-          this.offsetWidth,
-          this.offsetHeight,
-        );
-        this.after(targetBox);
-        this.newLine(targetBox);
-      }
+      this.splitLine(event);
       return true;
     }
 
@@ -232,6 +219,7 @@ export class TessBox extends HTMLElement {
       this.resize(this.#keyboardResizeDir, dy, dx);
     }
   }
+
   resize(dir: number, dy: number, dx: number) {
     if (dir === 0b0000) dir = 0b1111;
 
@@ -252,10 +240,46 @@ export class TessBox extends HTMLElement {
   }
   // #endregion
 
-  newLine(targetBox: TessBox) {
-    // move text to new line
+  // #region split line
+  splitLine(event: KeyboardEvent) {
+    if (event.ctrlKey) {
+      if (event.shiftKey && this.previousElementSibling instanceof TessBox) {
+        this.newLineBefore(this.previousElementSibling);
+      } else {
+        const targetBox = newBox(
+          "",
+          this.offsetLeft.toString(),
+          (this.offsetTop - this.offsetHeight - 15).toString(),
+          this.offsetWidth,
+          this.offsetHeight,
+        );
+        this.before(targetBox);
+        this.newLineBefore(targetBox);
+      }
+    } else {
+      if (event.shiftKey && this.nextElementSibling instanceof TessBox) {
+        this.newLineAfter(this.nextElementSibling);
+      } else {
+        const targetBox = newBox(
+          "",
+          this.offsetLeft.toString(),
+          (this.offsetTop + this.offsetHeight + 15).toString(),
+          this.offsetWidth,
+          this.offsetHeight,
+        );
+        this.after(targetBox);
+        this.newLineAfter(targetBox);
+      }
+    }
+  }
+
+  /**
+   * move text after caret to `targetBox`
+   */
+  newLineAfter(targetBox: TessBox) {
     const selection = window.getSelection();
     if (selection === null) throw new Error("where selection?");
+    //
     let beforeNode = selection.anchorNode;
     if (beforeNode === null) throw new Error("where selection.anchorNode?");
     if (beforeNode instanceof Text === false)
@@ -277,6 +301,38 @@ export class TessBox extends HTMLElement {
     }
     targetBox.focus();
   }
+  /*
+   * move text before caret to `targetBox`
+   */
+  newLineBefore(targetBox: TessBox) {
+    const selection = window.getSelection();
+    if (selection === null) throw new Error("where selection?");
+    // node before caret
+    let nodeBefore = selection.anchorNode;
+    if (nodeBefore === null) throw new Error("where selection.anchorNode?");
+    if (nodeBefore instanceof Text === false)
+      throw new Error(
+        `startContainer is not text. it is a ${nodeBefore.nodeName} with "${nodeBefore.textContent}"`,
+      );
+    // node after caret
+    let nodeAfter: Node = nodeBefore.splitText(selection.anchorOffset);
+    // 
+    if (nodeAfter.parentNode && nodeAfter.parentNode.nodeName === "DELETE") {
+      const newDelete = document.createElement("delete");
+      newDelete.append(nodeBefore);
+      nodeAfter = nodeAfter.parentNode;
+      nodeBefore = newDelete;
+    }
+    targetBox.append(nodeBefore);
+    let movedNodeBefore = nodeBefore as ChildNode;
+    while (nodeAfter.previousSibling !== null) {
+      const prevNode = nodeAfter.previousSibling;
+      movedNodeBefore.before(prevNode);
+      movedNodeBefore = prevNode;
+    }
+    targetBox.focus();
+  }
+  // #endregion
 
   connectedCallback() {
     this.contentEditable = "true";
