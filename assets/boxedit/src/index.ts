@@ -208,42 +208,43 @@ targetInput.addEventListener("change", () => {
       break;
   }
 });
+let outputFile: FileSystemFileHandle | null = null;
 {
-  let outputFile: FileSystemFileHandle | null = null;
   const boxSaveButton = document.getElementById("box-save") as HTMLInputElement;
   boxSaveButton.addEventListener("click", async () => {
-    switch (targetInput.value) {
-      case "training": {
-        const [origin, suggestedName]: [BoxFileOrigin, string | undefined] =
-          boxContainer().hasAttribute("data-from-server")
-            ? ["server", location.hash.substring(1).replaceAll("/", "_")]
-            : boxInput.files !== null && boxInput.files.length > 0
-              ? [
-                  "file",
-                  Array.from(boxInput.files).find((file) =>
-                    file.name.endsWith(".box"),
-                  )?.name,
-                ]
-              : [
-                  "server",
-                  (($) => $ && $.substring(0, $.lastIndexOf(".")))(
-                    imageInput.files?.[0]?.name,
-                  ),
-                ];
-        outputFile = await writeTrainingBoxes(
-          outputFile,
-          suggestedName,
-          origin,
-        );
-        break;
-      }
-      case "training-preproc": {
-        const fileName = location.hash.substring(1);
-        if (fileName === "") throw new Error(`not a preprocessed file`);
-        const icon = boxSaveButton.value;
-        boxSaveButton.value = "⏳";
-        boxSaveButton.disabled = true;
-        try {
+    const icon = boxSaveButton.value;
+    boxSaveButton.value = "⏳";
+    boxSaveButton.disabled = true;
+
+    try {
+      switch (targetInput.value) {
+        case "training": {
+          const [origin, suggestedName]: [BoxFileOrigin, string | undefined] =
+            boxContainer().hasAttribute("data-from-server")
+              ? ["server", location.hash.substring(1).replaceAll("/", "_")]
+              : boxInput.files !== null && boxInput.files.length > 0
+                ? [
+                    "file",
+                    Array.from(boxInput.files).find((file) =>
+                      file.name.endsWith(".box"),
+                    )?.name,
+                  ]
+                : [
+                    "server",
+                    (($) => $ && $.substring(0, $.lastIndexOf(".")))(
+                      imageInput.files?.[0]?.name,
+                    ),
+                  ];
+          outputFile = await writeTrainingBoxes(
+            outputFile,
+            suggestedName,
+            origin,
+          );
+          break;
+        }
+        case "training-preproc": {
+          const fileName = location.hash.substring(1);
+          if (fileName === "") throw new Error(`not a preprocessed file`);
           const res = await fetch(`/api/saveDiff?file=${fileName}`, {
             method: "POST",
             body: boxContainer().outerHTML,
@@ -252,44 +253,45 @@ targetInput.addEventListener("change", () => {
           if (res.status !== 200) {
             throw new Error("Failed to save preprocessed file");
           }
-          boxSaveButton.value = "✅";
-        } catch (e) {
-          boxSaveButton.value = "⚠️";
-          throw e;
-        } finally {
-          setTimeout(() => {
-            boxSaveButton.value = icon;
-            boxSaveButton.disabled = false;
-          }, 2000);
+          break;
         }
-        break;
-      }
-      case "recognition": {
-        // create a new handle
-        if (!outputFile) outputFile = await window.showSaveFilePicker();
+        case "recognition": {
+          // create a new handle
+          if (!outputFile) outputFile = await window.showSaveFilePicker();
 
-        // create a FileSystemWritableFileStream to write to
-        const writableStream = await outputFile.createWritable();
-        // write our file
-        for (const box of boxContainer().childNodes) {
-          if (box instanceof TessBox === false) continue;
+          // create a FileSystemWritableFileStream to write to
+          const writableStream = await outputFile.createWritable();
+          // write our file
+          for (const box of boxContainer().childNodes) {
+            if (box instanceof TessBox === false) continue;
 
-          // top-left custom box format
-          const char = box.innerText;
-          const left = box.offsetLeft;
-          const bottom = box.offsetTop + box.offsetHeight;
-          const right = box.offsetLeft + box.offsetWidth;
-          const top = box.offsetTop;
+            // top-left custom box format
+            const char = box.innerText;
+            const left = box.offsetLeft;
+            const bottom = box.offsetTop + box.offsetHeight;
+            const right = box.offsetLeft + box.offsetWidth;
+            const top = box.offsetTop;
 
-          await writableStream.write(
-            `${char} ${left} ${bottom} ${right} ${top} 0\n`,
-          );
+            await writableStream.write(
+              `${char} ${left} ${bottom} ${right} ${top} 0\n`,
+            );
+          }
+
+          // close the file and write the contents to disk.
+          await writableStream.close();
+          break;
         }
-
-        // close the file and write the contents to disk.
-        await writableStream.close();
-        break;
       }
+      
+      boxSaveButton.value = "✅";
+    } catch (e) {
+      boxSaveButton.value = "⚠️";
+      throw e;
+    } finally {
+      setTimeout(() => {
+        boxSaveButton.value = icon;
+        boxSaveButton.disabled = false;
+      }, 2000);
     }
   });
 }
@@ -537,6 +539,7 @@ fontSizeInput.addEventListener("input", () => {
 // diffs
 async function loadDiff(url: string) {
   main.innerHTML = "";
+  outputFile = null;
 
   if (url === "") {
     // index
