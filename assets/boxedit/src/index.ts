@@ -95,6 +95,8 @@ boxInput.addEventListener("change", (event) => {
 });
 
 function setImage(imageData: File) {
+  main.innerHTML = "";
+  
   const url = URL.createObjectURL(imageData);
   if (image === null) {
     image = new Image();
