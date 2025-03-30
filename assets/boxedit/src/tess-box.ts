@@ -1,4 +1,4 @@
-import { ZOOM } from "./index.js";
+import { getZoom } from "./index.js";
 
 /**
  * Clockwise from top
@@ -130,7 +130,8 @@ export class TessBox extends HTMLElement {
         prevX = moveEvent.clientX;
         prevY = moveEvent.clientY;
 
-        this.resize(dir, dy / ZOOM, dx / ZOOM);
+        const zoom = getZoom();
+        this.resize(dir, dy / zoom, dx / zoom);
       },
       { signal },
     );

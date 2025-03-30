@@ -4,7 +4,6 @@ import { TessBox, newBox } from "./tess-box.js";
 
 let image: HTMLImageElement | null = null;
 
-export const ZOOM = 0.6;
 const main = document.getElementById("main") as HTMLElement;
 
 window.addEventListener("keypress", (event) => {
@@ -42,7 +41,7 @@ imageInput.addEventListener("change", (event) => {
   const input = event.target as HTMLInputElement;
   if (input.files === null || input.files.length === 0) return;
   const imageData = input.files[0];
-  setImage(imageData);
+  setImage(URL.createObjectURL(imageData));
 });
 
 const boxInput = document.getElementById("box-input") as HTMLInputElement;
@@ -72,7 +71,7 @@ boxInput.addEventListener("change", (event) => {
     (file) => file.name.endsWith(".jpg") || file.name.endsWith(".jpeg"),
   );
   if (imageFile) {
-    setImage(imageFile);
+    setImage(URL.createObjectURL(imageFile));
   }
   const boxFile = files.find((file) => file.name.endsWith(".box"));
   if (boxFile) {
@@ -94,15 +93,29 @@ boxInput.addEventListener("change", (event) => {
   }
 });
 
-function setImage(imageData: File) {
+function setImage(src: string): HTMLImageElement {
   main.innerHTML = "";
-  
-  const url = URL.createObjectURL(imageData);
+
   if (image === null) {
     image = new Image();
     main.appendChild(image);
   }
-  image.src = url;
+
+  image.src = src;
+
+  new ResizeObserver((entries, observer) => {
+    const image = entries[0].target;
+    if (image instanceof HTMLImageElement === false)
+      throw new Error("where image?");
+
+    if (image.width === 0) return;
+    
+    setZoom((main.clientWidth * getZoom()) / image.width);
+
+    observer.disconnect();
+  }).observe(image);
+
+  return image;
 }
 
 // #region Render boxes
@@ -284,7 +297,7 @@ let outputFile: FileSystemFileHandle | null = null;
           break;
         }
       }
-      
+
       boxSaveButton.value = "✅";
     } catch (e) {
       boxSaveButton.value = "⚠️";
@@ -537,13 +550,48 @@ fontSizeInput.addEventListener("input", () => {
   boxContainer().style.fontSize = fontSize + "em";
 });
 
+// #region Zoom
+let _zoom: number;
+const zoomInput = document.getElementById("zoom");
+if (zoomInput instanceof HTMLInputElement === false)
+  throw new Error("where zoom input?");
+zoomInput.addEventListener(
+  "input",
+  (event) =>
+    event.target instanceof HTMLInputElement &&
+    setZoom(event.target.valueAsNumber),
+);
+
+export function setZoom(zoom: number) {
+  _zoom = zoom;
+  main.style.zoom = _zoom.toString();
+  if (zoomInput instanceof HTMLInputElement) zoomInput.value = _zoom.toString();
+}
+
+setZoom(0.6);
+
+export function getZoom(): number {
+  return _zoom;
+}
+
+main.addEventListener("wheel", (event) => {
+  if (event.ctrlKey === false) return;
+  event.preventDefault();
+  const zoom = getZoom();
+  setZoom(zoom - event.deltaY / 100);
+});
+// #endregion
+
 // NOTE: this should be last
 // diffs
 async function loadDiff(url: string) {
   main.innerHTML = "";
+  image = null;
   outputFile = null;
 
   if (url === "") {
+    setZoom(1);
+
     // index
     const distancesRes = await fetch("/diffs/distances.txt");
     if (distancesRes.status !== 200) {
@@ -584,9 +632,7 @@ async function loadDiff(url: string) {
     main.appendChild(table);
   } else {
     // image
-    image = new Image();
-    image.src = `/images/${url}.jpg`;
-    main.appendChild(image);
+    const image = setImage(`/images/${url}.jpg`);
 
     // boxes
     let response = await fetch(`/correctedDiffs/${url}.html`);
