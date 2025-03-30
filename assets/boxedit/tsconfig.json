@@ -13,6 +13,7 @@
     "lib": [
       "DOM",
       "DOM.Iterable",
+      "DOM.AsyncIterable",
       "ESNext"
     ] /* Specify a set of bundled library declaration files that describe the target runtime environment. */,
     // "jsx": "preserve",                                /* Specify what JSX code is generated. */

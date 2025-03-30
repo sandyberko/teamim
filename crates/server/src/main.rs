@@ -1,14 +1,16 @@
+mod diff_entry;
 use axum::{
     Json, Router,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Multipart, Query, Request, State, multipart::MultipartError},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use color_eyre::Section;
 use eyre::{bail, eyre};
+use futures::{StreamExt, stream};
 use maud::Markup;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -65,6 +67,7 @@ async fn serve() -> eyre::Result<()> {
                 .route("/recognizeTraining", post(post_recognize_training))
                 .route("/renderTeamim", post(post_render_teamim))
                 .route("/diff", post(post_diff))
+                .route("/diffIndex", get(get_diff_index))
                 .route("/saveDiff", post(save_diff)),
         )
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
@@ -308,6 +311,18 @@ impl IntoResponse for DiffError {
 #[axum::debug_handler]
 async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, DiffError> {
     Ok(teamim::diff(&text).map(Json)?)
+}
+
+async fn get_diff_index() -> impl IntoResponse {
+    let distances = include_str!("../../../assets/diffs/distances.txt");
+    let stream = stream::iter(distances.lines().enumerate()).then(diff_entry::diff_entry);
+    Response::builder()
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(mime::IMAGE_PNG.as_ref()),
+        )
+        .body(Body::from_stream(stream))
+        .expect("valid headers")
 }
 
 // #region Save diff

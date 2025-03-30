@@ -109,7 +109,7 @@ function setImage(src: string): HTMLImageElement {
       throw new Error("where image?");
 
     if (image.width === 0) return;
-    
+
     setZoom((main.clientWidth * getZoom()) / image.width);
 
     observer.disconnect();
@@ -593,7 +593,7 @@ async function loadDiff(url: string) {
     setZoom(1);
 
     // index
-    const distancesRes = await fetch("/diffs/distances.txt");
+    const distancesRes = await fetch("/api/diffIndex");
     if (distancesRes.status !== 200) {
       const errorElem = document.createElement("p");
       errorElem.classList.add("error");
@@ -601,35 +601,29 @@ async function loadDiff(url: string) {
       main.appendChild(errorElem);
       throw new Error("failed to load diffs/distances.txt");
     }
-    const distances = await distancesRes.text();
-    const table = document.createElement("table");
-    table.id = "distances";
-    const tbody = document.createElement("tbody");
-    let i = 0;
-    for (const line of distances.split("\n")) {
-      const [distance, url] = line.split("\t");
-      const tr = document.createElement("tr");
-      tr.addEventListener("click", () => (location.hash = url));
-      {
-        const td = document.createElement("td");
-        td.innerText = i.toString();
-        tr.appendChild(td);
+
+    // streaming hack
+    {
+      const doc = document.implementation.createHTMLDocument();
+      doc.write(`
+        <table id="distances">
+          <tbody>
+      `);
+
+      if (doc.body.firstElementChild === null) throw new Error("no table");
+      main.append(doc.body.firstElementChild);
+
+      if (distancesRes.body === null) throw new Error("response has no body");
+      const decoder = new TextDecoder();
+      for await (const chunk of distancesRes.body) {
+        doc.write(decoder.decode(chunk));
       }
-      {
-        const td = document.createElement("td");
-        td.innerText = distance;
-        tr.appendChild(td);
-      }
-      {
-        const td = document.createElement("td");
-        td.innerText = url;
-        tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
-      i++;
+
+      doc.write(`
+          </tbody>
+        </table>
+      `);
     }
-    table.appendChild(tbody);
-    main.appendChild(table);
   } else {
     // image
     const image = setImage(`/images/${url}.jpg`);

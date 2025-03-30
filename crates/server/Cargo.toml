@@ -21,6 +21,7 @@ tower = "0.5.2"
 tracing-appender = "0.2.3"
 tracing-error = "0.2.1"
 tracing = "0.1.41"
+futures = "0.3.31"
 
 [dev-dependencies]
 insta = "1.42.1"
