@@ -77,6 +77,8 @@ cursor.set(Direction.Left, "ew-resize");
 cursor.set(Direction.LeftTop, "nw-resize");
 cursor.set(Direction.Inside, "move");
 
+const keyboardAcceleration = 0.2;
+
 export const TAG_NAME = "tess-box";
 export class TessBox extends HTMLElement {
   handleDoubleClick(event: MouseEvent): boolean {
@@ -149,6 +151,7 @@ export class TessBox extends HTMLElement {
 
   // #region keyboard
   #keyboardResize: Direction | null = null;
+  #keyboardVelocity = 1;
   handleKeyDown(event: KeyboardEvent) {
     // init keyboard resize
     if (event.altKey) {
@@ -208,19 +211,23 @@ export class TessBox extends HTMLElement {
           return true;
         case "ArrowUp":
         case "KeyW":
-          dy = -1;
+          dy = -this.#keyboardVelocity;
+          this.#keyboardVelocity += keyboardAcceleration;
           break;
         case "ArrowLeft":
         case "KeyA":
-          dx = -1;
+          dx = -this.#keyboardVelocity;
+          this.#keyboardVelocity += keyboardAcceleration;
           break;
         case "ArrowDown":
         case "KeyS":
-          dy = 1;
+          dy = this.#keyboardVelocity;
+          this.#keyboardVelocity += keyboardAcceleration;
           break;
         case "ArrowRight":
         case "KeyD":
-          dx = 1;
+          dx = this.#keyboardVelocity;
+          this.#keyboardVelocity += keyboardAcceleration;
           break;
       }
       this.resize(this.#keyboardResize, dy, dx);
@@ -256,6 +263,9 @@ export class TessBox extends HTMLElement {
       this.splitLine(event);
       return true;
     }
+  }
+  handleKeyUp() {
+    this.#keyboardVelocity = 1;
   }
 
   resize(dir: number, dy: number, dx: number) {
@@ -403,6 +413,7 @@ export class TessBox extends HTMLElement {
     this.addEventListener("focus", this.handleFocus.bind(this));
     this.addEventListener("blur", this.handleBlur.bind(this));
     this.addEventListener("keydown", this.handleKeyDown.bind(this));
+    this.addEventListener("keyup", this.handleKeyUp.bind(this));
 
     this.#internals = this.attachInternals();
   }
