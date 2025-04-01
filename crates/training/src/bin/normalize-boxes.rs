@@ -23,32 +23,19 @@ fn main() -> eyre::Result<()> {
             let out_path = out_dir.join(box_orig_path.file_name().ok_or_eyre("no file name")?);
             let mut w = BufWriter::new(fs::File::create(out_path)?);
             let r = BufReader::new(fs::File::open(&box_orig_path)?);
-            let mut lines = r
-                .lines()
-                .enumerate()
-                .map(|(i, line)| {
-                    parse_box_line(&line?).wrap_err_with(|| {
-                        format!("invalid line: {}:{}", box_orig_path.display(), i + 1)
-                    })
+            let lines = r.lines().enumerate().map(|(i, line)| {
+                parse_box_line(&line?).wrap_err_with(|| {
+                    format!("invalid line: {}:{}", box_orig_path.display(), i + 1)
                 })
-                .peekable();
+            });
 
-            while let Some(bx) = lines.next() {
+            for bx in lines {
                 let line = bx?;
-                if line.value == ' ' {
-                    match lines.peek() {
-                        Some(Err(_)) => {
-                            lines.next().unwrap()?;
-                        }
-                        // double whitespace
-                        Some(Ok(next_bx)) if next_bx.value == ' ' => continue,
-                        // trailing whitespace
-                        Some(Ok(next_bx)) if next_bx.value == '\t' => continue,
-                        // last line
-                        None => continue,
-                        _ => (),
-                    }
+
+                if line.value == '\t' {
+                    writeln!(&mut w, "{}", line.with_value(' '))?;
                 }
+
                 writeln!(&mut w, "{line}")?;
             }
             eyre::Ok(())
