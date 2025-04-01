@@ -360,7 +360,10 @@ async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(
 mod tests {
     use insta::assert_snapshot;
     use maud::Markup;
-    use teamim::training_diff::{BoundingBoxDiff, DiffOp};
+    use teamim::{
+        tesseract_ext::Rect,
+        training_diff::{BoundingBoxDiff, DiffOp},
+    };
 
     #[test]
     fn diff_serialization() {
@@ -369,10 +372,12 @@ mod tests {
             height: 100,
             tess_box: vec![
                 BoundingBoxDiff {
-                    left: 1,
-                    bottom: 2,
-                    right: 3,
-                    top: 4,
+                    rect: Rect {
+                        left: 1,
+                        bottom: 2,
+                        right: 3,
+                        top: 4,
+                    },
                     value: vec![
                         DiffOp::Equal("foo".to_owned()),
                         DiffOp::Delete("bar".to_owned()),
@@ -380,10 +385,12 @@ mod tests {
                     ],
                 },
                 BoundingBoxDiff {
-                    left: 5,
-                    bottom: 6,
-                    right: 7,
-                    top: 8,
+                    rect: Rect {
+                        left: 5,
+                        bottom: 6,
+                        right: 7,
+                        top: 8,
+                    },
                     value: vec![DiffOp::Equal("qux".to_owned())],
                 },
             ],

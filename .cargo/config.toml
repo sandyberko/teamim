@@ -1,2 +1,6 @@
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-Ctarget-feature=+crt-static"]
+rustflags = [
+    "-C",
+    # this is needed for tesseract, for some reason
+    "link-args=user32.lib crypt32.lib",
+]

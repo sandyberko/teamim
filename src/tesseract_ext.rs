@@ -1,8 +1,9 @@
 use core::fmt;
 use std::{
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     fmt::{Debug, Display},
-    ptr::{self, NonNull},
+    mem::MaybeUninit,
+    ptr::{self, NonNull, addr_of_mut},
 };
 
 use eyre::{OptionExt, bail};
@@ -180,9 +181,10 @@ impl Iterator for ResultIter {
                 return None;
             }
         }
-        let bb = self.bounding_box();
-        let text = self.text();
-        Some(bb.with_value(text))
+
+        let rect = self.rect();
+        let value = self.text();
+        Some(BoundingBox { value, rect })
     }
 }
 
@@ -195,53 +197,50 @@ impl ResultIter {
         Text(cstr)
     }
     #[must_use]
-    pub fn bounding_box(&self) -> BoundingBox<()> {
-        let mut r#box = BoundingBox::default();
-        let err = unsafe {
+    pub fn rect(&self) -> Rect {
+        let mut rect = MaybeUninit::<Rect>::uninit();
+        let ptr = rect.as_mut_ptr();
+
+        let succeed = unsafe {
             capi::TessPageIteratorBoundingBox(
                 self.raw.as_ptr() as _,
                 self.level as _,
-                &mut r#box.left,
-                &mut r#box.top,
-                &mut r#box.right,
-                &mut r#box.bottom,
+                addr_of_mut!((*ptr).left),
+                addr_of_mut!((*ptr).top),
+                addr_of_mut!((*ptr).right),
+                addr_of_mut!((*ptr).bottom),
             )
         };
-        assert_eq!(err, 1);
-        r#box
+        assert_eq!(succeed, 1);
+        unsafe { rect.assume_init() }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BoundingBox<Value> {
-    pub value: Value,
-
+pub struct Rect {
     pub left: i32,
     pub bottom: i32,
     pub right: i32,
     pub top: i32,
 }
 
-impl<V: Default> Default for BoundingBox<V> {
-    fn default() -> Self {
-        Self {
-            value: V::default(),
-            left: -1,
-            bottom: -1,
-            right: -1,
-            top: -1,
-        }
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoundingBox<Value> {
+    pub value: Value,
+    pub rect: Rect,
 }
 
 impl<V: Display> Display for BoundingBox<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
             value: char,
-            left,
-            bottom,
-            right,
-            top,
+            rect:
+                Rect {
+                    left,
+                    bottom,
+                    right,
+                    top,
+                },
         } = self;
         write!(f, "{char} {left} {bottom} {right} {top} 0")
     }
@@ -251,10 +250,12 @@ impl<V> BoundingBox<V> {
     pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
         Self {
             value,
-            left,
-            bottom,
-            right,
-            top,
+            rect: Rect {
+                left,
+                bottom,
+                right,
+                top,
+            },
         }
     }
 
@@ -262,20 +263,19 @@ impl<V> BoundingBox<V> {
     pub fn with_value<O>(&self, value: O) -> BoundingBox<O> {
         BoundingBox {
             value,
-            left: self.left,
-            bottom: self.bottom,
-            right: self.right,
-            top: self.top,
+            rect: self.rect,
         }
     }
     #[must_use]
     pub fn into_bottom_left(self, img_h: i32) -> Self {
         Self {
             value: self.value,
-            left: self.left,
-            bottom: img_h - self.bottom,
-            right: self.right,
-            top: img_h - self.top,
+            rect: Rect {
+                left: self.rect.left,
+                bottom: img_h - self.rect.bottom,
+                right: self.rect.right,
+                top: img_h - self.rect.top,
+            },
         }
     }
 }

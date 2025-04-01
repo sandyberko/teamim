@@ -1,4 +1,4 @@
-use eyre::{OptionExt, ensure};
+use eyre::{Context, OptionExt, ensure};
 use rayon::prelude::*;
 use std::{
     fs,
@@ -11,7 +11,7 @@ fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
     let out_dir = Path::new("assets/corrected_boxfiles_2");
-    let files = fs::read_dir("assets/corrected_boxfiles")?
+    fs::read_dir("assets/corrected_boxfiles")?
         .map(|entry| {
             let entry = entry?;
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
@@ -22,14 +22,37 @@ fn main() -> eyre::Result<()> {
         .map(|box_orig_path| {
             let out_path = out_dir.join(box_orig_path.file_name().ok_or_eyre("no file name")?);
             let mut w = BufWriter::new(fs::File::create(out_path)?);
-            for line in BufReader::new(fs::read_to_string(box_orig_path)?.as_bytes()).lines() {
-                let bx = parse_box_line(&line?)?;
-                if bx.value != '\n' {
-                    writeln!(&mut w, "{bx}")?;
+            let r = BufReader::new(fs::File::open(&box_orig_path)?);
+            let mut lines = r
+                .lines()
+                .enumerate()
+                .map(|(i, line)| {
+                    parse_box_line(&line?).wrap_err_with(|| {
+                        format!("invalid line: {}:{}", box_orig_path.display(), i + 1)
+                    })
+                })
+                .peekable();
+
+            while let Some(bx) = lines.next() {
+                let line = bx?;
+                if line.value == ' ' {
+                    match lines.peek() {
+                        Some(Err(_)) => {
+                            lines.next().unwrap()?;
+                        }
+                        // double whitespace
+                        Some(Ok(next_bx)) if next_bx.value == ' ' => continue,
+                        // trailing whitespace
+                        Some(Ok(next_bx)) if next_bx.value == '\t' => continue,
+                        // last line
+                        None => continue,
+                        _ => (),
+                    }
                 }
+                writeln!(&mut w, "{line}")?;
             }
             eyre::Ok(())
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<(), _>>()?;
     Ok(())
 }

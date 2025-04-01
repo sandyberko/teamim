@@ -11,13 +11,13 @@ use std::{
     path::Path,
 };
 
-use eyre::{Context, OptionExt, bail, eyre};
+use eyre::{Context, OptionExt, bail, ensure, eyre};
 use glyph::{GLYPHS, Placement};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
 use serde::Serialize;
 use similar::TextDiff;
-use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Tess, Text};
+use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Rect, Tess, Text};
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
@@ -305,15 +305,20 @@ fn place_taam(
 pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox<char>> {
     // `char` needs special parsing since it can just be a space itself
     let mut line = line.chars();
-    let char = line.next().ok_or_eyre("expected char")?;
-    let mut parts = line.as_str().split(' ').map(str::parse);
-    Ok(BoundingBox {
-        value: char,
-        left: parts.next().ok_or_eyre("failed to parse left")??,
-        bottom: parts.next().ok_or_eyre("failed to parse bottom")??,
-        right: parts.next().ok_or_eyre("failed to parse right")??,
-        top: parts.next().ok_or_eyre("failed to parse top")??,
-    })
+    let value = line.next().ok_or_eyre("expected char")?;
+    ensure!(line.next() == Some(' '), "expected space");
+
+    let mut parts = line.as_str().split(' ');
+    let mut parse_part = || eyre::Ok(parts.next().ok_or_eyre("unexpected end")?.parse()?);
+
+    let rect = Rect {
+        left: parse_part().wrap_err("failed to parse left")?,
+        bottom: parse_part().wrap_err("failed to parse bottom")?,
+        right: parse_part().wrap_err("failed to parse right")?,
+        top: parse_part().wrap_err("failed to parse top")?,
+    };
+
+    Ok(BoundingBox { value, rect })
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -323,16 +328,13 @@ pub enum OriginPos {
 }
 
 #[must_use]
-pub fn into_geometry<V>(
-    BoundingBox {
-        value: _,
+pub fn into_geometry<V>(bx: BoundingBox<V>, origin_pos: OriginPos) -> BoxGeometry {
+    let Rect {
         left,
         bottom,
         right,
         top,
-    }: BoundingBox<V>,
-    origin_pos: OriginPos,
-) -> BoxGeometry {
+    } = bx.rect;
     match origin_pos {
         OriginPos::BottomLeft { img_h } => {
             let img_h: i32 = img_h.try_into().unwrap();
