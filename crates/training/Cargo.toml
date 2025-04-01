@@ -9,6 +9,7 @@ eyre = { workspace = true }
 color-eyre = { workspace = true }
 phf = { workspace = true }
 rayon = "1.10.0"
+teamim = { path = "../.." }
 
 [lints]
 workspace = true

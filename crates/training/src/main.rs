@@ -26,7 +26,7 @@ fn main() -> eyre::Result<()> {
 
     set_current_dir("../training")?;
 
-    let tess_dir = PathBuf::from("C:\\Program Files\\Tesseract-OCR");
+    let tess_dir = training::tess_dir();
 
     let available_fonts = [
         ("Guttman Stam", false),

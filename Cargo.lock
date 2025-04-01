@@ -2431,6 +2431,7 @@ dependencies = [
  "eyre",
  "phf",
  "rayon",
+ "teamim",
 ]
 
 [[package]]
