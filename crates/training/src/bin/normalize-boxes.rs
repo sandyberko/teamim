@@ -29,10 +29,20 @@ fn main() -> eyre::Result<()> {
                 })
             });
 
+            let mut has_space = false;
             for bx in lines {
                 let line = bx?;
 
+                if line.value == ' ' {
+                    has_space = true;
+                }
+
                 if line.value == '\t' {
+                    assert!(
+                        has_space,
+                        "invalid line at {}: {line}",
+                        box_orig_path.display()
+                    );
                     writeln!(&mut w, "{}", line.with_value(' '))?;
                 }
 
