@@ -1,9 +1,12 @@
 /target
 /tests
+
 /assets/text
 /assets/fonts
 /assets/tessdata
 /assets/images
 /assets/diffs
 /assets/boxedit/assets/build
+/assets/training
+
 /logs

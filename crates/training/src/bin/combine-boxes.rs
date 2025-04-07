@@ -14,9 +14,11 @@ use training::tess_dir;
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
-    let out_dir = Path::new("../training/eval");
+    let assets_dir = Path::new("assets");
 
-    let files = fs::read_dir("assets/corrected_boxfiles")?
+    let out_dir = assets_dir.join("training");
+
+    let files = fs::read_dir(assets_dir.join("corrected_boxfiles"))?
         .map(|entry| {
             let entry = entry?;
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
@@ -33,7 +35,7 @@ fn main() -> eyre::Result<()> {
             let output = if lstmf_path.exists() {
                 None
             } else {
-                Some(generate_lstmf(stem, out_dir, &box_orig_path, &output_path)?)
+                Some(generate_lstmf(stem, &box_orig_path, &output_path)?)
             };
 
             eyre::Ok((lstmf_path, output))
@@ -59,7 +61,12 @@ fn main() -> eyre::Result<()> {
         stderr().write_all(output.stderr.as_slice())?;
         stderr().flush()?;
 
-        list_file.write_all(lstmf_path.as_os_str().as_encoded_bytes())?;
+        list_file.write_all(
+            lstmf_path
+                .file_name()
+                .ok_or_eyre("no file name")?
+                .as_encoded_bytes(),
+        )?;
         writeln!(list_file)?;
     }
     println!("{}", "Done!".green());
@@ -69,18 +76,15 @@ fn main() -> eyre::Result<()> {
 
 fn generate_lstmf(
     stem: &OsStr,
-    out_dir: &Path,
     box_orig_path: &Path,
-    output_path: &Path,
+    output_path_stem: &Path,
 ) -> eyre::Result<Output> {
-    let input_path = out_dir.join("images").join(stem);
-
-    let box_path = input_path.with_extension("box");
+    let box_path = output_path_stem.with_extension("box");
     if !box_path.exists() {
         fs::copy(box_orig_path, &box_path)?;
     }
 
-    let tif_path = input_path.with_extension("tif");
+    let tif_path = output_path_stem.with_extension("tif");
     if !tif_path.exists() {
         let (book, page) = stem
             .to_str()
@@ -108,7 +112,7 @@ fn generate_lstmf(
 
     let output = Command::new(tess_dir().join("tesseract"))
         .arg(tif_path)
-        .arg(output_path)
+        .arg(output_path_stem)
         .arg(tess_dir().join("tessdata/configs/lstm.train"))
         .output()?;
 
