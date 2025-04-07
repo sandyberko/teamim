@@ -1,50 +1,47 @@
-use eyre::{Context, OptionExt, ensure};
+use eyre::{Context, ensure};
 use rayon::prelude::*;
 use std::{
     fs,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufWriter, Write},
     path::Path,
 };
 use teamim::parse_box_line;
 
+/// - Add a trailing space to each line
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
-    let out_dir = Path::new("assets/corrected_boxfiles_2");
-    fs::read_dir("assets/corrected_boxfiles")?
+    let src_dir = Path::new("assets/corrected_boxfiles");
+    ensure!(src_dir.is_dir(), "{src_dir:?} is not a dir");
+
+    fs::read_dir(src_dir)?
+        .par_bridge()
         .map(|entry| {
             let entry = entry?;
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
-            Ok(entry.path())
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_par_iter()
-        .map(|box_orig_path| {
-            let out_path = out_dir.join(box_orig_path.file_name().ok_or_eyre("no file name")?);
-            let mut w = BufWriter::new(fs::File::create(out_path)?);
-            let r = BufReader::new(fs::File::open(&box_orig_path)?);
+            let r = fs::read_to_string(entry.path())?;
+
+            let mut w = BufWriter::new(
+                fs::File::options()
+                    .truncate(true)
+                    .write(true)
+                    .open(entry.path())?,
+            );
+
             let lines = r.lines().enumerate().map(|(i, line)| {
-                parse_box_line(&line?).wrap_err_with(|| {
-                    format!("invalid line: {}:{}", box_orig_path.display(), i + 1)
-                })
+                parse_box_line(line)
+                    .wrap_err_with(|| format!("invalid line: {}:{}", entry.path().display(), i + 1))
             });
 
-            let mut has_space = false;
+            let mut is_line_start = true;
             for bx in lines {
                 let line = bx?;
 
-                if line.value == ' ' {
-                    has_space = true;
-                }
-
-                if line.value == '\t' {
-                    assert!(
-                        has_space,
-                        "invalid line at {}: {line}",
-                        box_orig_path.display()
-                    );
+                if is_line_start {
                     writeln!(&mut w, "{}", line.with_value(' '))?;
                 }
+
+                is_line_start = line.value == '\t';
 
                 writeln!(&mut w, "{line}")?;
             }
