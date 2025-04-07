@@ -1,5 +1,11 @@
 # TODO
 
+- TorahScroll2/128 has wrog corrected boxfile
+- boxedit button to show boxfile
+- verify that all boxfile match
+- train and check GROUND TRUTH
+
+
 - tesstrain make (line images!), langdata_ltsm
 - is the leak reported by tesseract at shutdown real?
 - sort: remove trailing spaces. check also in existing corrected_boxfiles
