@@ -410,7 +410,7 @@ impl Context {
                 }
             },
             _ => bail!("expected combined"),
-        };
+        }
         match self.next(xml, buf).await? {
             Event::Empty(elem) if elem.name().as_ref() == b"cant-alef" => {
                 self.expect_text_attr(writer, elem).await?;
@@ -419,7 +419,7 @@ impl Context {
                 self.parse_complicated_cant(xml, buf, writer).await?;
             }
             _ => bail!("expected alef"),
-        };
+        }
         match self.next(xml, buf).await? {
             Event::Empty(elem) if elem.name().as_ref() == b"cant-bet" => (),
             Event::Start(elem) if elem.name().as_ref() == b"cant-bet" => loop {
@@ -430,7 +430,7 @@ impl Context {
                 }
             },
             _ => bail!("expected bet"),
-        };
+        }
 
         {
             let Event::End(end) = self.next(xml, buf).await? else {
@@ -466,7 +466,7 @@ impl Context {
                 }
             }
             e => bail!("expected sdt-target, found: {e:?}"),
-        };
+        }
         loop {
             let Event::End(end) = self.next(xml, buf).await? else {
                 continue;
