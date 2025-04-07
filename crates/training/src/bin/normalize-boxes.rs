@@ -37,13 +37,11 @@ fn main() -> eyre::Result<()> {
             for bx in lines {
                 let line = bx?;
 
-                if is_line_start {
-                    writeln!(&mut w, "{}", line.with_value(' '))?;
+                if !(is_line_start && line.value == ' ') {
+                    writeln!(&mut w, "{line}")?;
                 }
 
                 is_line_start = line.value == '\t';
-
-                writeln!(&mut w, "{line}")?;
             }
             eyre::Ok(())
         })
