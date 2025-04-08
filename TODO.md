@@ -1,8 +1,8 @@
 # TODO
 
 - train and check GROUND TRUTH
-- fix 'היםותקח' in generated texts
 - recreate trainingdata, lstm?
+- 'אכד עוצפ אבי אל' is wrong in training
 
 - tesstrain make (line images!), langdata_ltsm
 - is the leak reported by tesseract at shutdown real?
