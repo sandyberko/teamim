@@ -20,13 +20,13 @@ pub(crate) async fn diff_entry((i, line): (usize, &str)) -> eyre::Result<String>
     Ok(html! {
         tr {
             td { (i) }
-            td { a href={"#" (url)} { (url) } }
-            td {
-                (if has_save { "✅" } else { "❌" })
-            }
-            td {
-                (if has_box { "✅" } else { "❌" })
-            }
+            td { (url) }
+            td { a href={"#" (url) } {
+                @if has_save { "✅" } @else { "❌" }
+            } }
+            td { a href={"#box/" (url) } {
+                @if has_box { "✅" } @else { "❌" }
+            } }
         }
     }
     .into_string())

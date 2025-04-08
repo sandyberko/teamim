@@ -79,6 +79,12 @@ async fn serve() -> eyre::Result<()> {
                 .layer(middleware::from_fn(no_cache))
                 .service(ServeDir::new("assets/corrected-diffs")),
         )
+        .nest_service(
+            "/correctedBoxfiles",
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(no_cache))
+                .service(ServeDir::new("assets/corrected_boxfiles")),
+        )
         .fallback_service(ServeDir::new(boxedit_dir.join("assets")))
         .with_state(state);
 

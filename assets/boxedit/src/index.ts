@@ -582,6 +582,21 @@ main.addEventListener("wheel", (event) => {
 });
 // #endregion
 
+// #region Show boxfile
+const boxPefix = "box/";
+{
+  const showBoxfileButton = document.getElementById("show-boxfile");
+  if (showBoxfileButton instanceof HTMLButtonElement === false)
+    throw new Error("where show boxfile button?");
+  showBoxfileButton.addEventListener("click", () => {
+    // change hash to show boxfile
+    const hash = location.hash.substring(1);
+    if (hash === "") throw new Error("where hash?");
+    history.pushState(null, "", `#${boxPefix}${hash}`);
+    loadDiff(`${boxPefix}${hash}`);
+  });
+}
+// #endregion
 // NOTE: this should be last
 // diffs
 async function loadDiff(url: string) {
@@ -625,20 +640,36 @@ async function loadDiff(url: string) {
       `);
     }
   } else {
+    const [url_, isBoxfile] = url.startsWith(boxPefix)
+      ? [url.substring(boxPefix.length), true]
+      : [url, false];
+
     // image
-    const image = setImage(`/images/${url}.jpg`);
+    const image = setImage(`/images/${url_}.jpg`);
 
     // boxes
-    let response = await fetch(`/correctedDiffs/${url}.html`);
-    if (response.status === 404) {
-      response = await fetch(`/diffs/${url}.html`);
+    if (isBoxfile) {
+      const response = await fetch(
+        `/correctedBoxfiles/${url_.replace("/", "_")}.box`,
+      );
+      if (response.status !== 200) {
+        throw new Error("Failed to load boxfile");
+      }
+      const text = await response.text();
+      renderTrainingBoxes(text);
+    } else {
+      let response = await fetch(`/correctedDiffs/${url_}.html`);
+      if (response.status === 404) {
+        response = await fetch(`/diffs/${url_}.html`);
+      }
+      if (response.status !== 200) {
+        throw new Error("Failed to load diffs");
+      }
+      const text = await response.text();
+      boxContainer().outerHTML = text;
+      boxContainer().toggleAttribute("data-from-server", true);
     }
-    if (response.status !== 200) {
-      throw new Error("Failed to load diffs");
-    }
-    const text = await response.text();
-    boxContainer().outerHTML = text;
-    boxContainer().toggleAttribute("data-from-server", true);
+
     if (image.complete) {
       boxContainer().style.width = image.width + "px";
       boxContainer().style.height = image.height + "px";
