@@ -245,61 +245,76 @@ impl Context {
         buf: &mut Vec<u8>,
         writer: &mut BufWriter<File>,
     ) -> eyre::Result<()> {
-        let mut has_shirah_space = false;
+        let mut trailing_shirah_space = false;
         loop {
-            match self.next(xml, buf).await? {
-                Event::Start(elem) => match elem.name().as_ref() {
-                    b"slh-word" => self.parse_slh_word(xml, buf, writer).await?,
-                    b"scrdfftar" => self.parse_scrdfftar(xml, buf, writer).await?,
-                    b"kq" => self.parse_kq(xml, buf, writer).await?,
-                    b"cant-all-three" => self.parse_cant_all_three(xml, buf, writer).await?,
-                    unexpected => bail!(
-                        "unexpected {:?} at {}",
-                        std::str::from_utf8(unexpected),
-                        xml.buffer_position()
-                    ),
-                },
-                Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => match self.target {
-                    Target::Teamim => {
-                        writer.write_all(b" \xD7\x80 ").await?;
-                    }
-                    Target::TrainingWideLetters | Target::Training => {
-                        writer.write_all(b" ").await?;
-                    }
-                    Target::Search => (),
-                },
-                Event::Empty(elem) if elem.name().as_ref() == b"text" => {
-                    self.expect_text_attr(writer, elem).await?;
-                }
-                Event::Empty(elem) if elem.name().as_ref() == b"kq-trivial" => {
-                    self.expect_text_attr(writer, elem).await?;
-                }
+            let event = self.next(xml, buf).await?;
+
+            // handle spaces
+            match event {
                 Event::Empty(elem) if elem.name().as_ref() == b"shirah-space" => {
-                    has_shirah_space = true;
+                    trailing_shirah_space = true;
                     if self.target != Target::Search {
                         writer.write_all(b" ").await?;
                     }
                 }
-                Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
-                    // TODO
-                    continue;
+                Event::End(end) if end.name().as_ref() == b"verse" => {
+                    match self.target {
+                        Target::Teamim => {
+                            writer.write_all(b"\n").await?;
+                        }
+                        Target::Training | Target::TrainingWideLetters => {
+                            if !trailing_shirah_space {
+                                writer.write_all(b" ").await?;
+                            }
+                        }
+                        Target::Search => (),
+                    }
+                    return Ok(());
                 }
-                Event::End(end) if end.name().as_ref() == b"verse" => break,
-                unexpected => bail!("unexpected {unexpected:?}"),
+
+                // handle other tags
+                event => {
+                    trailing_shirah_space = false;
+                    match event {
+                        Event::Start(elem) => match elem.name().as_ref() {
+                            b"slh-word" => self.parse_slh_word(xml, buf, writer).await?,
+                            b"scrdfftar" => self.parse_scrdfftar(xml, buf, writer).await?,
+                            b"kq" => self.parse_kq(xml, buf, writer).await?,
+                            b"cant-all-three" => {
+                                self.parse_cant_all_three(xml, buf, writer).await?;
+                            }
+                            unexpected => bail!(
+                                "unexpected {:?} at {}",
+                                std::str::from_utf8(unexpected),
+                                xml.buffer_position()
+                            ),
+                        },
+                        Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => {
+                            match self.target {
+                                Target::Teamim => {
+                                    writer.write_all(b" \xD7\x80 ").await?;
+                                }
+                                Target::TrainingWideLetters | Target::Training => {
+                                    writer.write_all(b" ").await?;
+                                }
+                                Target::Search => (),
+                            }
+                        }
+                        Event::Empty(elem) if elem.name().as_ref() == b"text" => {
+                            self.expect_text_attr(writer, elem).await?;
+                        }
+                        Event::Empty(elem) if elem.name().as_ref() == b"kq-trivial" => {
+                            self.expect_text_attr(writer, elem).await?;
+                        }
+                        Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
+                            // TODO
+                            continue;
+                        }
+                        unexpected => bail!("unexpected {unexpected:?}"),
+                    }
+                }
             }
         }
-        match self.target {
-            Target::Teamim => {
-                writer.write_all(b"\n").await?;
-            }
-            Target::Training | Target::TrainingWideLetters => {
-                if !has_shirah_space {
-                    writer.write_all(b" ").await?;
-                }
-            }
-            Target::Search => (),
-        }
-        Ok(())
     }
 
     async fn parse_complicated_sdt(
