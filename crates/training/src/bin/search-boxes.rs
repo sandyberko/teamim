@@ -23,16 +23,18 @@ fn main() -> eyre::Result<()> {
         .par_bridge()
         .map(|entry| {
             let entry = entry?;
+            let path = entry.path();
+
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
-            if entry.path().extension() != Some(OsStr::new("box")) {
+            if path.extension() != Some(OsStr::new("box")) {
                 return Ok(());
             }
 
-            let r = fs::read_to_string(entry.path())?;
+            let r = fs::read_to_string(&path)?;
 
             let lines = r.lines().enumerate().map(|(i, line)| {
                 parse_box_line(line)
-                    .wrap_err_with(|| format!("invalid line: {}:{}", entry.path().display(), i + 1))
+                    .wrap_err_with(|| format!("invalid line: {}:{}", path.display(), i + 1))
             });
 
             let mut line_i = 1;
@@ -43,7 +45,12 @@ fn main() -> eyre::Result<()> {
                 if bx.value == '\t' {
                     let found = line.ok_or_eyre("empty line")?.value.contains(&args.term);
                     if found {
-                        println!("{}:{}", entry.path().display(), line_i);
+                        // print link
+                        println!(
+                            "\x1b]8;;http://localhost:3000#box/{img_name}:{line_i}\x1b\\{path}:{line_i}\x1b]8;;\x1b\\",
+                            path = path.display(),
+                            img_name = path.file_stem().ok_or_eyre("no stem")?.to_string_lossy().replace('_', "/"),
+                        );
                     }
                     line = None;
                 } else if let Some(line) = &mut line {

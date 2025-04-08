@@ -604,11 +604,13 @@ const boxPefix = "box/";
 // NOTE: this should be last
 // diffs
 async function loadDiff(url: string) {
+  const [filename, line] = url.split(":");
+
   main.innerHTML = "";
   image = null;
   outputFile = null;
 
-  if (url === "") {
+  if (filename === "") {
     setZoom(1);
 
     // index
@@ -644,17 +646,17 @@ async function loadDiff(url: string) {
       `);
     }
   } else {
-    const [url_, isBoxfile] = url.startsWith(boxPefix)
-      ? [url.substring(boxPefix.length), true]
-      : [url, false];
+    const [imageName, isBoxfile] = filename.startsWith(boxPefix)
+      ? [filename.substring(boxPefix.length), true]
+      : [filename, false];
 
     // image
-    const image = setImage(`/images/${url_}.jpg`);
+    const image = setImage(`/images/${imageName}.jpg`);
 
     // boxes
     if (isBoxfile) {
       const response = await fetch(
-        `/correctedBoxfiles/${url_.replace("/", "_")}.box`,
+        `/correctedBoxfiles/${imageName.replace("/", "_")}.box`,
       );
       if (response.status !== 200) {
         throw new Error("Failed to load boxfile");
@@ -662,9 +664,9 @@ async function loadDiff(url: string) {
       const text = await response.text();
       renderLTSMBoxes(text);
     } else {
-      let response = await fetch(`/correctedDiffs/${url_}.html`);
+      let response = await fetch(`/correctedDiffs/${imageName}.html`);
       if (response.status === 404) {
-        response = await fetch(`/diffs/${url_}.html`);
+        response = await fetch(`/diffs/${imageName}.html`);
       }
       if (response.status !== 200) {
         throw new Error("Failed to load diffs");
@@ -674,6 +676,7 @@ async function loadDiff(url: string) {
       boxContainer().toggleAttribute("data-from-server", true);
     }
 
+    // container size
     if (image.complete) {
       boxContainer().style.width = image.width + "px";
       boxContainer().style.height = image.height + "px";
@@ -687,6 +690,17 @@ async function loadDiff(url: string) {
         },
         { once: true },
       );
+    }
+
+    // focus line
+    const lineNum = parseInt(line);
+    if (isFinite(lineNum)) {
+      const bx = boxContainer().children[lineNum - 1];
+      if (bx instanceof TessBox === false) {
+        alert(`שורה מספר ${lineNum} לא קיימת`);
+        throw new Error(`line ${lineNum} not found`);
+      }
+      bx.focus();
     }
   }
 }
