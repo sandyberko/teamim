@@ -1,10 +1,8 @@
 # TODO
 
-- TorahScroll2/128 has wrog corrected boxfile
-- boxedit button to show boxfile
-- verify that all boxfile match
 - train and check GROUND TRUTH
-
+- fix 'היםותקח' in generated texts
+- recreate trainingdata, lstm?
 
 - tesstrain make (line images!), langdata_ltsm
 - is the leak reported by tesseract at shutdown real?

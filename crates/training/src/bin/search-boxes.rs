@@ -1,7 +1,7 @@
 use clap::Parser;
 use eyre::{Context, OptionExt, ensure};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use std::{fs, path::Path};
+use std::{ffi::OsStr, fs, path::Path};
 use teamim::{parse_box_line, tesseract_ext::BoundingBox};
 
 #[derive(clap::Parser)]
@@ -19,10 +19,15 @@ fn main() -> eyre::Result<()> {
     ensure!(src_dir.is_dir(), "{src_dir:?} is not a dir");
 
     fs::read_dir(src_dir)?
+        .chain(fs::read_dir("../training/training/images")?)
         .par_bridge()
         .map(|entry| {
             let entry = entry?;
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
+            if entry.path().extension() != Some(OsStr::new("box")) {
+                return Ok(());
+            }
+
             let r = fs::read_to_string(entry.path())?;
 
             let lines = r.lines().enumerate().map(|(i, line)| {
