@@ -520,7 +520,7 @@ impl Context {
             return Ok(true);
         }
 
-        if let Some(note_text) = note_text.strip_prefix("בספרי ספרד ואשכנז ".as_bytes())
+        if let Some(note_text) = note_text.strip_prefix("בספרי ספרד ורוב ספרי אשכנז ".as_bytes())
         {
             self.write_text(writer, note_text).await?;
             return Ok(true);

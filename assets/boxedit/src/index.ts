@@ -83,10 +83,10 @@ boxInput.addEventListener("change", (event) => {
         throw new Error("where target input?");
       switch (targetInput.value) {
         case "training":
-          renderTrainingBoxes(text);
+          renderLTSMBoxes(text);
           break;
         case "recognition":
-          renderBoxes(text, true);
+          renderCharBoxes(text, true);
           break;
       }
     };
@@ -119,7 +119,7 @@ function setImage(src: string): HTMLImageElement {
 }
 
 // #region Render boxes
-function renderBoxes(text: string, training = false) {
+function renderCharBoxes(text: string, training = false) {
   boxContainer().innerHTML = "";
   let lastBox: TessBox | null = null;
   for (const box of text.split("\n")) {
@@ -146,7 +146,7 @@ function renderBoxes(text: string, training = false) {
 // #region Training Boxes
 
 // lstm box format
-function renderTrainingBoxes(text: string) {
+function renderLTSMBoxes(text: string) {
   if (!image) throw new Error("where image?");
   const imgHeight = image.height;
 
@@ -164,7 +164,7 @@ function renderTrainingBoxes(text: string) {
       const [left, blBottom, right, blTop] = line.substring(2).split(" ");
       const top = imgHeight - parseInt(blTop);
       const bottom = imgHeight - parseInt(blBottom);
-      const width = parseInt(right) - parseInt(left);
+      const width = parseInt(right) - LTSMRightOffset - parseInt(left);
       const height = bottom - top;
       lastBox = newBox(char, left, top.toString(), width, height);
       boxContainer().appendChild(lastBox);
@@ -311,6 +311,9 @@ let outputFile: FileSystemFileHandle | null = null;
   });
 }
 
+// see [https://github.com/tesseract-ocr/tesseract/blob/3157ff0e741ea5c85e16fbd1c6edf20f30eccbd3/src/api/lstmboxrenderer.cpp#L34]
+const LTSMRightOffset = 5;
+
 type BoxFileOrigin = "server" | "file";
 async function writeTrainingBoxes(
   outputFile: FileSystemFileHandle | null,
@@ -338,9 +341,10 @@ async function writeTrainingBoxes(
     // lstm box format
     const left = box.offsetLeft;
     const bottom = imgHeight - box.offsetTop - box.offsetHeight;
-    // see [https://github.com/tesseract-ocr/tesseract/blob/3157ff0e741ea5c85e16fbd1c6edf20f30eccbd3/src/api/lstmboxrenderer.cpp#L34]
     const right =
-      box.offsetLeft + box.offsetWidth + (origin == "server" ? 5 : 0);
+      box.offsetLeft +
+      box.offsetWidth +
+      (origin == "server" ? LTSMRightOffset : 0);
     const top = imgHeight - box.offsetTop;
 
     // there seems to be a trailing space when coming from server
@@ -406,7 +410,7 @@ recognizeButton.addEventListener("click", async (event) => {
     switch (targetInput.value) {
       case "recognition": {
         const text = await response.text();
-        renderBoxes(text, true);
+        renderCharBoxes(text, true);
         break;
       }
       case "training": {
@@ -656,7 +660,7 @@ async function loadDiff(url: string) {
         throw new Error("Failed to load boxfile");
       }
       const text = await response.text();
-      renderTrainingBoxes(text);
+      renderLTSMBoxes(text);
     } else {
       let response = await fetch(`/correctedDiffs/${url_}.html`);
       if (response.status === 404) {
