@@ -94,8 +94,6 @@ boxInput.addEventListener("change", (event) => {
 });
 
 function setImage(src: string): HTMLImageElement {
-  main.innerHTML = "";
-
   if (image === null) {
     image = new Image();
     main.appendChild(image);
@@ -161,7 +159,9 @@ function renderLTSMBoxes(text: string) {
       lastBox.prepend(document.createTextNode(char));
       continue;
     } else {
-      const [left, blBottom, right, blTop] = line.substring(2).split(" ");
+      const [left, blBottom, right, blTop, page] = line.substring(2).split(" ");
+      if (page !== '0') break;
+
       const top = imgHeight - parseInt(blTop);
       const bottom = imgHeight - parseInt(blBottom);
       const width = parseInt(right) - LTSMRightOffset - parseInt(left);
