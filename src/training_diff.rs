@@ -3,7 +3,7 @@ use similar::ChangeTag;
 use similar::utils::TextDiffRemapper;
 use similar::{Algorithm, TextDiff};
 
-use crate::tesseract_ext::BoundingBox;
+use crate::tesseract_ext::bounding_box::BoundingBox;
 
 pub type BoundingBoxDiff = BoundingBox<Vec<DiffOp>>;
 

@@ -11,13 +11,16 @@ use std::{
     path::Path,
 };
 
-use eyre::{Context, OptionExt, bail, ensure, eyre};
+use eyre::{OptionExt, WrapErr, bail, eyre};
 use glyph::{GLYPHS, Placement};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
 use serde::Serialize;
 use similar::TextDiff;
-use tesseract_ext::{BoundingBox, PageIteratorLevel, PageSegMode, Rect, Tess, Text};
+use tesseract_ext::{
+    PageIteratorLevel, PageSegMode, Tess, Text,
+    bounding_box::{BoundingBox, Rect},
+};
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
@@ -302,25 +305,6 @@ fn place_taam(
     Ok(())
 }
 
-pub fn parse_box_line(line: &str) -> eyre::Result<BoundingBox<char>> {
-    // `char` needs special parsing since it can just be a space itself
-    let mut line = line.chars();
-    let value = line.next().ok_or_eyre("expected char")?;
-    ensure!(line.next() == Some(' '), "expected space");
-
-    let mut parts = line.as_str().split(' ');
-    let mut parse_part = || eyre::Ok(parts.next().ok_or_eyre("unexpected end")?.parse()?);
-
-    let rect = Rect {
-        left: parse_part().wrap_err("failed to parse left")?,
-        bottom: parse_part().wrap_err("failed to parse bottom")?,
-        right: parse_part().wrap_err("failed to parse right")?,
-        top: parse_part().wrap_err("failed to parse top")?,
-    };
-
-    Ok(BoundingBox { value, rect })
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum OriginPos {
     BottomLeft { img_h: u32 },
@@ -328,7 +312,7 @@ pub enum OriginPos {
 }
 
 #[must_use]
-pub fn into_geometry<V>(bx: BoundingBox<V>, origin_pos: OriginPos) -> BoxGeometry {
+pub fn into_geometry<V>(bx: &BoundingBox<V>, origin_pos: OriginPos) -> BoxGeometry {
     let Rect {
         left,
         bottom,

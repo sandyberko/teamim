@@ -20,7 +20,7 @@ use std::{
 };
 use teamim::{
     TRAINING_TEXT, TeamimCtx,
-    tesseract_ext::BoundingBox,
+    tesseract_ext::bounding_box::BoundingBox,
     training_diff::{self, Div},
 };
 
@@ -434,7 +434,7 @@ impl RemapCtx<'_> {
                     });
                 }
                 _ => unreachable!(),
-            };
+            }
 
             // advance
             *old_index += chunk_len;

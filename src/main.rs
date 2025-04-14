@@ -13,8 +13,7 @@ use teamim::{
     glyph::{GLYPHS, Placement},
     into_geometry,
     leptonica_ext::PixExt,
-    parse_box_line,
-    tesseract_ext::{PageIteratorLevel, Tess},
+    tesseract_ext::{PageIteratorLevel, Tess, bounding_box::parse_char_box},
 };
 
 #[derive(Parser)]
@@ -76,7 +75,7 @@ fn main() -> eyre::Result<()> {
             let corrected = BufReader::new(File::open(corrected)?);
             let mut writer = BufWriter::new(File::create(to_bottom_left)?);
             for line in corrected.lines() {
-                let line = parse_box_line(&line?)?;
+                let line = parse_char_box(&line?)?;
                 let r#box = line.into_bottom_left(img_h);
                 writeln!(writer, "{box}")?;
             }
@@ -88,7 +87,7 @@ fn main() -> eyre::Result<()> {
                 .collect::<eyre::Result<String>>()?;
             let boxes = BufReader::new(File::open(corrected)?)
                 .lines()
-                .map(|line| Ok(into_geometry(parse_box_line(&line?)?, OriginPos::TopLeft)));
+                .map(|line| Ok(into_geometry(&parse_char_box(&line?)?, OriginPos::TopLeft)));
             place_teamim(&pix, &args, &text, boxes)?;
         }
     } else {
@@ -127,7 +126,7 @@ fn main() -> eyre::Result<()> {
             // Boxes
             let boxes = tess
                 .results_iter(PageIteratorLevel::Symbol)
-                .map(|r| Ok(into_geometry(r, OriginPos::TopLeft)));
+                .map(|r| Ok(into_geometry(&r, OriginPos::TopLeft)));
             place_teamim(&pix, &args, text.as_str()?, boxes)?;
         }
     }

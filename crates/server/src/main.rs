@@ -19,8 +19,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 use teamim::{
-    MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, parse_box_line,
-    place_teamim, training_diff::Div,
+    MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, place_teamim,
+    tesseract_ext::bounding_box::parse_char_box, training_diff::Div,
 };
 use thiserror::Error;
 use tokio::{
@@ -287,7 +287,7 @@ async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, Re
         .collect::<String>();
     let boxes = boxes
         .lines()
-        .map(|line| Ok(into_geometry(parse_box_line(line)?, OriginPos::TopLeft)));
+        .map(|line| Ok(into_geometry(parse_char_box(line)?, OriginPos::TopLeft)));
     let image = place_teamim(&image, PlaceOptions::default(), &text, boxes)?;
     let headers = [(
         header::CONTENT_TYPE,
@@ -367,7 +367,7 @@ mod tests {
     use insta::assert_snapshot;
     use maud::Markup;
     use teamim::{
-        tesseract_ext::Rect,
+        tesseract_ext::bounding_box::Rect,
         training_diff::{BoundingBoxDiff, DiffOp},
     };
 

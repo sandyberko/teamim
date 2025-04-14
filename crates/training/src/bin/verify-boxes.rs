@@ -1,6 +1,6 @@
 use eyre::{Context, ensure};
 use std::{ffi::OsStr, fs, path::Path};
-use teamim::parse_box_line;
+use teamim::tesseract_ext::bounding_box::parse_char_box;
 
 /// - Add a trailing space to each line
 fn main() -> eyre::Result<()> {
@@ -23,7 +23,7 @@ fn main() -> eyre::Result<()> {
             let r = fs::read_to_string(&path)?;
 
             let lines = r.lines().enumerate().map(|(i, line)| {
-                parse_box_line(line)
+                parse_char_box(line)
                     .wrap_err_with(|| format!("invalid line: {}:{}", path.display(), i + 1))
             });
 

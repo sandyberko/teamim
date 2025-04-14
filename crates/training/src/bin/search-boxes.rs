@@ -1,8 +1,8 @@
 use clap::Parser;
 use eyre::{Context, OptionExt, ensure};
 use rayon::iter::{ParallelBridge, ParallelIterator};
+use teamim::tesseract_ext::bounding_box::{parse_char_box, BoundingBox};
 use std::{ffi::OsStr, fs, path::Path};
-use teamim::{parse_box_line, tesseract_ext::BoundingBox};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -33,7 +33,7 @@ fn main() -> eyre::Result<()> {
             let r = fs::read_to_string(&path)?;
 
             let lines = r.lines().enumerate().map(|(i, line)| {
-                parse_box_line(line)
+                parse_char_box(line)
                     .wrap_err_with(|| format!("invalid line: {}:{}", path.display(), i + 1))
             });
 
