@@ -1,6 +1,8 @@
-use std::fmt::Display;
+use std::{collections::VecDeque, fmt::Display, mem};
 
 use eyre::{OptionExt, WrapErr, ensure};
+
+const LINE_TERMINATOR: char = '\t';
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
@@ -83,4 +85,47 @@ pub fn parse_char_box(line: &str) -> eyre::Result<BoundingBox<char>> {
     };
 
     Ok(BoundingBox { value, rect })
+}
+
+struct LineBoxIter<I> {
+    iter: I,
+}
+
+impl<I> Iterator for LineBoxIter<I>
+where
+    I: Iterator,
+    I::Item: AsRef<str>,
+{
+    type Item = eyre::Result<BoundingBox<String>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut s = VecDeque::new();
+        let mut buf = [0u8; 4];
+        loop {
+            let line = self.iter.next()?;
+            let bx = match parse_char_box(line.as_ref()) {
+                Ok(bx) => bx,
+                Err(e) => return Some(Err(e)),
+            };
+            if bx.value == LINE_TERMINATOR {
+                let s = mem::take(&mut s);
+                let s = Vec::from(s);
+                // SAFETY: VecDeque was created using chars, so it's valid UTF-8
+                let s = unsafe { String::from_utf8_unchecked(s) };
+                return Some(Ok(bx.with_value(s)));
+            }
+
+            for &byte in bx.value.encode_utf8(&mut buf).as_bytes().iter().rev() {
+                s.push_front(byte);
+            }
+        }
+    }
+}
+
+pub fn parse_line_boxes<'a>(
+    lines: impl IntoIterator<Item = &'a str>,
+) -> impl Iterator<Item = eyre::Result<BoundingBox<String>>> {
+    LineBoxIter {
+        iter: lines.into_iter(),
+    }
 }
