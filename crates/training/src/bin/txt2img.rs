@@ -67,6 +67,7 @@ fn main() -> eyre::Result<()> {
                 .args(["--margin", "250"])
                 .args(["--ptsize", "21"])
                 .args(["--leading", "-38"])
+                .args(["--distort_image", "true"])
                 .stderr(File::create(&log_path)?)
                 .spawn()?
                 .wait()?;

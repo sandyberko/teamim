@@ -1,8 +1,14 @@
-use eyre::{Context, ensure};
-use std::{ffi::OsStr, fs, path::Path};
-use teamim::tesseract_ext::bounding_box::parse_char_box;
+use color_eyre::Section;
+use eyre::{ensure, eyre};
+use itertools::Itertools;
+use std::{
+    ffi::OsStr,
+    fs,
+    io::{BufRead, BufReader},
+    path::Path,
+};
+use teamim::{TRAINING_TEXT, tesseract_ext::bounding_box::parse_line_boxes};
 
-/// - Add a trailing space to each line
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
@@ -14,67 +20,114 @@ fn main() -> eyre::Result<()> {
         .try_for_each(|entry| {
             let entry = entry?;
             let path = entry.path();
-
-            ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
-            if path.extension() != Some(OsStr::new("box")) {
-                return Ok(());
-            }
-
-            let r = fs::read_to_string(&path)?;
-
-            let lines = r.lines().enumerate().map(|(i, line)| {
-                parse_char_box(line)
-                    .wrap_err_with(|| format!("invalid line: {}:{}", path.display(), i + 1))
-            });
-
-            let mut following_space = false;
-            let mut line_i = 1;
-            let mut col_i = 1;
-            let mut contains_letter = false;
-
-            for bx in lines {
-                let line = bx?;
-
-                ensure!(
-                    !(line.value == ' ' && following_space),
-                    "double space at {}:{line_i}:{col_i}",
+            verify_entry(&entry).map_err(|located_err| {
+                located_err.err.wrap_err(format!(
+                    "at {}:{}:{}",
                     path.display(),
-                );
+                    located_err.row + 1,
+                    located_err.col + 1
+                ))
+            })
+        })?;
+    Ok(())
+}
 
-                following_space = line.value == ' ';
+#[derive(Debug)]
+struct LocatedError {
+    row: usize,
+    col: usize,
+    err: eyre::Report,
+}
 
-                if line.value == '\t' {
-                    // verify line
+impl LocatedError {
+    fn new(row: usize, col: usize, err: eyre::Report) -> Self {
+        Self { row, col, err }
+    }
+}
 
-                    ensure!(contains_letter, "empty line at {}:{line_i}", path.display());
-                    contains_letter = false;
+impl<E: Into<eyre::Report>> From<E> for LocatedError {
+    fn from(err: E) -> Self {
+        LocatedError {
+            row: 0,
+            col: 0,
+            err: err.into(),
+        }
+    }
+}
 
-                    ensure!(
-                        !following_space,
-                        "trailing space before {}:{line_i}:{col_i}",
-                        path.display()
-                    );
+fn verify_entry(entry: &fs::DirEntry) -> Result<(), LocatedError> {
+    let path = entry.path();
 
-                    {
-                        const MIN_WIDTH: i32 = 3;
-                        let width = line.rect.right - line.rect.left;
-                        let height = line.rect.top - line.rect.bottom;
-                        ensure!(
-                            width >= MIN_WIDTH && height >= MIN_WIDTH,
-                            "line too small {width}x{height} at {}:{line_i}:{col_i}",
-                            path.display(),
-                        );
-                    }
+    if !entry.file_type()?.is_file() {
+        return Err(eyre!("not a file").into());
+    }
+    if path.extension() != Some(OsStr::new("box")) {
+        return Ok(());
+    }
 
-                    line_i += 1;
-                    col_i = 1;
-                } else {
-                    contains_letter = true;
+    if path.file_stem().is_some_and(|stem| stem == "248_088") {
+        // skip because of scribe error "הבער"
+        return Ok(());
+    }
 
-                    col_i += 1;
+    let lines = BufReader::new(fs::File::open(&path)?)
+        .lines()
+        .map(|res| res.map_err(From::from));
+
+    #[expect(unstable_name_collisions)]
+    let page_txt = parse_line_boxes(lines)
+        .map(|bx| {
+            let bx = match bx {
+                Ok(bx) => bx,
+                Err(e) => return Err((0, e)),
+            };
+
+            {
+                const MIN_WIDTH: i32 = 3;
+                let width = bx.rect.right - bx.rect.left;
+                let height = bx.rect.top - bx.rect.bottom;
+                if !(width >= MIN_WIDTH && height >= MIN_WIDTH) {
+                    return Err((
+                        0,
+                        eyre!("line too small {width}x{height}, min {MIN_WIDTH}")
+                            .section(format!("Text: {}", bx.value)),
+                    ));
                 }
             }
-            eyre::Ok(())
-        })?;
+
+            if bx.value.is_empty() {
+                return Err((0, eyre!("empty line")));
+            }
+
+            let mut col_idx = 0;
+            for word in bx.value.split(' ') {
+                let len = word.chars().count();
+                if len < 2 {
+                    return Err((
+                        col_idx,
+                        eyre!("word too short with {len}, min 2")
+                            .section(format!("Text: {}", bx.value))
+                            .section(format!("Page: {}", bx.page)),
+                    ));
+                }
+                if let Some((idx, c)) = word.match_indices(|c| !('א'..='ת').contains(&c)).next() {
+                    return Err((col_idx + idx, eyre!("invalid char {c:?}")));
+                }
+                col_idx += len;
+            }
+
+            Ok(bx.value)
+        })
+        .enumerate()
+        .map(|(line_idx, res)| res.map_err(|(col_idx, e)| LocatedError::new(line_idx, col_idx, e)))
+        .intersperse_with(|| Ok(String::from(" ")))
+        .collect::<Result<String, _>>()?;
+
+    if !TRAINING_TEXT.contains(&page_txt) {
+        return Err(eyre!("text not found")
+            .section(format!("Text: {page_txt:#?}"))
+            .into());
+    }
+
     Ok(())
 }

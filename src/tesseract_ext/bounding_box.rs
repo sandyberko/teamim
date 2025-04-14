@@ -2,9 +2,10 @@ use std::{collections::VecDeque, fmt::Display, mem};
 
 use eyre::{OptionExt, WrapErr, ensure};
 
-const LINE_TERMINATOR: char = '\t';
+pub const LINE_TERMINATOR: char = '\t';
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// NOTE: origin is at **bottom** left
 pub struct Rect {
     pub left: i32,
     pub bottom: i32,
@@ -12,10 +13,23 @@ pub struct Rect {
     pub top: i32,
 }
 
+impl Rect {
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            bottom: self.bottom.min(other.bottom),
+            right: self.right.max(other.right),
+            top: self.top.max(other.top),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
     pub value: Value,
     pub rect: Rect,
+    pub page: usize,
 }
 
 impl<V: Display> Display for BoundingBox<V> {
@@ -29,8 +43,9 @@ impl<V: Display> Display for BoundingBox<V> {
                     right,
                     top,
                 },
+            page,
         } = self;
-        write!(f, "{char} {left} {bottom} {right} {top} 0")
+        write!(f, "{char} {left} {bottom} {right} {top} {page}")
     }
 }
 
@@ -44,6 +59,7 @@ impl<V> BoundingBox<V> {
                 right,
                 top,
             },
+            page: 0,
         }
     }
 
@@ -52,6 +68,7 @@ impl<V> BoundingBox<V> {
         BoundingBox {
             value,
             rect: self.rect,
+            page: self.page,
         }
     }
     #[must_use]
@@ -64,6 +81,7 @@ impl<V> BoundingBox<V> {
                 right: self.rect.right,
                 top: img_h - self.rect.top,
             },
+            page: self.page,
         }
     }
 }
@@ -83,36 +101,56 @@ pub fn parse_char_box(line: &str) -> eyre::Result<BoundingBox<char>> {
         right: parse_part().wrap_err("failed to parse right")?,
         top: parse_part().wrap_err("failed to parse top")?,
     };
+    let page = parse_part()
+        .wrap_err("failed to parse page")?
+        .try_into()
+        .wrap_err("page out of i32 range")?;
 
-    Ok(BoundingBox { value, rect })
+    Ok(BoundingBox { value, rect, page })
 }
 
 struct LineBoxIter<I> {
     iter: I,
 }
 
-impl<I> Iterator for LineBoxIter<I>
+impl<Item, Iter> Iterator for LineBoxIter<Iter>
 where
-    I: Iterator,
-    I::Item: AsRef<str>,
+    Item: AsRef<str>,
+    Iter: Iterator<Item = eyre::Result<Item>>,
 {
     type Item = eyre::Result<BoundingBox<String>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut s = VecDeque::new();
         let mut buf = [0u8; 4];
+        let mut rect: Option<Rect> = None;
         loop {
             let line = self.iter.next()?;
+            let line = match line {
+                Ok(line) => line,
+                Err(e) => return Some(Err(e)),
+            };
             let bx = match parse_char_box(line.as_ref()) {
                 Ok(bx) => bx,
                 Err(e) => return Some(Err(e)),
             };
+
+            rect = if let Some(rect) = rect {
+                Some(rect.union(&bx.rect))
+            } else {
+                Some(bx.rect)
+            };
+
             if bx.value == LINE_TERMINATOR {
-                let s = mem::take(&mut s);
-                let s = Vec::from(s);
+                let value = mem::take(&mut s);
+                let value = Vec::from(value);
                 // SAFETY: VecDeque was created using chars, so it's valid UTF-8
-                let s = unsafe { String::from_utf8_unchecked(s) };
-                return Some(Ok(bx.with_value(s)));
+                let value = unsafe { String::from_utf8_unchecked(value) };
+                return Some(Ok(BoundingBox {
+                    value,
+                    rect: rect.unwrap(),
+                    page: bx.page,
+                }));
             }
 
             for &byte in bx.value.encode_utf8(&mut buf).as_bytes().iter().rev() {
@@ -122,8 +160,8 @@ where
     }
 }
 
-pub fn parse_line_boxes<'a>(
-    lines: impl IntoIterator<Item = &'a str>,
+pub fn parse_line_boxes<Item: AsRef<str>>(
+    lines: impl IntoIterator<Item = eyre::Result<Item>>,
 ) -> impl Iterator<Item = eyre::Result<BoundingBox<String>>> {
     LineBoxIter {
         iter: lines.into_iter(),

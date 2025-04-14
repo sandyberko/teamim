@@ -187,7 +187,11 @@ impl Iterator for ResultIter {
 
         let rect = self.rect();
         let value = self.text();
-        Some(BoundingBox { value, rect })
+        Some(BoundingBox {
+            value,
+            rect,
+            page: 0,
+        })
     }
 }
 

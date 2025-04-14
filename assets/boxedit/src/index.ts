@@ -86,7 +86,7 @@ boxInput.addEventListener("change", (event) => {
           renderLTSMBoxes(text);
           break;
         case "recognition":
-          renderCharBoxes(text, true);
+          renderCharBoxes(text);
           break;
       }
     };
@@ -117,32 +117,31 @@ function setImage(src: string): HTMLImageElement {
 }
 
 // #region Render boxes
-function renderCharBoxes(text: string, training = false) {
+
+// char box format
+function renderCharBoxes(text: string) {
+  if (!image) throw new Error("where image?");
+  const imgHeight = image.height;
+
   boxContainer().innerHTML = "";
-  let lastBox: TessBox | null = null;
-  for (const box of text.split("\n")) {
-    if (box === "") continue;
-    const char = box.substring(0, 1);
+  for (const line of text.split("\n")) {
+    if (line === "") continue;
+    const char = line.substring(0, 1);
     if (char === "\t") {
-      lastBox = null;
-    } else if (lastBox) {
-      lastBox.appendChild(document.createTextNode(char));
-    } else {
-      const [left, bottom, right, top] = box.substring(2).split(" ");
-      const width = parseInt(right) - parseInt(left);
-      const height = parseInt(bottom) - parseInt(top);
-      const boxElem = newBox(char, left, top, width, height);
-      if (training) {
-        lastBox = boxElem;
-      }
-      boxContainer().appendChild(boxElem);
+      continue;
     }
+
+    const [left, blBottom, right, blTop, page] = line.substring(2).split(" ");
+    if (page !== "0") break;
+
+    const top = imgHeight - parseInt(blTop);
+    const bottom = imgHeight - parseInt(blBottom);
+    const width = parseInt(right) - parseInt(left);
+    const height = bottom - top;
+    const box = newBox(char, left, top.toString(), width, height);
+    boxContainer().appendChild(box);
   }
 }
-// #endregion
-
-// #region Training Boxes
-
 // lstm box format
 function renderLTSMBoxes(text: string) {
   if (!image) throw new Error("where image?");
@@ -160,7 +159,7 @@ function renderLTSMBoxes(text: string) {
       continue;
     } else {
       const [left, blBottom, right, blTop, page] = line.substring(2).split(" ");
-      if (page !== '0') break;
+      if (page !== "0") break;
 
       const top = imgHeight - parseInt(blTop);
       const bottom = imgHeight - parseInt(blBottom);
@@ -171,7 +170,6 @@ function renderLTSMBoxes(text: string) {
     }
   }
 }
-
 // #endregion
 
 {
@@ -410,7 +408,7 @@ recognizeButton.addEventListener("click", async (event) => {
     switch (targetInput.value) {
       case "recognition": {
         const text = await response.text();
-        renderCharBoxes(text, true);
+        renderCharBoxes(text);
         break;
       }
       case "training": {

@@ -287,7 +287,7 @@ async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, Re
         .collect::<String>();
     let boxes = boxes
         .lines()
-        .map(|line| Ok(into_geometry(parse_char_box(line)?, OriginPos::TopLeft)));
+        .map(|line| Ok(into_geometry(&parse_char_box(line)?, OriginPos::TopLeft)));
     let image = place_teamim(&image, PlaceOptions::default(), &text, boxes)?;
     let headers = [(
         header::CONTENT_TYPE,
@@ -389,6 +389,7 @@ mod tests {
                         DiffOp::Delete("bar".to_owned()),
                         DiffOp::insert("baz".to_owned()),
                     ],
+                    page: 0,
                 },
                 BoundingBoxDiff {
                     rect: Rect {
@@ -398,6 +399,7 @@ mod tests {
                         top: 8,
                     },
                     value: vec![DiffOp::Equal("qux".to_owned())],
+                    page: 0,
                 },
             ],
         };
