@@ -20,6 +20,12 @@ function boxContainer(): HTMLElement {
   if (elem === null) {
     const container = document.createElement("div");
     container.id = "box-container";
+
+    if (image) {
+      container.style.width = image.width + "px";
+      container.style.height = image.height + "px";
+    }
+
     main.appendChild(container);
     return container;
   } else if (elem instanceof HTMLElement) {
@@ -75,18 +81,26 @@ boxInput.addEventListener("change", (event) => {
   }
   const boxFile = files.find((file) => file.name.endsWith(".box"));
   if (boxFile) {
+    const pageInput = document.getElementById("box-page") as HTMLInputElement;
+    const page = pageInput.valueAsNumber;
+    if (isNaN(page)) throw new Error("where page?");
+
     const reader = new FileReader();
+
+    console.log("reading box file...");
     reader.readAsText(boxFile, "UTF-8");
+    console.log("reading done");
+
     reader.onload = function (event) {
       const text = event.target?.result as string;
       if (targetInput instanceof HTMLSelectElement === false)
         throw new Error("where target input?");
       switch (targetInput.value) {
         case "training":
-          renderLTSMBoxes(text);
+          renderLTSMBoxes(text, true, page);
           break;
         case "recognition":
-          renderCharBoxes(text);
+          renderLTSMBoxes(text, false, page);
           break;
       }
     };
@@ -117,49 +131,34 @@ function setImage(src: string): HTMLImageElement {
 }
 
 // #region Render boxes
-
-// char box format
-function renderCharBoxes(text: string) {
-  if (!image) throw new Error("where image?");
-  const imgHeight = image.height;
-
-  boxContainer().innerHTML = "";
-  for (const line of text.split("\n")) {
-    if (line === "") continue;
-    const char = line.substring(0, 1);
-    if (char === "\t") {
-      continue;
-    }
-
-    const [left, blBottom, right, blTop, page] = line.substring(2).split(" ");
-    if (page !== "0") break;
-
-    const top = imgHeight - parseInt(blTop);
-    const bottom = imgHeight - parseInt(blBottom);
-    const width = parseInt(right) - parseInt(left);
-    const height = bottom - top;
-    const box = newBox(char, left, top.toString(), width, height);
-    boxContainer().appendChild(box);
-  }
-}
 // lstm box format
-function renderLTSMBoxes(text: string) {
+function renderLTSMBoxes(text: string, boxPerLine: boolean, page: number = 0) {
   if (!image) throw new Error("where image?");
   const imgHeight = image.height;
 
   boxContainer().innerHTML = "";
   let lastBox: TessBox | null = null;
+  let lastPage: number | null = null;
   for (const line of text.split("\n")) {
     if (line === "") continue;
     const char = line.substring(0, 1);
     if (char === "\t") {
       lastBox = null;
-    } else if (lastBox) {
+    } else if (boxPerLine && lastBox) {
       lastBox.prepend(document.createTextNode(char));
       continue;
     } else {
-      const [left, blBottom, right, blTop, page] = line.substring(2).split(" ");
-      if (page !== "0") break;
+      const [left, blBottom, right, blTop, lPage] = line
+        .substring(2)
+        .split(" ");
+
+      const bxPage = parseInt(lPage);
+
+      if (bxPage !== lastPage) console.log(`reading page ${bxPage}`);
+      lastPage = bxPage;
+
+      if (bxPage < page) continue;
+      if (bxPage > page) break;
 
       const top = imgHeight - parseInt(blTop);
       const bottom = imgHeight - parseInt(blBottom);
@@ -408,7 +407,7 @@ recognizeButton.addEventListener("click", async (event) => {
     switch (targetInput.value) {
       case "recognition": {
         const text = await response.text();
-        renderCharBoxes(text);
+        renderLTSMBoxes(text, false);
         break;
       }
       case "training": {
@@ -660,7 +659,7 @@ async function loadDiff(url: string) {
         throw new Error("Failed to load boxfile");
       }
       const text = await response.text();
-      renderLTSMBoxes(text);
+      renderLTSMBoxes(text, true);
     } else {
       let response = await fetch(`/correctedDiffs/${imageName}.html`);
       if (response.status === 404) {

@@ -1,6 +1,19 @@
 {
     "configurations": [
         {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Cargo launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--package",
+                    "server",
+                ]
+            },
+            "args": []
+        },
+        {
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "rust: cargo build -p server",
