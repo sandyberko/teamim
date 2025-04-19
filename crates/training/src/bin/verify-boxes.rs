@@ -1,16 +1,29 @@
+use clap::Parser;
 use color_eyre::Section;
 use eyre::{ensure, eyre};
 use itertools::Itertools;
 use std::{
     ffi::OsStr,
+    fmt::Display,
     fs,
     io::{BufRead, BufReader},
-    path::Path,
+    path::{Path, PathBuf},
 };
 use teamim::{TRAINING_TEXT, tesseract_ext::bounding_box::parse_line_boxes};
 
+#[derive(Debug, Parser)]
+struct Args {
+    file: Option<PathBuf>,
+}
+
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
+
+    let args = Args::parse();
+    if let Some(path) = args.file {
+        verify_file(&path).map_err(|err| FiledError::new(path, err))?;
+        return Ok(());
+    }
 
     let src_dir = Path::new("assets/corrected_boxfiles");
     ensure!(src_dir.is_dir(), "{src_dir:?} is not a dir");
@@ -20,16 +33,31 @@ fn main() -> eyre::Result<()> {
         .try_for_each(|entry| {
             let entry = entry?;
             let path = entry.path();
-            verify_entry(&entry).map_err(|located_err| {
-                located_err.err.wrap_err(format!(
-                    "at {}:{}:{}",
-                    path.display(),
-                    located_err.row + 1,
-                    located_err.col + 1
-                ))
-            })
+            verify_file(&path).map_err(|err| FiledError::new(path, err))?;
+            eyre::Ok(())
         })?;
     Ok(())
+}
+
+#[derive(Debug)]
+struct FiledError {
+    path: PathBuf,
+    err: LocatedError,
+}
+
+impl FiledError {
+    fn new(path: PathBuf, err: LocatedError) -> Self {
+        Self { path, err }
+    }
+}
+
+impl std::error::Error for FiledError {}
+
+impl Display for FiledError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let LocatedError { row, col, err } = &self.err;
+        write!(f, "{}:{}:{}: {err}", self.path.display(), row + 1, col + 1)
+    }
 }
 
 #[derive(Debug)]
@@ -55,12 +83,7 @@ impl<E: Into<eyre::Report>> From<E> for LocatedError {
     }
 }
 
-fn verify_entry(entry: &fs::DirEntry) -> Result<(), LocatedError> {
-    let path = entry.path();
-
-    if !entry.file_type()?.is_file() {
-        return Err(eyre!("not a file").into());
-    }
+fn verify_file(path: &Path) -> Result<(), LocatedError> {
     if path.extension() != Some(OsStr::new("box")) {
         return Ok(());
     }
@@ -70,7 +93,7 @@ fn verify_entry(entry: &fs::DirEntry) -> Result<(), LocatedError> {
         return Ok(());
     }
 
-    let lines = BufReader::new(fs::File::open(&path)?)
+    let lines = BufReader::new(fs::File::open(path)?)
         .lines()
         .map(|res| res.map_err(From::from));
 
@@ -105,9 +128,7 @@ fn verify_entry(entry: &fs::DirEntry) -> Result<(), LocatedError> {
                 if len < 2 {
                     return Err((
                         col_idx,
-                        eyre!("word too short with {len}, min 2")
-                            .section(format!("Text: {}", bx.value))
-                            .section(format!("Page: {}", bx.page)),
+                        eyre!("page {}: word too short with {len}, min 2", bx.page),
                     ));
                 }
                 if let Some((idx, c)) = word.match_indices(|c| !('א'..='ת').contains(&c)).next() {

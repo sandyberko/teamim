@@ -3,6 +3,8 @@
 - `text2image` has an issue where it sometimes renders the last word of a page in a new line, and sometimes its box is written after the next page, which seems to confuse the training.
   - [`StringRenderer::RenderToImage`](https://github.com/tesseract-ocr/tesseract/blob/main/src/training/pango/stringrenderer.cpp#L725)
   - [`StringRenderer::ComputeClusterBoxes`](https://github.com/tesseract-ocr/tesseract/blob/main/src/training/pango/stringrenderer.cpp#L461)
+  the boxes also seem to bw wrong?
+  `training_Guttman Stam.box:87701` vs `bug_test_Guttman Stam.box:1835`
 - train and check GROUND TRUTH
 - recreate trainingdata, lstm?
 
