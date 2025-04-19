@@ -16,7 +16,7 @@ fn main() -> eyre::Result<()> {
     ensure!(src_dir.is_dir(), "{src_dir:?} is not a dir");
 
     fs::read_dir(src_dir)?
-        .chain(fs::read_dir("../training/training/images")?)
+        .chain(fs::read_dir("assets/training/images")?)
         .try_for_each(|entry| {
             let entry = entry?;
             let path = entry.path();

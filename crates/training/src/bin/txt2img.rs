@@ -9,6 +9,7 @@ use clap::Parser;
 use eyre::{Context, OptionExt};
 use phf::{Map, phf_map};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use teamim::tesseract_ext::PageSegMode;
 use training::tess_dir;
 
 static WIDE_LETTERS: Map<char, char> = phf_map! {
@@ -62,7 +63,7 @@ fn main() -> eyre::Result<()> {
         .collect::<eyre::Result<Vec<_>>>()?;
 
     // create list file
-    let mut list_file = BufWriter::new(File::create("../training/training/list.txt")?);
+    let mut list_file = BufWriter::new(File::create("assets/training/list.txt")?);
     for file in files {
         writeln!(list_file, "{}", file.display())?;
     }
@@ -79,30 +80,35 @@ fn process_txt(font: &str, wide_letters: bool, text_file: &Path) -> eyre::Result
             .to_string_lossy(),
     );
 
-    let log_path = PathBuf::from("../training/training/logs")
+    let log_path = PathBuf::from("assets/training/logs")
         .join(&file_name)
         .with_extension("log");
 
-    let image_path = PathBuf::from("../training/training/images").join(&file_name);
+    let image_path = PathBuf::from("assets/training/images").join(&file_name);
+    let tif_path = image_path.with_extension("tif");
 
-    // Create image and box files
-    Command::new(tess_dir().join("text2image.exe"))
-        .args(["--fonts_dir", "../training/fonts"])
-        .args(["--fontconfig_tmpdir", "../training/tmp"])
-        .args(["--font", font])
-        .args(["--text".as_ref(), text_file.as_os_str()])
-        .args(["--outputbase".as_ref(), image_path.as_os_str()])
-        .args(["--max_pages", "0"])
-        .args(["--resolution", "300"])
-        .args(["--xsize", "2257"])
-        .args(["--ysize", "5075"])
-        .args(["--margin", "250"])
-        .args(["--ptsize", "21"])
-        .args(["--leading", "-38"])
-        .args(["--distort_image", "true"])
-        .stderr(File::create(&log_path)?)
-        .spawn()?
-        .wait()?;
+    if fs::exists(&tif_path)? {
+        eprintln!("Skipping {file_name:?}: image already exists");
+    } else {
+        // Create image and box files
+        Command::new(tess_dir().join("text2image"))
+            .args(["--fonts_dir", "assets/fonts"])
+            .args(["--fontconfig_tmpdir", "assets/fonts"])
+            .args(["--font", font])
+            .args(["--text".as_ref(), text_file.as_os_str()])
+            .args(["--outputbase".as_ref(), image_path.as_os_str()])
+            .args(["--max_pages", "0"])
+            .args(["--resolution", "300"])
+            .args(["--xsize", "2257"])
+            .args(["--ysize", "5075"])
+            .args(["--margin", "250"])
+            .args(["--ptsize", "21"])
+            .args(["--leading", "-38"])
+            .args(["--distort_image", "true"])
+            .stderr(File::create(&log_path)?)
+            .spawn()?
+            .wait()?;
+    }
 
     if wide_letters {
         let src_box = image_path.with_extension("wide-box");
@@ -129,11 +135,12 @@ fn process_txt(font: &str, wide_letters: bool, text_file: &Path) -> eyre::Result
     }
 
     // combine image and box into `.lstmf`
-    let lstmf_path = PathBuf::from("../training/training/combined").join(&file_name);
-    Command::new(tess_dir().join("tesseract.exe"))
-        .arg(image_path.with_extension("tif"))
+    let lstmf_path = PathBuf::from("assets/training/combined").join(&file_name);
+    Command::new(tess_dir().join("tesseract"))
+        .args(["-l", "heb"])
+        .args(["--psm", &(PageSegMode::SingleBlock as u32).to_string()])
+        .arg(&tif_path)
         .arg(&lstmf_path)
-        .args(["--psm", "6"])
         .arg("lstm.train")
         .stderr(File::options().append(true).create(true).open(&log_path)?)
         .spawn()?

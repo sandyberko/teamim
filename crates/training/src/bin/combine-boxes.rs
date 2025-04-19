@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
 };
-use training::tess_dir;
+use training::{tess_dir, tessdata_dir};
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
@@ -113,7 +113,7 @@ fn generate_lstmf(
     let output = Command::new(tess_dir().join("tesseract"))
         .arg(tif_path)
         .arg(output_path_stem)
-        .arg(tess_dir().join("tessdata/configs/lstm.train"))
+        .arg(tessdata_dir().join("configs/lstm.train"))
         .output()?;
 
     Ok(output)
