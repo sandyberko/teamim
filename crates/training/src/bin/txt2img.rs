@@ -29,6 +29,9 @@ struct Args {
 
     #[clap(short, long)]
     verbose: bool,
+
+    #[clap(long)]
+    no_lstmf: bool,
 }
 
 impl Args {
@@ -105,15 +108,17 @@ impl Args {
 
         // combine image and box into `.lstmf`
         let lstmf_path = PathBuf::from("assets/training/combined").join(&file_name);
-        Command::new(tess_dir().join("tesseract"))
-            .args(["-l", "heb"])
-            .args(["--psm", &(PageSegMode::SingleBlock as u32).to_string()])
-            .arg(&tif_path)
-            .arg(&lstmf_path)
-            .arg("lstm.train")
-            .stderr(File::options().append(true).create(true).open(&log_path)?)
-            .spawn()?
-            .wait()?;
+        if !self.no_lstmf {
+            Command::new(tess_dir().join("tesseract"))
+                .args(["-l", "heb"])
+                .args(["--psm", &(PageSegMode::SingleBlock as u32).to_string()])
+                .arg(&tif_path)
+                .arg(&lstmf_path)
+                .arg("lstm.train")
+                .stderr(File::options().append(true).create(true).open(&log_path)?)
+                .spawn()?
+                .wait()?;
+        }
 
         Ok(lstmf_path.with_extension("lstmf"))
     }

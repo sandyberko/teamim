@@ -1,0 +1,17 @@
+[package]
+name = "txt2img"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eyre.workspace = true
+color-eyre.workspace = true
+clap.workspace = true
+teamim = { path = "../.." }
+ab_glyph = "0.2.29"
+tiff = "0.9.1"
+imageproc = "0.25.0"
+
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display, mem};
+use std::{collections::VecDeque, fmt::Display};
 
 use eyre::{OptionExt, WrapErr, ensure};
 
@@ -71,6 +71,16 @@ impl<V> BoundingBox<V> {
             page: self.page,
         }
     }
+
+    #[must_use]
+    pub fn map_value<O, F: FnOnce(V) -> O>(self, f: F) -> BoundingBox<O> {
+        BoundingBox {
+            value: f(self.value),
+            rect: self.rect,
+            page: self.page,
+        }
+    }
+
     #[must_use]
     pub fn into_bottom_left(self, img_h: i32) -> Self {
         Self {
@@ -121,11 +131,13 @@ where
     type Item = eyre::Result<BoundingBox<String>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut s = VecDeque::new();
         let mut buf = [0u8; 4];
-        let mut rect: Option<Rect> = None;
+        let mut bx_accum: Option<BoundingBox<VecDeque<u8>>> = None;
         loop {
-            let line = self.iter.next()?;
+            let Some(line) = self.iter.next() else {
+                break;
+            };
+
             let line = match line {
                 Ok(line) => line,
                 Err(e) => return Some(Err(e)),
@@ -135,28 +147,26 @@ where
                 Err(e) => return Some(Err(e)),
             };
 
-            rect = if let Some(rect) = rect {
-                Some(rect.union(&bx.rect))
-            } else {
-                Some(bx.rect)
-            };
-
             if bx.value == LINE_TERMINATOR {
-                let value = mem::take(&mut s);
-                let value = Vec::from(value);
-                // SAFETY: VecDeque was created using chars, so it's valid UTF-8
-                let value = unsafe { String::from_utf8_unchecked(value) };
-                return Some(Ok(BoundingBox {
-                    value,
-                    rect: rect.unwrap(),
-                    page: bx.page,
-                }));
+                break;
             }
+
+            let bx_accum = bx_accum.get_or_insert_with(|| bx.with_value(VecDeque::new()));
+
+            bx_accum.rect = bx_accum.rect.union(&bx.rect);
 
             for &byte in bx.value.encode_utf8(&mut buf).as_bytes().iter().rev() {
-                s.push_front(byte);
+                bx_accum.value.push_front(byte);
             }
         }
+
+        bx_accum.map(|bx| {
+            Ok(bx.map_value(|value| {
+                let value = Vec::from(value);
+                // SAFETY: VecDeque was created using chars, so it's valid UTF-8
+                unsafe { String::from_utf8_unchecked(value) }
+            }))
+        })
     }
 }
 

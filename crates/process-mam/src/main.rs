@@ -56,7 +56,8 @@ async fn main() -> eyre::Result<()> {
     let mut writer = BufWriter::new(file);
 
     let client = Client::new();
-    let books = ["Gen", "Exod", "Lev", "Num", "Deut"];
+    // let books = ["Gen", "Exod", "Lev", "Num", "Deut"];
+    let books = ["Gen"];
 
     let mut buf = Vec::new();
     for book in books {

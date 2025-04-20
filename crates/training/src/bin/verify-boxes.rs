@@ -1,5 +1,4 @@
 use clap::Parser;
-use color_eyre::Section;
 use eyre::{ensure, eyre};
 use itertools::Itertools;
 use std::{
@@ -110,11 +109,7 @@ fn verify_file(path: &Path) -> Result<(), LocatedError> {
                 let width = bx.rect.right - bx.rect.left;
                 let height = bx.rect.top - bx.rect.bottom;
                 if !(width >= MIN_WIDTH && height >= MIN_WIDTH) {
-                    return Err((
-                        0,
-                        eyre!("line too small {width}x{height}, min {MIN_WIDTH}")
-                            .section(format!("Text: {}", bx.value)),
-                    ));
+                    return Err((0, eyre!("line too small {width}x{height}, min {MIN_WIDTH}")));
                 }
             }
 
@@ -125,10 +120,15 @@ fn verify_file(path: &Path) -> Result<(), LocatedError> {
             let mut col_idx = 0;
             for word in bx.value.split(' ') {
                 let len = word.chars().count();
-                if len < 2 {
+                // ה לה' תגמלו זאת
+                if len < 2 && word != "ה" {
                     return Err((
                         col_idx,
-                        eyre!("page {}: word too short with {len}, min 2", bx.page),
+                        eyre!(
+                            "page {}: word {word:?} too short with {len}, min 2\nline: {:?}",
+                            bx.page,
+                            bx.value
+                        ),
                     ));
                 }
                 if let Some((idx, c)) = word.match_indices(|c| !('א'..='ת').contains(&c)).next() {
@@ -145,9 +145,10 @@ fn verify_file(path: &Path) -> Result<(), LocatedError> {
         .collect::<Result<String, _>>()?;
 
     if !TRAINING_TEXT.contains(&page_txt) {
-        return Err(eyre!("text not found")
-            .section(format!("Text: {page_txt:#?}"))
-            .into());
+        let txt_path = path.with_extension("txt");
+        fs::write(&txt_path, &page_txt)?;
+
+        return Err(eyre!("text not found (wrote to {txt_path:?})").into());
     }
 
     Ok(())
