@@ -1,12 +1,17 @@
-use std::{collections::VecDeque, fs::File, io::BufWriter, iter::Peekable, path::PathBuf};
+use std::{f32::consts::PI, fs::File, io::BufWriter, path::PathBuf};
 
 use ab_glyph::{Font, FontRef};
 use clap::Parser;
 use eyre::bail;
 use imageproc::{
+    distance_transform::Norm,
     drawing::{draw_text_mut, text_size},
+    filter::gaussian_blur_f32,
+    geometric_transformations::{Interpolation, Projection, warp},
     image::{GrayImage, Luma},
-    noise::gaussian_noise_mut,
+    morphology::{close_mut, dilate_mut, erode, erode_mut, open_mut},
+    noise::{gaussian_noise_mut, salt_and_pepper_noise_mut},
+    point::Point,
 };
 use teamim::TRAINING_TEXT;
 use tiff::encoder::{TiffEncoder, colortype::Gray8};
@@ -37,20 +42,13 @@ fn main() -> eyre::Result<()> {
 
     let mut pages = PageIter {
         lines: LineIter {
-            line_buf: VecDeque::new(),
+            line_buf: &mut String::new(),
+            text: &mut &TRAINING_TEXT[..2049],
             margin,
             xsize,
-            space_width: text_size(f32::from(ptsize), &font, " ").0,
-            words: TRAINING_TEXT[..2049]
-                .split(' ')
-                .map(|str| {
-                    let (width, _) = text_size(f32::from(ptsize), &font, str);
-                    SizedStr { str, width }
-                })
-                .peekable(),
+            font: &font,
+            ptsize,
         },
-        font: &font,
-        ptsize,
         line_height: (ysize - margin * 2) / LINE_COUNT,
     };
 
@@ -67,138 +65,98 @@ fn main() -> eyre::Result<()> {
 }
 
 #[derive(Clone, Copy)]
-struct SizedStr<'s> {
-    str: &'s str,
+struct SizedStr<T> {
+    str: T,
     width: u32,
 }
 
-impl<'s> SizedStr<'s> {
-    fn new(str: &'s str, width: u32) -> Self {
+impl<T> SizedStr<T> {
+    fn new(str: T, width: u32) -> Self {
         Self { str, width }
     }
 }
 
-struct WordIter<'it, 's, Iter>
-where
-    Iter: Iterator<Item = SizedStr<'s>>,
-{
-    words: &'it mut Peekable<Iter>,
-    inner_width: u32,
-    space_width: u32,
-
-    x: u32,
-}
-
-impl<'it, 's, Iter> WordIter<'it, 's, Iter>
-where
-    Iter: Iterator<Item = SizedStr<'s>>,
-{
-    fn new(words: &'it mut Peekable<Iter>, inner_width: u32, space_width: u32) -> Self {
-        Self {
-            words,
-            inner_width,
-            space_width,
-            x: 0,
-        }
-    }
-}
-
-impl<'s, Iter> Iterator for WordIter<'_, 's, Iter>
-where
-    Iter: Iterator<Item = SizedStr<'s>>,
-{
-    type Item = &'s str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let SizedStr { mut width, .. } = *self.words.peek()?;
-
-        // `+ ptsize` for space
-        if self.x > 0 {
-            width += self.space_width;
-        }
-
-        if self.x + width > self.inner_width {
-            return None;
-        }
-
-        self.x += width;
-        self.words.next().map(|w| w.str)
-    }
-}
-
-struct LineIter<Words: Iterator> {
-    line_buf: VecDeque<u8>,
-    words: Peekable<Words>,
+struct LineIter<'s, F> {
+    line_buf: &'s mut String,
+    text: &'s mut &'s str,
     margin: u32,
     xsize: u32,
-    space_width: u32,
-}
-
-impl<'s, Words> LineIter<Words>
-where
-    Words: Iterator<Item = SizedStr<'s>>,
-{
-    fn next(&mut self) -> Option<SizedStr> {
-        let Self {
-            ref mut line_buf,
-            ref mut words,
-            margin,
-            xsize,
-            space_width,
-        } = *self;
-        line_buf.clear();
-        let mut words = WordIter::new(&mut *words, xsize - margin * 2, space_width);
-        for word in &mut words {
-            if !line_buf.is_empty() {
-                line_buf.push_front(b' ');
-            }
-            for c in word.chars() {
-                let mut buf = [0u8; 4];
-                let len = c.encode_utf8(&mut buf).len();
-                for &b in buf[..len].iter().rev() {
-                    line_buf.push_front(b);
-                }
-            }
-        }
-        if line_buf.is_empty() {
-            return None;
-        }
-        let (_, line_buf) = line_buf.as_slices();
-        let str = unsafe { core::str::from_utf8_unchecked(line_buf) };
-        Some(SizedStr::new(str, words.x))
-    }
-}
-
-struct PageIter<Words: Iterator, F> {
-    lines: LineIter<Words>,
-    line_height: u32,
     ptsize: u16,
     font: F,
 }
 
-impl<'s, Words, F> PageIter<Words, F>
+impl<F> LineIter<'_, F>
 where
-    Words: Iterator<Item = SizedStr<'s>>,
     F: Font,
 {
-    fn page_next<'b>(&mut self, image_buf: &'b mut GrayImage) -> Option<&'b GrayImage> {
-        let LineIter { margin, xsize, .. } = self.lines;
+    fn next(&mut self) -> Option<SizedStr<()>> {
+        let Self {
+            margin,
+            xsize,
+            ptsize,
+            ref font,
+            ..
+        } = *self;
+        self.line_buf.clear();
+
+        let line_width = xsize - margin * 2;
+        let mut spaces = self.text.match_indices(' ').map(|(idx, _)| idx);
+        let mut x = 0;
+        let mut start = 0;
+        while start < self.text.len() {
+            let end = spaces.next().unwrap_or(self.text.len());
+            let (word_width, _) = text_size(f32::from(ptsize), &font, &self.text[start..end]);
+            if x + word_width >= line_width {
+                // word doesn't fit, break and start a new line
+                for c in self.text[..start].chars().rev() {
+                    self.line_buf.push(c);
+                }
+
+                *self.text = &self.text[start + 1..];
+                break;
+            }
+            x += word_width;
+            start = end;
+        }
+        if self.line_buf.is_empty() {
+            return None;
+        }
+        Some(SizedStr::new((), x))
+    }
+}
+
+struct PageIter<'s, F> {
+    lines: LineIter<'s, F>,
+    line_height: u32,
+}
+
+impl<F> PageIter<'_, F>
+where
+    F: Font,
+{
+    fn page_next<'b>(&mut self, img: &'b mut GrayImage) -> Option<&'b GrayImage> {
+        let LineIter {
+            margin,
+            xsize,
+            ptsize,
+            ..
+        } = self.lines;
         let inner_width = xsize - margin * 2;
 
         let mut line_peek = self.lines.next();
         let mut line_i = 0u32;
 
         line_peek?;
-        image_buf.fill(u8::MAX);
+        img.fill(u8::MAX);
         while let Some(line) = line_peek {
             draw_text_mut(
-                image_buf,
+                img,
                 Luma([0]),
                 i32::try_from(margin + (inner_width - line.width)).unwrap(),
                 i32::try_from(margin + line_i * self.line_height).unwrap(),
-                f32::from(self.ptsize),
-                &self.font,
-                line.str,
+                f32::from(ptsize),
+                &self.lines.font,
+                self.lines.line_buf,
             );
             line_peek = self.lines.next();
             line_i += 1;
@@ -208,13 +166,45 @@ where
             }
         }
 
-        let complexity = 10u32;
+        // augmet image
+
+        // erode_mut(img, Norm::L2, 1);
+
+        *img = gaussian_blur_f32(img, 1.);
+
+        {
+            // warp
+            let src = [
+                (0.0, 0.0),
+                (img.width() as f32, 0.0),
+                (img.width() as f32, img.height() as f32),
+                (0.0, img.height() as f32),
+            ];
+
+            // Perturb destination points for warping
+            let dst = [
+                (5.0, 2.0), // Slight top-left shift
+                (img.width() as f32 - 100.0, 3.0),
+                (img.width() as f32 - 5.0, img.height() as f32 - 5.0),
+                (8.0, img.height() as f32 - 4.0),
+            ];
+
+            *img = warp(
+                img,
+                &Projection::from_control_points(src, dst).unwrap(),
+                Interpolation::Bilinear,
+                Luma([u8::MAX]),
+            );
+        }
+
+        let complexity = 7u32;
         gaussian_noise_mut(
-            image_buf,
+            img,
             (complexity - 1).into(),
             (10 * complexity - 10).into(),
             (5 * complexity - 5).into(),
         );
-        Some(image_buf)
+
+        Some(img)
     }
 }
