@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -10,7 +10,6 @@ use clap::Parser;
 use eyre::bail;
 use imageproc::{
     drawing::{draw_text_mut, text_size},
-    filter::gaussian_blur_f32,
     image::{GrayImage, Luma},
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -18,10 +17,13 @@ use teamim::{
     TRAINING_TEXT,
     tesseract_ext::bounding_box::{BoundingBox, LINE_TERMINATOR},
 };
-use tiff::encoder::{
-    TiffEncoder,
-    colortype::Gray8,
-    compression::{Deflate, DeflateLevel},
+use tiff::{
+    encoder::{
+        Rational, TiffEncoder,
+        colortype::Gray8,
+        compression::{Deflate, DeflateLevel},
+    },
+    tags::ResolutionUnit,
 };
 
 #[derive(Debug, Parser)]
@@ -48,17 +50,21 @@ fn main() -> eyre::Result<()> {
 
     let font = FontRef::try_from_slice(include_bytes!("../../../assets/fonts/Guttman_Stam.ttf"))
         .expect("Failed to load font");
+
+    generate(&args.output, &bar, font)?;
+
+    Ok(())
+}
+
+const DPI: u32 = 300;
+fn generate(output: &Path, bar: &ProgressBar, font: FontRef<'_>) -> eyre::Result<()> {
     let xsize: u32 = 2257;
     let ysize: u32 = 5075;
     let margin = 250;
     let ptsize: u16 = 134;
-
-    let mut box_writer = BufWriter::new(File::create(args.output.with_extension("box"))?);
-
-    let out_img = File::create(args.output)?;
-    let mut encoder = TiffEncoder::new(BufWriter::new(out_img))?;
+    let mut box_writer = BufWriter::new(File::create(output.with_extension("box"))?);
+    let mut encoder = TiffEncoder::new(BufWriter::new(File::create(output)?))?;
     let mut image_buf = GrayImage::new(xsize, ysize);
-    image_buf.fill(u8::MAX);
 
     let mut pages = PageIter {
         lines: LineIter {
@@ -75,23 +81,42 @@ fn main() -> eyre::Result<()> {
         page_i: 0,
         bar: bar.clone(),
     };
-
     let mut pages_peek = pages.page_next(&mut image_buf);
     if pages_peek.is_none() {
         bail!("no pages");
     }
     while let Some(page) = pages_peek {
-        encoder.write_image_with_compression::<Gray8, _>(
-            xsize,
-            ysize,
-            Deflate::with_level(DeflateLevel::Fast),
-            page.as_raw(),
-        )?;
+        if pages.page_i > 0 {
+            #[allow(clippy::cast_possible_wrap)]
+            writeln!(
+                pages.box_writer,
+                "{}",
+                BoundingBox::new_paged(
+                    LINE_TERMINATOR,
+                    (xsize - margin - 1) as _,
+                    margin as _,
+                    (xsize - margin) as _,
+                    (margin + 1) as _,
+                    pages.page_i - 1,
+                )
+            )
+            .unwrap();
+        }
+
+        {
+            let mut encoder = encoder.new_image_with_compression::<Gray8, _>(
+                xsize,
+                ysize,
+                Deflate::with_level(DeflateLevel::Fast),
+            )?;
+            encoder.resolution(ResolutionUnit::Inch, Rational { n: DPI, d: 1 });
+            encoder.write_data(page.as_raw())?;
+        }
+
         pages_peek = pages.page_next(&mut image_buf);
     }
     pages.box_writer.flush()?;
     bar.finish_with_message("🏁 done");
-
     Ok(())
 }
 
@@ -197,9 +222,9 @@ where
                         "{}",
                         BoundingBox::new_paged(
                             LINE_TERMINATOR,
-                            x,
+                            (xsize - margin - 1) as _,
                             bottom,
-                            x + 1,
+                            (xsize - margin) as _,
                             bottom + 1,
                             self.page_i
                         )
@@ -233,19 +258,19 @@ where
                 self.lines.line_buf,
             );
             self.bar.inc(self.lines.line_buf.len() as u64);
-            line_peek = self.lines.next();
-            line_i += 1;
 
+            line_i += 1;
             if line_i >= LINE_COUNT {
                 break;
             }
+            line_peek = self.lines.next();
         }
 
         // augmet image
 
         // erode_mut(img, Norm::L2, 1);
 
-        *img = gaussian_blur_f32(img, 1.);
+        // *img = gaussian_blur_f32(img, 1.);
 
         // #[allow(clippy::cast_precision_loss)]
         // {
