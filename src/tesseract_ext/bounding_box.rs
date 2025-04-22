@@ -15,6 +15,11 @@ pub struct Rect {
 
 impl Rect {
     #[must_use]
+    pub fn new(left: i32, bottom: i32, right: i32, top: i32) -> Self {
+        Self { left, bottom, right, top }
+    }
+
+    #[must_use]
     pub fn union(&self, other: &Self) -> Self {
         Self {
             left: self.left.min(other.left),
@@ -22,6 +27,16 @@ impl Rect {
             right: self.right.max(other.right),
             top: self.top.max(other.top),
         }
+    }
+
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.right.abs_diff(self.left)
+    }
+
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.top.abs_diff(self.bottom)
     }
 }
 
@@ -40,12 +55,12 @@ impl<V: Display> Display for BoundingBox<V> {
 }
 
 impl<V> BoundingBox<V> {
-    pub fn new_paged(value: V, left: i32, bottom: i32, right: i32, top: i32, page: usize) -> Self {
-        Self { value, rect: Rect { left, bottom, right, top }, page }
+    pub fn new_paged(value: V, rect: Rect, page: usize) -> Self {
+        Self { value, rect, page }
     }
 
     pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
-        Self::new_paged(value, left, bottom, right, top, 0)
+        Self::new_paged(value, Rect::new(left, bottom, right, top), 0)
     }
 
     #[must_use]

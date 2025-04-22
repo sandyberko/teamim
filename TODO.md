@@ -1,5 +1,7 @@
 # TODO
 
+- Rect should be u32? right?
+- use `ab_glyph` directly for better RTL support?
 - boxedit: `box-container` isn't getting a size
 - boxedit: unify `LSTMBox` and `CharBox` somehow
 - `text2image` has an issue where it sometimes renders the last word of a page in a new line, and sometimes its box is written after the next page, which seems to confuse the training.

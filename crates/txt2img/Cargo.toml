@@ -12,6 +12,7 @@ ab_glyph = "0.2.29"
 tiff = "0.9.1"
 indicatif = { version = "0.17.11", features = ["rayon"] }
 imageproc = "0.25.0"
+rand = "0.9.1"
 
 
 [lints]

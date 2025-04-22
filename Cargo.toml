@@ -15,6 +15,9 @@ missing_safety_doc = "allow"
 missing_panics_doc = "allow"
 needless_continue = "allow"
 
+[patch.crates-io]
+imageproc = { path = "../imageproc" }
+
 [package]
 name = "teamim"
 version = "0.1.0"
