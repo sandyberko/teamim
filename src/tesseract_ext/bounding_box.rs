@@ -50,7 +50,7 @@ impl<V: Display> Display for BoundingBox<V> {
 }
 
 impl<V> BoundingBox<V> {
-    pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
+    pub fn new_paged(value: V, left: i32, bottom: i32, right: i32, top: i32, page: usize) -> Self {
         Self {
             value,
             rect: Rect {
@@ -59,8 +59,12 @@ impl<V> BoundingBox<V> {
                 right,
                 top,
             },
-            page: 0,
+            page,
         }
+    }
+
+    pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
+        Self::new_paged(value, left, bottom, right, top, 0)
     }
 
     #[must_use]

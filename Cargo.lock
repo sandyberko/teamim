@@ -3224,6 +3224,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "imageproc",
+ "indicatif",
  "teamim",
  "tiff",
 ]
