@@ -1,13 +1,10 @@
 /target
 /tests
 
-/assets/text
-/assets/fonts
-/assets/tessdata
-/assets/images
-/assets/diffs
-/assets/diffs-1
-/assets/boxedit/assets/build
-/assets/training
+/assets/*
+!/assets/boxedit
+!/assets/corrected_boxfiles
+!/assets/corrected-diffs
+!/assets/glyphs
 
 /logs

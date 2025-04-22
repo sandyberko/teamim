@@ -111,6 +111,8 @@ fn generate_lstmf(
     }
 
     let output = Command::new(tess_dir().join("tesseract"))
+        .args(["-l", "stam"])
+        .args(["--tessdata-dir", "assets/tessdata"])
         .arg(tif_path)
         .arg(output_path_stem)
         .arg(tessdata_dir().join("configs/lstm.train"))
