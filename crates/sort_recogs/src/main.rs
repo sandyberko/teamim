@@ -52,11 +52,8 @@ fn main() -> eyre::Result<()> {
         TRAINING_TEXT
     };
 
-    let draw_target = if args.quiet {
-        ProgressDrawTarget::hidden()
-    } else {
-        ProgressDrawTarget::stdout()
-    };
+    let draw_target =
+        if args.quiet { ProgressDrawTarget::hidden() } else { ProgressDrawTarget::stdout() };
     let bars = MultiProgress::with_draw_target(draw_target);
 
     let overall_pb = bars.add(ProgressBar::new_spinner());
@@ -78,10 +75,7 @@ fn main() -> eyre::Result<()> {
             let mut imgs = fs::read_dir(&path)?
                 .map(|file| {
                     let path = file?.path();
-                    if !path
-                        .extension()
-                        .is_some_and(|ext| ext == "jpg" || ext == "jpeg")
-                    {
+                    if !path.extension().is_some_and(|ext| ext == "jpg" || ext == "jpeg") {
                         bail!("expected jpg or jpeg, got {path:?}");
                     }
                     Ok(path)
@@ -170,9 +164,7 @@ impl Scroll {
             .par_iter()
             .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
             .map(|img| {
-                let img_name = img
-                    .file_name()
-                    .ok_or_else(|| eyre!("invalid img {img:?}"))?;
+                let img_name = img.file_name().ok_or_else(|| eyre!("invalid img {img:?}"))?;
                 self.bar.set_message(format!("🔍 recognizing {img_name:?}"));
                 self.bar.tick();
 
@@ -213,10 +205,7 @@ impl Scroll {
             return Ok(vec![]);
         }
         self.bar.set_message("± diffing...");
-        let ocr_text = pages
-            .iter()
-            .map(|(_, ocr_text, ..)| ocr_text.as_str())
-            .collect::<String>();
+        let ocr_text = pages.iter().map(|(_, ocr_text, ..)| ocr_text.as_str()).collect::<String>();
         // TODO diff hook?
         // diff
         let diff = TextDiff::configure()
@@ -233,18 +222,11 @@ impl Scroll {
         let distances = pages
             .into_iter()
             .map(|(img, _, boxes, width, height)| -> eyre::Result<_> {
-                self.bar
-                    .set_message(format!("🗺️ mapping {}", img.display()));
+                self.bar.set_message(format!("🗺️ mapping {}", img.display()));
 
                 let tess_box = pages_ctx.map_diff_page(&mut ops_iter, &boxes)?;
-                let div = Div {
-                    width,
-                    height,
-                    tess_box,
-                };
-                let img_name = img
-                    .file_name()
-                    .ok_or_else(|| eyre!("invalid img {img:?}"))?;
+                let div = Div { width, height, tess_box };
+                let img_name = img.file_name().ok_or_else(|| eyre!("invalid img {img:?}"))?;
                 let out_file = self.out_dir.join(img_name).with_extension("html");
                 let mut w = BufWriter::new(
                     fs::File::create(&out_file)
@@ -252,18 +234,9 @@ impl Scroll {
                 );
                 write!(w, "{}", Markup::from(div).into_string())?;
 
-                self.bar
-                    .set_message(format!("📊 calculating ratio {}", img.display()));
-                let old_len = pages_ctx
-                    .page_ops
-                    .iter()
-                    .map(|op| op.old_range().len())
-                    .sum();
-                let new_len = pages_ctx
-                    .page_ops
-                    .iter()
-                    .map(|op| op.new_range().len())
-                    .sum();
+                self.bar.set_message(format!("📊 calculating ratio {}", img.display()));
+                let old_len = pages_ctx.page_ops.iter().map(|op| op.old_range().len()).sum();
+                let new_len = pages_ctx.page_ops.iter().map(|op| op.new_range().len()).sum();
                 let ratio = get_diff_ratio(&pages_ctx.page_ops, old_len, new_len);
                 pages_ctx.page_ops.clear();
                 Ok((ratio, img))
@@ -294,11 +267,7 @@ impl RemapCtx<'_> {
         'page: while let Some(op) = ops_iter.peek_mut() {
             let tag = op.tag();
             match op {
-                similar::DiffOp::Delete {
-                    old_index,
-                    old_len,
-                    new_index: _,
-                } => {
+                similar::DiffOp::Delete { old_index, old_len, new_index: _ } => {
                     let Some((_, line)) = lines_iter.peek_mut() else {
                         break 'page;
                     };
@@ -306,33 +275,19 @@ impl RemapCtx<'_> {
                         .remapper
                         .slice_old(*old_index..*old_index + *old_len)
                         .ok_or_eyre("-")?;
-                    line.value
-                        .push(training_diff::DiffOp::Delete(text.to_owned()));
+                    line.value.push(training_diff::DiffOp::Delete(text.to_owned()));
                     self.page_ops.push(*op);
                     ops_iter.next();
                 }
-                similar::DiffOp::Equal {
-                    old_index,
-                    new_index,
-                    len: new_len,
-                }
-                | similar::DiffOp::Insert {
-                    old_index,
-                    new_index,
-                    new_len,
-                } => {
+                similar::DiffOp::Equal { old_index, new_index, len: new_len }
+                | similar::DiffOp::Insert { old_index, new_index, new_len } => {
                     if self.ins_eq(&mut lines_iter, tag, old_index, new_index, new_len)? {
                         break 'page;
                     }
 
                     ops_iter.next();
                 }
-                similar::DiffOp::Replace {
-                    old_index,
-                    old_len,
-                    new_index,
-                    new_len,
-                } => {
+                similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                     // TODO dedup
                     // delete
                     {
@@ -343,8 +298,7 @@ impl RemapCtx<'_> {
                             .remapper
                             .slice_old(*old_index..*old_index + *old_len)
                             .ok_or_eyre("-")?;
-                        line.value
-                            .push(training_diff::DiffOp::Delete(text.to_owned()));
+                        line.value.push(training_diff::DiffOp::Delete(text.to_owned()));
                         self.page_ops.push(similar::DiffOp::Delete {
                             old_index: *old_index,
                             old_len: *old_len,
@@ -359,12 +313,7 @@ impl RemapCtx<'_> {
                     };
                     *op = next_op;
                     // insert
-                    let similar::DiffOp::Insert {
-                        old_index,
-                        new_index,
-                        new_len,
-                    } = op
-                    else {
+                    let similar::DiffOp::Insert { old_index, new_index, new_len } = op else {
                         unreachable!()
                     };
                     if self.ins_eq(
@@ -404,19 +353,15 @@ impl RemapCtx<'_> {
                 return Ok(true);
             };
             let chunk_len = (*new_len).min(new_line.len());
-            let chunk = self
-                .remapper
-                .slice_new(*new_index..*new_index + chunk_len)
-                .ok_or_else(|| {
+            let chunk =
+                self.remapper.slice_new(*new_index..*new_index + chunk_len).ok_or_else(|| {
                     eyre!("byte index {chunk_len} is not a char boundary")
                         .section(format!("line: {new_line:?}"))
                 })?;
 
             match tag {
                 similar::DiffTag::Equal => {
-                    line_diff
-                        .value
-                        .push(training_diff::DiffOp::Equal(chunk.to_owned()));
+                    line_diff.value.push(training_diff::DiffOp::Equal(chunk.to_owned()));
                     self.page_ops.push(similar::DiffOp::Equal {
                         old_index: *old_index,
                         new_index: *new_index,
@@ -424,9 +369,7 @@ impl RemapCtx<'_> {
                     });
                 }
                 similar::DiffTag::Insert => {
-                    line_diff
-                        .value
-                        .push(training_diff::DiffOp::insert(chunk.to_owned()));
+                    line_diff.value.push(training_diff::DiffOp::insert(chunk.to_owned()));
                     self.page_ops.push(similar::DiffOp::Insert {
                         old_index: *old_index,
                         new_index: *new_index,

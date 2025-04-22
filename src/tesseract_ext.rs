@@ -80,11 +80,7 @@ impl Tess {
 
     pub fn results_iter(&mut self, level: PageIteratorLevel) -> ResultIter {
         let iter_ptr = unsafe { capi::TessBaseAPIGetIterator(self.raw.as_ptr()) };
-        ResultIter {
-            raw: NonNull::new(iter_ptr).unwrap(),
-            level,
-            is_first: true,
-        }
+        ResultIter { raw: NonNull::new(iter_ptr).unwrap(), level, is_first: true }
     }
 
     pub fn set_image(&mut self, img: &leptonica::Pix) {
@@ -188,11 +184,7 @@ impl Iterator for ResultIter {
 
         let rect = self.rect();
         let value = self.text();
-        Some(BoundingBox {
-            value,
-            rect,
-            page: 0,
-        })
+        Some(BoundingBox { value, rect, page: 0 })
     }
 }
 

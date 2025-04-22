@@ -23,11 +23,7 @@ impl Glyph {
         placement: Placement,
         pix: &'static LocalKey<LazyCell<Pix>>,
     ) -> Self {
-        Self {
-            name,
-            placement,
-            pix,
-        }
+        Self { name, placement, pix }
     }
 }
 

@@ -108,11 +108,8 @@ fn main() -> eyre::Result<()> {
         println!("=== End Text ===");
 
         if let Some(write_boxes) = args.write_boxes {
-            let file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&write_boxes)?;
+            let file =
+                OpenOptions::new().write(true).create(true).truncate(true).open(&write_boxes)?;
 
             let mut w = BufWriter::new(file);
 
@@ -228,10 +225,7 @@ fn place_teamim(
                     bail!("{message}");
                 }
             }
-            c => bail!(
-                "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
-                c as u32
-            ),
+            c => bail!("unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}", c as u32),
         }
     }
     Ok(())
@@ -255,16 +249,9 @@ fn place_taam(
     glyph
         .pix
         .try_with(|pix| {
-            eprintln!(
-                "ta'am {} on {cur_c:?}, placed {:?}",
-                glyph.name, glyph.placement
-            );
+            eprintln!("ta'am {} on {cur_c:?}, placed {:?}", glyph.name, glyph.placement);
 
-            let scale_factor = if glyph.placement == Placement::After {
-                0.4
-            } else {
-                0.5
-            };
+            let scale_factor = if glyph.placement == Placement::After { 0.4 } else { 0.5 };
             let pix = pix.scale(scale_factor)?;
 
             let top_margin = 4;

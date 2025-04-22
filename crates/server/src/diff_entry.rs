@@ -5,12 +5,9 @@ use tokio::fs;
 
 pub(crate) async fn diff_entry((i, line): (usize, &str)) -> eyre::Result<String> {
     let (_, url) = line.split_once('\t').ok_or_eyre("no separating tab")?;
-    let has_save = fs::try_exists(
-        PathBuf::from("assets/corrected-diffs")
-            .join(url)
-            .with_extension("html"),
-    )
-    .await?;
+    let has_save =
+        fs::try_exists(PathBuf::from("assets/corrected-diffs").join(url).with_extension("html"))
+            .await?;
     let has_box = fs::try_exists(
         PathBuf::from("assets/corrected_boxfiles")
             .join(url.replace("/", "_"))

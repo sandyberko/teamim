@@ -31,11 +31,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let out = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(args.out)?;
+    let out = OpenOptions::new().write(true).truncate(true).create(true).open(args.out)?;
 
     let mut writer = BufWriter::new(out);
 

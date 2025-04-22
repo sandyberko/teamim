@@ -50,25 +50,14 @@ impl From<Div> for Markup {
 /// IMPORTANT: `ocr_text_lines` should have trailing spaces
 #[must_use]
 pub fn diff(ocr_lines: &[BoundingBox<&str>], new: &str, old: &str) -> Vec<BoundingBoxDiff> {
-    let (mut texts, mut diffs): (Vec<_>, Vec<_>) = ocr_lines
-        .iter()
-        .map(|bb_line| (bb_line.value, bb_line.with_value(Vec::new())))
-        .unzip();
+    let (mut texts, mut diffs): (Vec<_>, Vec<_>) =
+        ocr_lines.iter().map(|bb_line| (bb_line.value, bb_line.with_value(Vec::new()))).unzip();
 
-    let mut lines_iter = texts
-        .iter_mut()
-        .zip(diffs.iter_mut())
-        .enumerate()
-        .peekable();
+    let mut lines_iter = texts.iter_mut().zip(diffs.iter_mut()).enumerate().peekable();
 
-    let diff = TextDiff::configure()
-        .algorithm(Algorithm::Myers)
-        .diff_chars(old, new);
+    let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
     let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
-    let changes = diff
-        .ops()
-        .iter()
-        .flat_map(move |op| remapper.iter_slices(op));
+    let changes = diff.ops().iter().flat_map(move |op| remapper.iter_slices(op));
 
     'changes: for (tag, mut change) in changes {
         match tag {

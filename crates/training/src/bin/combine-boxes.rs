@@ -61,12 +61,8 @@ fn main() -> eyre::Result<()> {
         stderr().write_all(output.stderr.as_slice())?;
         stderr().flush()?;
 
-        list_file.write_all(
-            lstmf_path
-                .file_name()
-                .ok_or_eyre("no file name")?
-                .as_encoded_bytes(),
-        )?;
+        list_file
+            .write_all(lstmf_path.file_name().ok_or_eyre("no file name")?.as_encoded_bytes())?;
         writeln!(list_file)?;
     }
     println!("{}", "Done!".green());
@@ -92,10 +88,8 @@ fn generate_lstmf(
             .split_once('_')
             .ok_or_eyre("invalid stem")?;
 
-        let jpg_path = ["assets", "images", book, page]
-            .into_iter()
-            .collect::<PathBuf>()
-            .with_extension("jpg");
+        let jpg_path =
+            ["assets", "images", book, page].into_iter().collect::<PathBuf>().with_extension("jpg");
 
         let output = Command::new("ffmpeg")
             .args(["-hide_banner", "-loglevel", "error"])

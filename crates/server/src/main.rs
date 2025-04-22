@@ -54,9 +54,7 @@ async fn serve() -> eyre::Result<()> {
         bail!("boxedit dir does not exist: {boxedit_dir:?}");
     }
 
-    let state = AppState {
-        ctx: Arc::new(Mutex::new(teamim::TeamimCtx::new()?)),
-    };
+    let state = AppState { ctx: Arc::new(Mutex::new(teamim::TeamimCtx::new()?)) };
 
     // build our application with a single route
     let app = Router::new()
@@ -119,9 +117,7 @@ fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
     };
 
     let (non_blocking_appender, guard) = non_blocking(rolling::daily("logs", "teamim-server"));
-    let file_layer = fmt::layer()
-        .with_ansi(false)
-        .with_writer(non_blocking_appender);
+    let file_layer = fmt::layer().with_ansi(false).with_writer(non_blocking_appender);
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -139,9 +135,7 @@ fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
 
 async fn no_cache(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     response
 }
 
@@ -173,18 +167,11 @@ async fn post_recognize(
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let box_file = state
-        .ctx
-        .lock()
-        .map_err(|_| eyre!("lock ctx"))?
-        .recognize(&image)?;
+    let box_file = state.ctx.lock().map_err(|_| eyre!("lock ctx"))?.recognize(&image)?;
 
-    let headers = [(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/tesseract-lstm-box"),
-    )]
-    .into_iter()
-    .collect::<HeaderMap>();
+    let headers = [(header::CONTENT_TYPE, HeaderValue::from_static("text/tesseract-lstm-box"))]
+        .into_iter()
+        .collect::<HeaderMap>();
     Ok((headers, box_file))
 }
 
@@ -196,17 +183,9 @@ async fn post_recognize_training(
     if image.is_empty() {
         return Err(RecognizeError::EmptyImage);
     }
-    let (tess_box, width, height) = state
-        .ctx
-        .lock()
-        .map_err(|err| eyre!("lock error: {err}"))?
-        .recognize_training(&image)?;
-    Ok(Div {
-        width,
-        height,
-        tess_box,
-    }
-    .into())
+    let (tess_box, width, height) =
+        state.ctx.lock().map_err(|err| eyre!("lock error: {err}"))?.recognize_training(&image)?;
+    Ok(Div { width, height, tess_box }.into())
 }
 
 #[derive(Serialize)]
@@ -261,40 +240,27 @@ impl IntoResponse for RenderTeamimError {
 
 async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, RenderTeamimError> {
     let image = {
-        let image_field = data
-            .next_field()
-            .await?
-            .ok_or(RenderTeamimError::MissingImageField)?;
+        let image_field = data.next_field().await?.ok_or(RenderTeamimError::MissingImageField)?;
         if image_field.name().is_none_or(|name| name != "image") {
             return Err(RenderTeamimError::MissingImageField);
         }
         image_field.bytes().await?
     };
     let boxes = {
-        let boxes_field = data
-            .next_field()
-            .await?
-            .ok_or(RenderTeamimError::MissingBoxesField)?;
+        let boxes_field = data.next_field().await?.ok_or(RenderTeamimError::MissingBoxesField)?;
         if boxes_field.name().is_none_or(|name| name != "boxes") {
             return Err(RenderTeamimError::MissingBoxesField);
         }
         boxes_field.text().await?
     };
 
-    let text = boxes
-        .lines()
-        .flat_map(|line| line.chars().next())
-        .collect::<String>();
-    let boxes = boxes
-        .lines()
-        .map(|line| Ok(into_geometry(&parse_char_box(line)?, OriginPos::TopLeft)));
+    let text = boxes.lines().flat_map(|line| line.chars().next()).collect::<String>();
+    let boxes =
+        boxes.lines().map(|line| Ok(into_geometry(&parse_char_box(line)?, OriginPos::TopLeft)));
     let image = place_teamim(&image, PlaceOptions::default(), &text, boxes)?;
-    let headers = [(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(mime::IMAGE_PNG.as_ref()),
-    )]
-    .into_iter()
-    .collect::<HeaderMap>();
+    let headers = [(header::CONTENT_TYPE, HeaderValue::from_static(mime::IMAGE_PNG.as_ref()))]
+        .into_iter()
+        .collect::<HeaderMap>();
     Ok((headers, Bytes::from_owner(image)))
 }
 
@@ -323,10 +289,7 @@ async fn get_diff_index() -> impl IntoResponse {
     let distances = include_str!("../../../assets/diffs/distances.txt");
     let stream = stream::iter(distances.lines().enumerate()).then(diff_entry::diff_entry);
     Response::builder()
-        .header(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static(mime::IMAGE_PNG.as_ref()),
-        )
+        .header(header::CONTENT_TYPE, HeaderValue::from_static(mime::IMAGE_PNG.as_ref()))
         .body(Body::from_stream(stream))
         .expect("valid headers")
 }
@@ -346,9 +309,7 @@ struct SaveDiffQuery {
     file: String,
 }
 async fn save_diff(Query(query): Query<SaveDiffQuery>, diff: String) -> Result<(), SaveDiffError> {
-    let path = PathBuf::from("assets/corrected-diffs")
-        .join(query.file)
-        .with_extension("html");
+    let path = PathBuf::from("assets/corrected-diffs").join(query.file).with_extension("html");
     let parent_dir = path
         .parent()
         .ok_or_else(|| io::Error::other(eyre!("no parent dir").note("path: {path:?}")))?;
@@ -378,12 +339,7 @@ mod tests {
             height: 100,
             tess_box: vec![
                 BoundingBoxDiff {
-                    rect: Rect {
-                        left: 1,
-                        bottom: 2,
-                        right: 3,
-                        top: 4,
-                    },
+                    rect: Rect { left: 1, bottom: 2, right: 3, top: 4 },
                     value: vec![
                         DiffOp::Equal("foo".to_owned()),
                         DiffOp::Delete("bar".to_owned()),
@@ -392,12 +348,7 @@ mod tests {
                     page: 0,
                 },
                 BoundingBoxDiff {
-                    rect: Rect {
-                        left: 5,
-                        bottom: 6,
-                        right: 7,
-                        top: 8,
-                    },
+                    rect: Rect { left: 5, bottom: 6, right: 7, top: 8 },
                     value: vec![DiffOp::Equal("qux".to_owned())],
                     page: 0,
                 },

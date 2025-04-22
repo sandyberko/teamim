@@ -43,15 +43,10 @@ impl Args {
     ) -> eyre::Result<PathBuf> {
         let file_name = format!(
             "{stem}_{font}",
-            stem = text_file
-                .file_stem()
-                .ok_or_eyre("no stem")?
-                .to_string_lossy(),
+            stem = text_file.file_stem().ok_or_eyre("no stem")?.to_string_lossy(),
         );
 
-        let log_path = PathBuf::from("assets/training/logs")
-            .join(&file_name)
-            .with_extension("log");
+        let log_path = PathBuf::from("assets/training/logs").join(&file_name).with_extension("log");
 
         let image_path = PathBuf::from("assets/training/images").join(&file_name);
         let tif_path = image_path.with_extension("tif");
@@ -148,11 +143,7 @@ fn main() -> eyre::Result<()> {
     let files = available_fonts
         .into_par_iter()
         .map(|(font, wide_letters)| -> eyre::Result<PathBuf> {
-            let path = if wide_letters {
-                &wide_txt_path
-            } else {
-                &txt_path
-            };
+            let path = if wide_letters { &wide_txt_path } else { &txt_path };
 
             args.process_txt(font, wide_letters, path)
         })

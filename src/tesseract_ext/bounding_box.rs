@@ -34,33 +34,14 @@ pub struct BoundingBox<Value> {
 
 impl<V: Display> Display for BoundingBox<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self {
-            value: char,
-            rect:
-                Rect {
-                    left,
-                    bottom,
-                    right,
-                    top,
-                },
-            page,
-        } = self;
+        let Self { value: char, rect: Rect { left, bottom, right, top }, page } = self;
         write!(f, "{char} {left} {bottom} {right} {top} {page}")
     }
 }
 
 impl<V> BoundingBox<V> {
     pub fn new_paged(value: V, left: i32, bottom: i32, right: i32, top: i32, page: usize) -> Self {
-        Self {
-            value,
-            rect: Rect {
-                left,
-                bottom,
-                right,
-                top,
-            },
-            page,
-        }
+        Self { value, rect: Rect { left, bottom, right, top }, page }
     }
 
     pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
@@ -69,20 +50,12 @@ impl<V> BoundingBox<V> {
 
     #[must_use]
     pub fn with_value<O>(&self, value: O) -> BoundingBox<O> {
-        BoundingBox {
-            value,
-            rect: self.rect,
-            page: self.page,
-        }
+        BoundingBox { value, rect: self.rect, page: self.page }
     }
 
     #[must_use]
     pub fn map_value<O, F: FnOnce(V) -> O>(self, f: F) -> BoundingBox<O> {
-        BoundingBox {
-            value: f(self.value),
-            rect: self.rect,
-            page: self.page,
-        }
+        BoundingBox { value: f(self.value), rect: self.rect, page: self.page }
     }
 
     #[must_use]
@@ -177,7 +150,5 @@ where
 pub fn parse_line_boxes<Item: AsRef<str>>(
     lines: impl IntoIterator<Item = eyre::Result<Item>>,
 ) -> impl Iterator<Item = eyre::Result<BoundingBox<String>>> {
-    LineBoxIter {
-        iter: lines.into_iter(),
-    }
+    LineBoxIter { iter: lines.into_iter() }
 }

@@ -21,12 +21,8 @@ fn main() -> eyre::Result<()> {
             ensure!(entry.file_type()?.is_file(), "{entry:?} is not a file");
             let r = fs::read_to_string(entry.path())?;
 
-            let mut w = BufWriter::new(
-                fs::File::options()
-                    .truncate(true)
-                    .write(true)
-                    .open(entry.path())?,
-            );
+            let mut w =
+                BufWriter::new(fs::File::options().truncate(true).write(true).open(entry.path())?);
 
             let lines = r.lines().enumerate().map(|(i, line)| {
                 parse_char_box(line)

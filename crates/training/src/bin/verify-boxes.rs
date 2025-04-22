@@ -27,14 +27,14 @@ fn main() -> eyre::Result<()> {
     let src_dir = Path::new("assets/corrected_boxfiles");
     ensure!(src_dir.is_dir(), "{src_dir:?} is not a dir");
 
-    fs::read_dir(src_dir)?
-        .chain(fs::read_dir("assets/training/images")?)
-        .try_for_each(|entry| {
+    fs::read_dir(src_dir)?.chain(fs::read_dir("assets/training/images")?).try_for_each(
+        |entry| {
             let entry = entry?;
             let path = entry.path();
             verify_file(&path).map_err(|err| FiledError::new(path, err))?;
             eyre::Ok(())
-        })?;
+        },
+    )?;
     Ok(())
 }
 
@@ -74,11 +74,7 @@ impl LocatedError {
 
 impl<E: Into<eyre::Report>> From<E> for LocatedError {
     fn from(err: E) -> Self {
-        LocatedError {
-            row: 0,
-            col: 0,
-            err: err.into(),
-        }
+        LocatedError { row: 0, col: 0, err: err.into() }
     }
 }
 
@@ -92,9 +88,7 @@ fn verify_file(path: &Path) -> Result<(), LocatedError> {
         return Ok(());
     }
 
-    let lines = BufReader::new(fs::File::open(path)?)
-        .lines()
-        .map(|res| res.map_err(From::from));
+    let lines = BufReader::new(fs::File::open(path)?).lines().map(|res| res.map_err(From::from));
 
     #[expect(unstable_name_collisions)]
     let page_txt = parse_line_boxes(lines)

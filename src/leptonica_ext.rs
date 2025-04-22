@@ -37,11 +37,7 @@ impl PixExt for Pix {
     ) -> eyre::Result<()> {
         let result =
             unsafe { pixRenderBoxaArb(*self.raw.as_ref(), boxes.0, width, rval, gval, bval) };
-        if result == 0 {
-            Ok(())
-        } else {
-            bail!("Failed to render boxes")
-        }
+        if result == 0 { Ok(()) } else { bail!("Failed to render boxes") }
     }
 
     fn render_box(
@@ -60,9 +56,7 @@ impl PixExt for Pix {
         let pix_dest = *self.raw.as_ref();
         let pix_source: *mut _ = *src.raw.as_ref();
 
-        let y = y
-            .checked_sub_unsigned(src.get_h())
-            .wrap_err("ta'am is over the edge")?;
+        let y = y.checked_sub_unsigned(src.get_h()).wrap_err("ta'am is over the edge")?;
 
         let result = unsafe {
             pixRasterop(
@@ -77,20 +71,12 @@ impl PixExt for Pix {
                 0,
             )
         };
-        if result == 0 {
-            Ok(())
-        } else {
-            bail!("Failed to render image")
-        }
+        if result == 0 { Ok(()) } else { bail!("Failed to render image") }
     }
 
     fn write(&self, filename: &CStr) -> Result<(), eyre::Error> {
         let result = unsafe { pixWriteAutoFormat(filename.as_ptr(), *self.raw.as_ref()) };
-        if result == 0 {
-            Ok(())
-        } else {
-            bail!("Failed to write. error code: {result}")
-        }
+        if result == 0 { Ok(()) } else { bail!("Failed to write. error code: {result}") }
     }
 
     fn convert_to_32(&mut self) -> Result<(), eyre::Error> {

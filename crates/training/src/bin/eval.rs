@@ -36,14 +36,10 @@ fn main() -> eyre::Result<()> {
             .map(|path| {
                 let path = path?;
                 // <model_base>_<char_error>_<learning_iteration>_<training_iteration>.checkpoint
-                let stem = path
-                    .file_stem()
-                    .ok_or_else(|| eyre::eyre!("no file stem"))?
-                    .to_string_lossy();
-                let (_name, train_err, _learn_iter, _train_iter) = stem
-                    .split('_')
-                    .collect_tuple()
-                    .ok_or_eyre("invalid file stem")?;
+                let stem =
+                    path.file_stem().ok_or_else(|| eyre::eyre!("no file stem"))?.to_string_lossy();
+                let (_name, train_err, _learn_iter, _train_iter) =
+                    stem.split('_').collect_tuple().ok_or_eyre("invalid file stem")?;
                 eyre::Ok((train_err.parse::<f32>()?, path))
             })
             .collect::<Result<Vec<_>, _>>()?;

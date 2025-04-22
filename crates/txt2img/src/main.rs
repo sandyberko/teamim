@@ -137,13 +137,7 @@ where
     fn render_page(&mut self, img: &mut GrayImage) {
         self.bar.set_message(format!("page {}", self.page_i));
 
-        let Self {
-            margin,
-            xsize,
-            ysize,
-            ptsize,
-            ..
-        } = *self;
+        let Self { margin, xsize, ysize, ptsize, .. } = *self;
         let inner_width = xsize - margin * 2;
 
         img.fill(u8::MAX);
@@ -191,15 +185,7 @@ where
                 }
             }
 
-            draw_text_mut(
-                img,
-                Luma([0]),
-                x,
-                y,
-                f32::from(ptsize),
-                &self.font,
-                self.line_buf,
-            );
+            draw_text_mut(img, Luma([0]), x, y, f32::from(ptsize), &self.font, self.line_buf);
             self.bar.inc(self.line_buf.len() as u64);
         }
 
@@ -245,13 +231,7 @@ where
     }
 
     fn prepare_line(&mut self) -> Option<(u32, u32)> {
-        let Self {
-            margin,
-            xsize,
-            ptsize,
-            ref font,
-            ..
-        } = *self;
+        let Self { margin, xsize, ptsize, ref font, .. } = *self;
         self.line_buf.clear();
 
         let inner_width = xsize - margin * 2;

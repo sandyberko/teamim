@@ -41,11 +41,9 @@ impl TeamimCtx {
 
     pub fn with_debug_file(mut self, debug_file: impl AsRef<Path>) -> eyre::Result<Self> {
         let debug_file = debug_file.as_ref();
-        let debug_file = debug_file
-            .to_str()
-            .ok_or_else(|| eyre!("non-utf8 path: {debug_file:?}"))?;
-        self.tess
-            .set_variable(c"debug_file", CString::new(debug_file)?)?;
+        let debug_file =
+            debug_file.to_str().ok_or_else(|| eyre!("non-utf8 path: {debug_file:?}"))?;
+        self.tess.set_variable(c"debug_file", CString::new(debug_file)?)?;
         Ok(self)
     }
 
@@ -94,15 +92,10 @@ impl TeamimCtx {
 
         let truth_text = find_truth_text(&ocr_text).ok_or_eyre("not found")?;
 
-        let boxes = self
-            .tess
-            .results_iter(PageIteratorLevel::Textline)
-            .collect::<Vec<_>>();
+        let boxes = self.tess.results_iter(PageIteratorLevel::Textline).collect::<Vec<_>>();
 
-        let boxes = boxes
-            .iter()
-            .map(|bb| bb.with_value(bb.value.as_str().unwrap()))
-            .collect::<Vec<_>>();
+        let boxes =
+            boxes.iter().map(|bb| bb.with_value(bb.value.as_str().unwrap())).collect::<Vec<_>>();
 
         let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
 
@@ -273,11 +266,7 @@ fn place_taam(
     glyph
         .pix
         .try_with(|pix| {
-            let scale_factor = if glyph.placement == Placement::After {
-                0.4
-            } else {
-                0.5
-            };
+            let scale_factor = if glyph.placement == Placement::After { 0.4 } else { 0.5 };
             let pix = pix.scale(scale_factor)?;
 
             let top_margin = 4;
@@ -313,46 +302,21 @@ pub enum OriginPos {
 
 #[must_use]
 pub fn into_geometry<V>(bx: &BoundingBox<V>, origin_pos: OriginPos) -> BoxGeometry {
-    let Rect {
-        left,
-        bottom,
-        right,
-        top,
-    } = bx.rect;
+    let Rect { left, bottom, right, top } = bx.rect;
     match origin_pos {
         OriginPos::BottomLeft { img_h } => {
             let img_h: i32 = img_h.try_into().unwrap();
-            BoxGeometry {
-                x: left,
-                y: img_h - top,
-                w: right - left,
-                h: top - bottom,
-            }
+            BoxGeometry { x: left, y: img_h - top, w: right - left, h: top - bottom }
         }
-        OriginPos::TopLeft => BoxGeometry {
-            x: left,
-            y: top,
-            w: right - left,
-            h: bottom - top,
-        },
+        OriginPos::TopLeft => BoxGeometry { x: left, y: top, w: right - left, h: bottom - top },
     }
 }
 
 #[derive(Serialize)]
 pub enum DiffOp<'s> {
-    Insert {
-        new_index: usize,
-        new_len: usize,
-    },
-    Delete {
-        new_index: usize,
-        old: &'s str,
-    },
-    Replace {
-        new_index: usize,
-        new_len: usize,
-        old: &'s str,
-    },
+    Insert { new_index: usize, new_len: usize },
+    Delete { new_index: usize, old: &'s str },
+    Replace { new_index: usize, new_len: usize, old: &'s str },
 }
 
 pub const TRAINING_TEXT: &str = include_str!("../assets/text/mam/training.txt");
@@ -365,17 +329,13 @@ pub fn diff(text: &str) -> eyre::Result<Vec<DiffOp<'static>>> {
             similar::DiffOp::Delete { new_index, .. } => {
                 Some(DiffOp::Delete { new_index, old: "" })
             }
-            similar::DiffOp::Insert {
-                new_index, new_len, ..
-            } => Some(DiffOp::Insert { new_index, new_len }),
+            similar::DiffOp::Insert { new_index, new_len, .. } => {
+                Some(DiffOp::Insert { new_index, new_len })
+            }
             similar::DiffOp::Equal { .. } => None,
-            similar::DiffOp::Replace {
-                new_index, new_len, ..
-            } => Some(DiffOp::Replace {
-                new_index,
-                new_len,
-                old: "",
-            }),
+            similar::DiffOp::Replace { new_index, new_len, .. } => {
+                Some(DiffOp::Replace { new_index, new_len, old: "" })
+            }
         })
         .collect())
 }

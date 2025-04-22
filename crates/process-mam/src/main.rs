@@ -119,10 +119,7 @@ struct Context {
 
 impl Context {
     fn new(target: Target) -> Self {
-        Self {
-            target,
-            wide_letter_elapsed: 0,
-        }
+        Self { target, wide_letter_elapsed: 0 }
     }
 }
 

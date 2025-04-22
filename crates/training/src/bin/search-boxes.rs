@@ -1,8 +1,8 @@
 use clap::Parser;
 use eyre::{Context, OptionExt, ensure};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use teamim::tesseract_ext::bounding_box::{parse_char_box, BoundingBox};
 use std::{ffi::OsStr, fs, path::Path};
+use teamim::tesseract_ext::bounding_box::{BoundingBox, parse_char_box};
 
 #[derive(clap::Parser)]
 struct Args {
