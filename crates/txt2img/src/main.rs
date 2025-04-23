@@ -1,4 +1,8 @@
 mod augment;
+mod text;
+
+#[cfg(test)]
+mod tests;
 
 use std::{
     collections::VecDeque,
@@ -11,11 +15,8 @@ use std::{
 use ab_glyph::{Font, FontRef, point};
 use augment::Bulge;
 use clap::Parser;
-use eyre::OptionExt;
-use imageproc::{
-    drawing::{draw_text_mut, text_size},
-    image::{GrayImage, Luma},
-};
+use eyre::{Context, OptionExt, eyre};
+use imageproc::image::{GrayImage, Luma};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use phf::{Map, phf_map};
 use rand::rngs::ThreadRng;
@@ -24,6 +25,7 @@ use teamim::{
     TRAINING_TEXT,
     tesseract_ext::bounding_box::{BoundingBox, LINE_TERMINATOR, Rect},
 };
+use text::{draw_text_mut, text_size};
 use tiff::{
     encoder::{Rational, TiffEncoder, colortype::Gray8, compression::Lzw},
     tags::ResolutionUnit,
@@ -90,7 +92,7 @@ fn main() -> eyre::Result<()> {
             let font = fs::read(&font_path)?;
             let font = FontRef::try_from_slice(&font).expect("Failed to load font");
 
-            generate(&out_path, [overall_bar.clone(), bar.clone()], font, text, is_wide)?;
+            generate(&out_path, vec![overall_bar.clone(), bar.clone()], font, text, is_wide)?;
 
             bar.finish_with_message("🏁 done");
             eyre::Ok(())
@@ -104,7 +106,7 @@ fn main() -> eyre::Result<()> {
 const DPI: u32 = 300;
 fn generate(
     output: &Path,
-    bars: [ProgressBar; 2],
+    bars: Vec<ProgressBar>,
     font: impl Font,
     text: &str,
     is_wide: bool,
@@ -114,7 +116,11 @@ fn generate(
     let margin = 250;
     let ptsize: u16 = 134;
 
-    let mut box_writer = BufWriter::new(File::create(output.with_extension("box"))?);
+    let box_path = output.with_extension("box");
+    let mut box_writer = BufWriter::new(
+        File::create(&box_path)
+            .wrap_err_with(|| eyre!("Failed to create box file {box_path:?}"))?,
+    );
     let mut encoder = TiffEncoder::new(BufWriter::new(File::create(output)?))?;
     let mut image_buf = GrayImage::new(xsize, ysize);
 
@@ -186,7 +192,7 @@ struct PageIter<'s, F, W> {
     line_height: u32,
     box_writer: W,
     page_i: usize,
-    bars: [ProgressBar; 2],
+    bars: Vec<ProgressBar>,
     rng: ThreadRng,
     is_wide: bool,
 }
@@ -197,7 +203,9 @@ where
     W: Write,
 {
     fn render_page(&mut self, img: &mut GrayImage) -> eyre::Result<Bulge> {
-        self.bars[1].set_message(format!("page {}", self.page_i));
+        if let Some(page_bar) = self.bars.last() {
+            page_bar.set_message(format!("page {}", self.page_i));
+        }
 
         let Self { margin, xsize, ysize, ptsize, .. } = *self;
         let inner_width = xsize - margin * 2;
