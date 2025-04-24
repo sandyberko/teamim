@@ -1,6 +1,7 @@
 mod augment;
 
 use std::{
+    collections::VecDeque,
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
@@ -72,7 +73,7 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
     let mut image_buf = GrayImage::new(xsize, ysize);
 
     let mut pages = PageIter {
-        line_buf: &mut String::new(),
+        line_buf: &mut VecDeque::new(),
         text: &mut &TRAINING_TEXT[..],
         margin,
         xsize,
@@ -120,7 +121,7 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
 }
 
 struct PageIter<'s, F, W> {
-    line_buf: &'s mut String,
+    line_buf: &'s mut VecDeque<u8>,
     text: &'s mut &'s str,
     margin: u32,
     xsize: u32,
@@ -153,11 +154,15 @@ where
             clippy::cast_sign_loss
         )]
         for line_i in 0..LINE_COUNT {
-            let Some(line_bounds) = self.prepare_line() else {
+            let Some(line_bounds) = self.layout_line() else {
                 break;
             };
+            let line = {
+                let (front, _) = self.line_buf.as_slices();
+                std::str::from_utf8(front).unwrap()
+            };
 
-            let draw_x = i32::try_from(margin + (inner_width - line_bounds.max.x.ceil() as u32))?;
+            let draw_x = i32::try_from(margin + inner_width - line_bounds.max.x.ceil() as u32)?;
             let draw_y = i32::try_from(margin + line_i * self.line_height)?;
 
             // write boxes
@@ -189,37 +194,30 @@ where
                     )?;
                 }
 
-                for c in self.line_buf.chars() {
+                for c in line.chars() {
                     writeln!(self.box_writer, "{}", BoundingBox::new_paged(c, rect, self.page_i))?;
                 }
             }
-            draw_text_mut(
-                img,
-                Luma([0]),
-                draw_x,
-                draw_y,
-                f32::from(ptsize),
-                &self.font,
-                self.line_buf,
-            );
+            draw_text_mut(img, Luma([0]), draw_x, draw_y, f32::from(ptsize), &self.font, line);
             self.bar.inc(self.line_buf.len() as u64);
         }
 
         // augmet image
-        // augment::augment(img, &mut self.rng, bulge);
+        augment::augment(img, &mut self.rng, bulge);
 
         self.page_i += 1;
         Ok(bulge)
     }
 
-    fn prepare_line(&mut self) -> Option<ab_glyph::Rect> {
+    fn layout_line(&mut self) -> Option<ab_glyph::Rect> {
         let Self { margin, xsize, ptsize, ref font, .. } = *self;
         self.line_buf.clear();
 
-        let inner_width = xsize - margin * 2;
+        #[expect(clippy::cast_precision_loss)]
+        let inner_width = (xsize - margin * 2) as f32;
         let mut line_bb: Option<ab_glyph::Rect> = None;
         while !self.text.is_empty() {
-            let end = self
+            let space_ix = self
                 .text
                 .match_indices(' ')
                 .map(|(idx, _)| idx)
@@ -227,29 +225,39 @@ where
                 .unwrap_or(self.text.len());
 
             // attemt to fit the word
-            let start_in_line = self.line_buf.len();
-            for c in self.text[..end].chars().rev() {
-                self.line_buf.push(c);
+            for c in self.text[..space_ix].chars() {
+                let mut buf = [0u8; 4];
+                for &b in c.encode_utf8(&mut buf).as_bytes().iter().rev() {
+                    self.line_buf.push_front(b);
+                }
             }
 
-            let word_bb = text_size(f32::from(ptsize), &font, &self.line_buf[start_in_line..]);
+            let rev_word = {
+                self.line_buf.make_contiguous();
+                let (front, _) = self.line_buf.as_slices();
+                let rev_word = &front[..space_ix];
+                std::str::from_utf8(rev_word).unwrap()
+            };
+            let (word_bb, word_advance) = text_size(f32::from(ptsize), &font, rev_word);
             let appended = if let Some(bounds) = line_bb {
                 // union
                 ab_glyph::Rect {
-                    min: point(bounds.min.x.min(word_bb.min.x), bounds.min.y.min(word_bb.min.y)),
-                    max: point(bounds.max.x.max(word_bb.max.x), bounds.max.y.max(word_bb.max.y)),
+                    min: point(word_bb.min.x, bounds.min.y.min(word_bb.min.y)),
+                    max: point(bounds.max.x + word_advance, bounds.max.y.max(word_bb.max.y)),
                 }
             } else {
                 word_bb
             };
 
-            if appended.max.x >= inner_width as _ {
+            if appended.max.x >= inner_width {
                 // backoff
-                self.line_buf.truncate(start_in_line);
+                for _ in 0..space_ix {
+                    self.line_buf.pop_front();
+                }
                 break;
             }
 
-            *self.text = &self.text[end..];
+            *self.text = &self.text[space_ix..];
             line_bb = Some(appended);
         }
 

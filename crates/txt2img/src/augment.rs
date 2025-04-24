@@ -43,8 +43,6 @@ impl Bulge {
     }
 
     fn warp(&self, x: f32, y: f32) -> (f32, f32) {
-        return (x, y);
-
         let Self { cx, cy, strength, radius } = *self;
 
         let dx = x - cx;
