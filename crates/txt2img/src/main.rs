@@ -11,10 +11,7 @@ use std::{
 use ab_glyph::{Font, FontRef, point};
 use augment::Bulge;
 use clap::Parser;
-use imageproc::{
-    drawing::{draw_cross_mut, draw_hollow_rect_mut, draw_text_mut, text_size},
-    image::{GrayImage, Luma},
-};
+use imageproc::{drawing::{draw_text_mut, text_size}, image::{GrayImage, Luma}};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rand::rngs::ThreadRng;
 use teamim::{
@@ -75,6 +72,7 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
     let mut pages = PageIter {
         line_buf: &mut VecDeque::new(),
         text: &mut &TRAINING_TEXT[..],
+        last_rect: None,
         margin,
         xsize,
         ysize,
@@ -89,22 +87,20 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
 
     #[expect(clippy::never_loop)]
     while !pages.text.is_empty() {
-        let page_bulge = pages.render_page(&mut image_buf)?;
+        pages.render_page(&mut image_buf)?;
 
-        if pages.page_i > 0 {
+        if let Some(last_rect) = pages.last_rect {
             // line terminator between pages
-            #[allow(clippy::cast_possible_wrap)]
             let rect = Rect::new(
-                (xsize - margin - 1) as _,
-                margin as _,
-                (xsize - margin) as _,
-                (margin + 1) as _,
+                last_rect.left,
+                last_rect.bottom,
+                last_rect.left + 1,
+                last_rect.bottom + 1,
             );
-            let rect = page_bulge.warp_rect(rect);
             writeln!(
                 pages.box_writer,
                 "{}",
-                BoundingBox::new_paged(LINE_TERMINATOR, rect, pages.page_i - 1,)
+                BoundingBox::new_paged(LINE_TERMINATOR, rect, pages.page_i - 1)
             )?;
         }
 
@@ -123,6 +119,7 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
 struct PageIter<'s, F, W> {
     line_buf: &'s mut VecDeque<u8>,
     text: &'s mut &'s str,
+    last_rect: Option<Rect>,
     margin: u32,
     xsize: u32,
     ysize: u32,
@@ -151,7 +148,7 @@ where
         #[expect(
             clippy::cast_possible_wrap,
             clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
+            clippy::cast_precision_loss
         )]
         for line_i in 0..LINE_COUNT {
             let Some(line_bounds) = self.layout_line() else {
@@ -162,29 +159,22 @@ where
                 std::str::from_utf8(front).unwrap()
             };
 
-            let draw_x = i32::try_from(margin + inner_width - line_bounds.max.x.ceil() as u32)?;
-            let draw_y = i32::try_from(margin + line_i * self.line_height)?;
+            let draw_x = margin as f32 + inner_width as f32 - line_bounds.max.x;
+            let draw_y = (margin + line_i * self.line_height) as f32;
 
             // write boxes
             {
+                let line_bounds = ab_glyph::Rect {
+                    min: point(line_bounds.min.x + draw_x, line_bounds.min.y + draw_y),
+                    max: point(line_bounds.max.x + draw_x, line_bounds.max.y + draw_y),
+                };
                 let rect = Rect::new(
-                    draw_x + line_bounds.min.x.floor() as i32,
-                    ysize as i32 - draw_y - line_bounds.max.y.ceil() as i32,
-                    draw_x + line_bounds.max.x.ceil() as i32,
-                    ysize as i32 - draw_y - line_bounds.min.y.ceil() as i32,
+                    line_bounds.min.x.floor() as i32,
+                    ysize as i32 - line_bounds.max.y.ceil() as i32,
+                    line_bounds.max.x.ceil() as i32,
+                    ysize as i32 - line_bounds.min.y.ceil() as i32,
                 );
-                let rect = bulge.warp_rect(rect);
-
-                {
-                    // DEBUG
-                    let rect = imageproc::rect::Rect::at(
-                        rect.left,
-                        (ysize - rect.bottom as u32 - rect.height()) as _,
-                    )
-                    .of_size(rect.width(), rect.height());
-                    draw_hollow_rect_mut(img, rect, Luma([100]));
-                    draw_cross_mut(img, Luma([75]), draw_x, draw_y);
-                }
+                self.last_rect = Some(rect);
 
                 if line_i > 0 {
                     writeln!(
@@ -198,7 +188,15 @@ where
                     writeln!(self.box_writer, "{}", BoundingBox::new_paged(c, rect, self.page_i))?;
                 }
             }
-            draw_text_mut(img, Luma([0]), draw_x, draw_y, f32::from(ptsize), &self.font, line);
+            draw_text_mut(
+                img,
+                Luma([0]),
+                draw_x as _,
+                draw_y as _,
+                f32::from(ptsize),
+                &self.font,
+                line,
+            );
             self.bar.inc(self.line_buf.len() as u64);
         }
 

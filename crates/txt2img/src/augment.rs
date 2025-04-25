@@ -3,7 +3,6 @@ use imageproc::image::Luma;
 use imageproc::{filter::gaussian_blur_f32, image::GrayImage, noise::gaussian_noise_mut};
 use rand::Rng;
 use std::f32::consts::PI;
-use teamim::tesseract_ext::bounding_box::Rect;
 
 const COMPLEXITY: u32 = 7u32;
 
@@ -19,7 +18,7 @@ pub(crate) fn augment(img: &mut GrayImage, rng: &mut impl Rng, bulge: Bulge) {
         (5 * COMPLEXITY - 5).into(),
     );
 
-    *img = warp_with(img, move |x, y| bulge.warp(x, y), Interpolation::Bilinear, Luma([0u8]));
+    // *img = warp_with(img, move |x, y| bulge.warp(x, y), Interpolation::Bilinear, Luma([0u8]));
 }
 
 #[derive(Clone, Copy)]
@@ -30,7 +29,7 @@ pub struct Bulge {
     radius: f32,
 }
 
-#[expect(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[expect(clippy::cast_precision_loss)]
 impl Bulge {
     pub fn new(rng: &mut impl Rng, w: u32, h: u32) -> Self {
         // Random center within the image
@@ -56,11 +55,5 @@ impl Bulge {
         } else {
             (x, y)
         }
-    }
-
-    pub fn warp_rect(&self, rect: Rect) -> Rect {
-        let (left, bottom) = self.warp(rect.left as _, rect.bottom as _);
-        let (right, top) = self.warp(rect.right as _, rect.top as _);
-        rect.union(&Rect::new(left as _, bottom as _, right as _, top as _))
     }
 }
