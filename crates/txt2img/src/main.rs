@@ -2,7 +2,7 @@ mod augment;
 
 use std::{
     collections::VecDeque,
-    fs::File,
+    fs::{self, File},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
     time::Duration,
@@ -11,9 +11,14 @@ use std::{
 use ab_glyph::{Font, FontRef, point};
 use augment::Bulge;
 use clap::Parser;
-use imageproc::{drawing::{draw_text_mut, text_size}, image::{GrayImage, Luma}};
+use eyre::OptionExt;
+use imageproc::{
+    drawing::{draw_text_mut, text_size},
+    image::{GrayImage, Luma},
+};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rand::rngs::ThreadRng;
+use rayon::prelude::*;
 use teamim::{
     TRAINING_TEXT,
     tesseract_ext::bounding_box::{BoundingBox, LINE_TERMINATOR, Rect},
@@ -37,29 +42,59 @@ fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
     let bars = MultiProgress::new();
-
-    let bar = bars.add(ProgressBar::new(TRAINING_TEXT.len() as u64));
     if args.quiet {
-        bar.set_draw_target(ProgressDrawTarget::hidden());
+        bars.set_draw_target(ProgressDrawTarget::hidden());
     }
-    bar.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] / [{eta_precise}] {msg:.yellow} \x1B]9;4;1;{percent}\x07",
-        )?
-        .tick_chars("◐◓◑◒"),
-    );
-    bar.enable_steady_tick(Duration::from_millis(200));
+    let font_paths = fs::read_dir("assets/fonts")?
+        .filter_map(|entry| match entry {
+            Ok(entry) => {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "ttf") { Some(Ok(path)) } else { None }
+            }
+            Err(err) => Some(Err(err)),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let font = FontRef::try_from_slice(include_bytes!("../../../assets/fonts/Guttman_Stam.ttf"))
-        .expect("Failed to load font");
+    let overall_bar = bars.add(ProgressBar::new((TRAINING_TEXT.len() * font_paths.len()) as _));
+    overall_bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} [{elapsed_precise}] / [{eta_precise}] {msg:.yellow} \x1B]9;4;1;{percent}\x07",
+            )?
+            .tick_chars("◐◓◑◒"),
+        );
+    overall_bar.enable_steady_tick(Duration::from_millis(200));
+    let max_font_name_len =
+        font_paths.iter().filter_map(|path| Some(path.file_stem()?.len())).max().unwrap_or(0);
+    let font_bar_style = ProgressStyle::with_template(&format!(
+        "{{prefix:>{max_font_name_len}}} |{{bar:40.cyan/black}}| {{msg}}"
+    ))?;
 
-    generate(&args.output, &bar, font)?;
+    font_paths
+        .into_par_iter()
+        .map(|font_path| {
+            let font_name = font_path.file_stem().ok_or_eyre("No file stem")?;
 
+            let bar = bars.add(ProgressBar::new(TRAINING_TEXT.len() as u64));
+            bar.set_style(font_bar_style.clone());
+            bar.set_prefix(font_name.to_string_lossy().into_owned());
+
+            let font = fs::read(&font_path)?;
+            let font = FontRef::try_from_slice(&font).expect("Failed to load font");
+
+            let out_path = args.output.join(font_name).with_extension("tif");
+            generate(&out_path, [overall_bar.clone(), bar.clone()], font)?;
+
+            bar.finish_with_message("🏁 done");
+            eyre::Ok(())
+        })
+        .collect::<Result<(), _>>()?;
+
+    overall_bar.finish_with_message("🏁 done");
     Ok(())
 }
 
 const DPI: u32 = 300;
-fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<()> {
+fn generate(output: &Path, bars: [ProgressBar; 2], font: impl Font) -> eyre::Result<()> {
     let xsize: u32 = 2257;
     let ysize: u32 = 5075;
     let margin = 250;
@@ -81,7 +116,7 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
         box_writer: &mut box_writer,
         line_height: (ysize - margin * 2) / LINE_COUNT,
         page_i: 0,
-        bar: bar.clone(),
+        bars,
         rng: ThreadRng::default(),
     };
 
@@ -112,7 +147,6 @@ fn generate(output: &Path, bar: &ProgressBar, font: impl Font) -> eyre::Result<(
         break;
     }
     pages.box_writer.flush()?;
-    bar.finish_with_message("🏁 done");
     Ok(())
 }
 
@@ -128,7 +162,7 @@ struct PageIter<'s, F, W> {
     line_height: u32,
     box_writer: W,
     page_i: usize,
-    bar: ProgressBar,
+    bars: [ProgressBar; 2],
     rng: ThreadRng,
 }
 
@@ -138,7 +172,7 @@ where
     W: Write,
 {
     fn render_page(&mut self, img: &mut GrayImage) -> eyre::Result<Bulge> {
-        self.bar.set_message(format!("page {}", self.page_i));
+        self.bars[1].set_message(format!("page {}", self.page_i));
 
         let Self { margin, xsize, ysize, ptsize, .. } = *self;
         let inner_width = xsize - margin * 2;
@@ -197,7 +231,10 @@ where
                 &self.font,
                 line,
             );
-            self.bar.inc(self.line_buf.len() as u64);
+
+            for bar in &self.bars {
+                bar.inc(self.line_buf.len() as u64);
+            }
         }
 
         // augmet image

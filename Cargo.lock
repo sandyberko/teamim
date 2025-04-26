@@ -3253,6 +3253,7 @@ dependencies = [
  "imageproc",
  "indicatif",
  "rand 0.9.1",
+ "rayon",
  "teamim",
  "tiff",
 ]
