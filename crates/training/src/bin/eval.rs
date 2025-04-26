@@ -13,7 +13,7 @@ use training::tess_dir;
 
 #[derive(Debug, Parser)]
 struct Args {
-    checkpoint: Option<PathBuf>,
+    input: PathBuf,
 }
 
 fn main() -> eyre::Result<()> {
@@ -21,18 +21,20 @@ fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
     println!("{}", "Start evaluation...".blue());
-    if let Some(path) = args.checkpoint {
-
+    let metadata = fs::metadata(&args.input)?;
+    if metadata.is_file() {
         #[cfg(windows)]
         return Ok(eval_checkpoint(&path, false).spawn()?);
 
         #[cfg(unix)]
-        return Err(
-            std::os::unix::process::CommandExt::exec(&mut eval_checkpoint(&path, false)).into()
-        );
+        return Err(std::os::unix::process::CommandExt::exec(&mut eval_checkpoint(
+            &args.input,
+            false,
+        ))
+        .into());
     }
 
-    let mut checkpoints = fs::read_dir("assets/training/model")?
+    let mut checkpoints = fs::read_dir(&args.input)?
         .map(|entry| {
             let entry = entry?;
             Ok(entry.path())
