@@ -17,6 +17,7 @@ use imageproc::{
     image::{GrayImage, Luma},
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use phf::{Map, phf_map};
 use rand::rngs::ThreadRng;
 use rayon::prelude::*;
 use teamim::{
@@ -37,6 +38,7 @@ struct Args {
 }
 
 const LINE_COUNT: u32 = 42;
+const TRAINING_TEXT_WIDE: &str = include_str!("../../../assets/text/mam/training-wide-letters.txt");
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
@@ -49,10 +51,15 @@ fn main() -> eyre::Result<()> {
         .filter_map(|entry| match entry {
             Ok(entry) => {
                 let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "ttf") { Some(Ok(path)) } else { None }
+                if path.extension().is_some_and(|ext| ext == "ttf") {
+                    Some(Ok((path, TRAINING_TEXT, false)))
+                } else {
+                    None
+                }
             }
             Err(err) => Some(Err(err)),
         })
+        .chain([Ok((PathBuf::from("assets/fonts/Guttman_Stam.ttf"), TRAINING_TEXT_WIDE, true))])
         .collect::<Result<Vec<_>, _>>()?;
 
     let overall_bar = bars.add(ProgressBar::new((TRAINING_TEXT.len() * font_paths.len()) as _));
@@ -64,25 +71,26 @@ fn main() -> eyre::Result<()> {
         );
     overall_bar.enable_steady_tick(Duration::from_millis(200));
     let max_font_name_len =
-        font_paths.iter().filter_map(|path| Some(path.file_stem()?.len())).max().unwrap_or(0);
+        font_paths.iter().filter_map(|(path, ..)| Some(path.file_stem()?.len())).max().unwrap_or(0);
     let font_bar_style = ProgressStyle::with_template(&format!(
         "{{prefix:>{max_font_name_len}}} |{{bar:40.cyan/black}}| {{msg}}"
     ))?;
 
     font_paths
         .into_par_iter()
-        .map(|font_path| {
-            let font_name = font_path.file_stem().ok_or_eyre("No file stem")?;
+        .map(|(font_path, text, is_wide)| {
+            let font_name = font_path.file_stem().ok_or_eyre("No file stem")?.to_string_lossy();
+            let file_name = format!("{font_name}{wide}", wide = if is_wide { "_wide" } else { "" });
+            let out_path = args.output.join(&file_name).with_extension("tif");
 
             let bar = bars.add(ProgressBar::new(TRAINING_TEXT.len() as u64));
             bar.set_style(font_bar_style.clone());
-            bar.set_prefix(font_name.to_string_lossy().into_owned());
+            bar.set_prefix(file_name);
 
             let font = fs::read(&font_path)?;
             let font = FontRef::try_from_slice(&font).expect("Failed to load font");
 
-            let out_path = args.output.join(font_name).with_extension("tif");
-            generate(&out_path, [overall_bar.clone(), bar.clone()], font)?;
+            generate(&out_path, [overall_bar.clone(), bar.clone()], font, text, is_wide)?;
 
             bar.finish_with_message("🏁 done");
             eyre::Ok(())
@@ -94,7 +102,13 @@ fn main() -> eyre::Result<()> {
 }
 
 const DPI: u32 = 300;
-fn generate(output: &Path, bars: [ProgressBar; 2], font: impl Font) -> eyre::Result<()> {
+fn generate(
+    output: &Path,
+    bars: [ProgressBar; 2],
+    font: impl Font,
+    text: &str,
+    is_wide: bool,
+) -> eyre::Result<()> {
     let xsize: u32 = 2257;
     let ysize: u32 = 5075;
     let margin = 250;
@@ -106,7 +120,7 @@ fn generate(output: &Path, bars: [ProgressBar; 2], font: impl Font) -> eyre::Res
 
     let mut pages = PageIter {
         line_buf: &mut VecDeque::new(),
-        text: &mut &TRAINING_TEXT[..],
+        text: &mut &*text,
         last_rect: None,
         margin,
         xsize,
@@ -118,9 +132,9 @@ fn generate(output: &Path, bars: [ProgressBar; 2], font: impl Font) -> eyre::Res
         page_i: 0,
         bars,
         rng: ThreadRng::default(),
+        is_wide,
     };
 
-    #[expect(clippy::never_loop)]
     while !pages.text.is_empty() {
         pages.render_page(&mut image_buf)?;
 
@@ -144,11 +158,21 @@ fn generate(output: &Path, bars: [ProgressBar; 2], font: impl Font) -> eyre::Res
             encoder.resolution(ResolutionUnit::Inch, Rational { n: DPI, d: 1 });
             encoder.write_data(image_buf.as_raw())?;
         }
-        break;
     }
     pages.box_writer.flush()?;
     Ok(())
 }
+
+static WIDE_LETTERS: Map<char, char> = phf_map! {
+    'ﬡ' =>'א',
+    'ﬢ' =>'ד',
+    'ﬣ' =>'ה',
+    'ﬤ' =>'כ',
+    'ﬥ' =>'ל',
+    'ﬦ' =>'ס',
+    'ﬧ' =>'ר',
+    'ﬨ' =>'ת',
+};
 
 struct PageIter<'s, F, W> {
     line_buf: &'s mut VecDeque<u8>,
@@ -164,6 +188,7 @@ struct PageIter<'s, F, W> {
     page_i: usize,
     bars: [ProgressBar; 2],
     rng: ThreadRng,
+    is_wide: bool,
 }
 
 impl<F, W> PageIter<'_, F, W>
@@ -219,6 +244,8 @@ where
                 }
 
                 for c in line.chars() {
+                    let c =
+                        self.is_wide.then(|| WIDE_LETTERS.get(&c)).flatten().copied().unwrap_or(c);
                     writeln!(self.box_writer, "{}", BoundingBox::new_paged(c, rect, self.page_i))?;
                 }
             }

@@ -3252,6 +3252,7 @@ dependencies = [
  "eyre",
  "imageproc",
  "indicatif",
+ "phf",
  "rand 0.9.1",
  "rayon",
  "teamim",
