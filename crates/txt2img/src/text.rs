@@ -25,11 +25,11 @@ fn layout_glyphs(
 
     for c in text.chars() {
         let glyph_id = font.glyph_id(c);
+        x -= font.h_advance(glyph_id);
         let glyph = glyph_id.with_scale_and_position(scale, point(x, font.ascent()));
-        x += font.h_advance(glyph_id);
         if let Some(g) = font.outline_glyph(glyph) {
             if let Some(last) = last {
-                x += font.kern(glyph_id, last);
+                x -= font.kern(last, glyph_id);
             }
             last = Some(glyph_id);
             let bb = g.px_bounds();

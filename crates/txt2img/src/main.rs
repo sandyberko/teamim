@@ -5,7 +5,6 @@ mod text;
 mod tests;
 
 use std::{
-    collections::VecDeque,
     fs::{self, File},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
@@ -125,7 +124,6 @@ fn generate(
     let mut image_buf = GrayImage::new(xsize, ysize);
 
     let mut pages = PageIter {
-        line_buf: &mut VecDeque::new(),
         text: &mut &*text,
         last_rect: None,
         margin,
@@ -181,7 +179,6 @@ static WIDE_LETTERS: Map<char, char> = phf_map! {
 };
 
 struct PageIter<'s, F, W> {
-    line_buf: &'s mut VecDeque<u8>,
     text: &'s mut &'s str,
     last_rect: Option<Rect>,
     margin: u32,
@@ -197,7 +194,7 @@ struct PageIter<'s, F, W> {
     is_wide: bool,
 }
 
-impl<F, W> PageIter<'_, F, W>
+impl<'s, F, W> PageIter<'s, F, W>
 where
     F: Font,
     W: Write,
@@ -218,15 +215,12 @@ where
             clippy::cast_precision_loss
         )]
         for line_i in 0..LINE_COUNT {
-            let Some(line_bounds) = self.layout_line() else {
+            let Some((line_bounds, line)) = self.layout_line() else {
                 break;
             };
-            let line = {
-                let (front, _) = self.line_buf.as_slices();
-                std::str::from_utf8(front).unwrap()
-            };
 
-            let draw_x = margin as f32 + inner_width as f32 - line_bounds.max.x;
+            // let draw_x = margin as f32 + inner_width as f32 - line_bounds.max.x;
+            let draw_x = (xsize - margin) as f32;
             let draw_y = (margin + line_i * self.line_height) as f32;
 
             // write boxes
@@ -268,47 +262,32 @@ where
             );
 
             for bar in &self.bars {
-                bar.inc(self.line_buf.len() as u64);
+                bar.inc(line.len() as u64);
             }
         }
 
         // augmet image
-        augment::augment(img, &mut self.rng, bulge);
+        // augment::augment(img, &mut self.rng, bulge);
 
         self.page_i += 1;
         Ok(bulge)
     }
 
-    fn layout_line(&mut self) -> Option<ab_glyph::Rect> {
+    fn layout_line(&mut self) -> Option<(ab_glyph::Rect, &'s str)> {
+        if self.text.is_empty() {
+            return None;
+        }
+
         let Self { margin, xsize, ptsize, ref font, .. } = *self;
-        self.line_buf.clear();
 
         #[expect(clippy::cast_precision_loss)]
         let inner_width = (xsize - margin * 2) as f32;
         let mut line_bb: Option<ab_glyph::Rect> = None;
-        while !self.text.is_empty() {
-            let space_ix = self
-                .text
-                .match_indices(' ')
-                .map(|(idx, _)| idx)
-                .find(|&idx| idx > 0)
-                .unwrap_or(self.text.len());
-
+        let mut word_start = 0;
+        for word_end in self.text.match_indices(' ').map(|(idx, _)| idx).chain([self.text.len()]) {
             // attemt to fit the word
-            for c in self.text[..space_ix].chars() {
-                let mut buf = [0u8; 4];
-                for &b in c.encode_utf8(&mut buf).as_bytes().iter().rev() {
-                    self.line_buf.push_front(b);
-                }
-            }
-
-            let rev_word = {
-                self.line_buf.make_contiguous();
-                let (front, _) = self.line_buf.as_slices();
-                let rev_word = &front[..space_ix];
-                std::str::from_utf8(rev_word).unwrap()
-            };
-            let (word_bb, word_advance) = text_size(f32::from(ptsize), &font, rev_word);
+            let word = &self.text[word_start..word_end];
+            let (word_bb, word_advance) = text_size(f32::from(ptsize), &font, word);
             let appended = if let Some(bounds) = line_bb {
                 // union
                 ab_glyph::Rect {
@@ -320,25 +299,21 @@ where
             };
 
             if appended.max.x >= inner_width {
-                // backoff
-                for _ in 0..space_ix {
-                    self.line_buf.pop_front();
-                }
                 break;
             }
 
-            *self.text = &self.text[space_ix..];
+            word_start = word_end;
             line_bb = Some(appended);
         }
+        let line = &self.text[..word_start];
 
         // eat the inter-line space
-        if !self.text.is_empty() {
-            *self.text = &self.text[1..];
+        if word_start < self.text.len() {
+            word_start += 1;
         }
 
-        if self.line_buf.is_empty() {
-            return None;
-        }
-        line_bb
+        *self.text = &self.text[word_start..];
+
+        Some((line_bb?, line))
     }
 }
