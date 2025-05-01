@@ -205,14 +205,14 @@ where
         }
 
         let Self { margin, xsize, ysize, ptsize, .. } = *self;
-        let inner_width = xsize - margin * 2;
         let bulge = Bulge::new(&mut self.rng, xsize, ysize);
         img.fill(u8::MAX);
 
         #[expect(
             clippy::cast_possible_wrap,
             clippy::cast_possible_truncation,
-            clippy::cast_precision_loss
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss
         )]
         for line_i in 0..LINE_COUNT {
             let Some((line_bounds, line)) = self.layout_line() else {
@@ -259,6 +259,10 @@ where
                 f32::from(ptsize),
                 &self.font,
                 line,
+                |(x, y)| {
+                    let (x, y) = bulge.warp(x as _, y as _);
+                    (x.round() as _, y.round() as _)
+                },
             );
 
             for bar in &self.bars {

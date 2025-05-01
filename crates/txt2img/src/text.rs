@@ -1,4 +1,4 @@
-use std::f32;
+use std::{convert::identity, f32};
 
 use imageproc::{
     definitions::{Clamp, Image},
@@ -70,6 +70,7 @@ pub fn draw_text_mut<C>(
     scale: impl Into<PxScale> + Copy,
     font: &impl Font,
     text: &str,
+    transpose: impl Fn((i32, i32)) -> (i32, i32),
 ) where
     C: Canvas,
     <C::Pixel as Pixel>::Subpixel: Into<f32> + Clamp<f32>,
@@ -81,6 +82,7 @@ pub fn draw_text_mut<C>(
         g.draw(|gx, gy, gv| {
             let image_x = gx as i32 + x + bb.min.x.round() as i32;
             let image_y = gy as i32 + y + bb.min.y.round() as i32;
+            let (image_x, image_y) = transpose((image_x, image_y));
             let gv = gv.clamp(0.0, 1.0);
 
             if (0..image_width).contains(&image_x) && (0..image_height).contains(&image_y) {
@@ -115,6 +117,6 @@ where
 {
     let mut out = ImageBuffer::new(image.width(), image.height());
     out.copy_from(image, 0, 0).unwrap();
-    draw_text_mut(&mut out, color, x, y, scale, font, text);
+    draw_text_mut(&mut out, color, x, y, scale, font, text, identity);
     out
 }
