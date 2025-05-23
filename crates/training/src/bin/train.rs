@@ -1,6 +1,6 @@
 use clap::Parser;
 use color_eyre::owo_colors::OwoColorize;
-use std::{os::unix::process::CommandExt, path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command};
 use training::tess_dir;
 
 #[derive(Debug, Parser)]
@@ -59,11 +59,16 @@ fn main() -> eyre::Result<()> {
         cmd.arg("--debug_interval").arg("-1");
     }
 
-    if cfg!(windows) {
+    #[cfg(windows)]
+    {
         cmd.spawn()?;
-    } else {
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
         return Err(cmd.exec().into());
     }
-    
+
     Ok(())
 }

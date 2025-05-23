@@ -7,7 +7,7 @@ use std::{
 
 use clap::Parser;
 use color_eyre::owo_colors::OwoColorize;
-use eyre::OptionExt;
+use eyre::{OptionExt, ensure};
 use itertools::Itertools;
 use training::tess_dir;
 
@@ -20,11 +20,26 @@ fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
+    #[cfg(windows)]
+    {
+        use eyre::WrapErr;
+
+        Command::new("cmd")
+            .args(["/C", "chcp 65001"])
+            .status()
+            .wrap_err("failed to set codepage")?;
+    }
+
+    ensure!(fs::exists(TRAINEDDATA_PATH)?, "{TRAINEDDATA_PATH:?} does not exist");
+
     println!("{}", "Start evaluation...".blue());
     let metadata = fs::metadata(&args.input)?;
     if metadata.is_file() {
         #[cfg(windows)]
-        return Ok(eval_checkpoint(&path, false).spawn()?);
+        {
+            let mut cmd = eval_checkpoint(&args.input, false);
+            return Ok(cmd.status().map(|_| ())?);
+        }
 
         #[cfg(unix)]
         return Err(std::os::unix::process::CommandExt::exec(&mut eval_checkpoint(
@@ -68,9 +83,10 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+const TRAINEDDATA_PATH: &str = "assets/langdata/stam/stam.traineddata";
 fn eval_checkpoint(path: &Path, quiet: bool) -> Command {
     let mut cmd = Command::new(tess_dir().join("lstmeval"));
-    cmd.args(["--traineddata", "assets/langdata/stam/stam.traineddata"])
+    cmd.args(["--traineddata", TRAINEDDATA_PATH])
         .args(["--eval_listfile", "assets/training/eval.txt"])
         .args(["--verbosity", if quiet { "0" } else { "1" }])
         .arg("--model")

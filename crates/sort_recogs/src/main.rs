@@ -73,12 +73,10 @@ fn main() -> eyre::Result<()> {
         .map(|dir| {
             let path = dir?.path();
             let mut imgs = fs::read_dir(&path)?
-                .map(|file| {
-                    let path = file?.path();
-                    if !path.extension().is_some_and(|ext| ext == "jpg" || ext == "jpeg") {
-                        bail!("expected jpg or jpeg, got {path:?}");
-                    }
-                    Ok(path)
+                .map(|file| eyre::Ok(file?.path()))
+                .filter(|path| {
+                    let Ok(path) = path else { return true };
+                    path.extension().is_some_and(|ext| ext == "jpg" || ext == "jpeg")
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             imgs.sort_unstable();
