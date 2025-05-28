@@ -10,7 +10,7 @@ use std::{
     io::{BufWriter, Write},
     iter::Peekable,
     ops::Range,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{self, AtomicBool},
@@ -30,6 +30,11 @@ use clap::Parser;
 struct Args {
     input_dir: PathBuf,
     out_dir: PathBuf,
+
+    #[clap(short, long)]
+    /// process a single scroll directory `input_dir`
+    /// instead of a directory containing multiple scrolls
+    single: bool,
 
     #[arg(short, long)]
     /// Hide progress bars
@@ -69,37 +74,15 @@ fn main() -> eyre::Result<()> {
     )?;
 
     // load file paths
-    let dirs = fs::read_dir(args.input_dir)?
-        .map(|dir| {
-            let path = dir?.path();
-            let mut imgs = fs::read_dir(&path)?
-                .map(|file| eyre::Ok(file?.path()))
-                .filter(|path| {
-                    let Ok(path) = path else { return true };
-                    path.extension().is_some_and(|ext| ext == "jpg" || ext == "jpeg")
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            imgs.sort_unstable();
-
-            let dir_name = path
-                .file_name()
-                .ok_or_else(|| eyre!("invalid dir {path:?}"))?
-                .to_str()
-                .ok_or_else(|| eyre!("non-utf8 dir name {path:?}"))?;
-
-            let bar = bars.insert_before(
-                &overall_pb,
-                ProgressBar::new(imgs.len() as u64)
-                    .with_style(dir_bar_style.clone())
-                    .with_prefix(dir_name.to_owned()),
-            );
-
-            let out_dir = args.out_dir.join(dir_name);
-
-            Ok(Scroll { imgs, bar, out_dir })
-        })
-        .collect::<eyre::Result<Vec<_>>>()?;
-
+    let dirs = if args.single {
+        vec![Scroll::from_dir(&args.input_dir, &bars, dir_bar_style.clone(), &args.out_dir)?]
+    } else {
+        fs::read_dir(args.input_dir)?
+            .map(|entry| {
+                Scroll::from_dir(&entry?.path(), &bars, dir_bar_style.clone(), &args.out_dir)
+            })
+            .collect::<eyre::Result<Vec<_>>>()?
+    };
     overall_pb.set_length(dirs.iter().map(|scroll| scroll.imgs.len() as u64).sum());
 
     thread_local! {
@@ -148,6 +131,38 @@ struct Scroll {
     out_dir: PathBuf,
 }
 impl Scroll {
+    fn from_dir(
+        path: &Path,
+        bars: &MultiProgress,
+        dir_bar_style: ProgressStyle,
+        out_dir: &Path,
+    ) -> eyre::Result<Self> {
+        let mut imgs = fs::read_dir(path)?
+            .map(|file| eyre::Ok(file?.path()))
+            .filter(|path| {
+                let Ok(path) = path else { return true };
+                path.extension().is_some_and(|ext| ext == "jpg" || ext == "jpeg")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        imgs.sort_unstable();
+
+        let dir_name = path
+            .file_name()
+            .ok_or_else(|| eyre!("invalid dir {path:?}"))?
+            .to_str()
+            .ok_or_else(|| eyre!("non-utf8 dir name {path:?}"))?;
+
+        let bar = bars.add(
+            ProgressBar::new(imgs.len() as u64)
+                .with_style(dir_bar_style)
+                .with_prefix(dir_name.to_owned()),
+        );
+
+        let out_dir = out_dir.join(dir_name);
+
+        Ok(Scroll { imgs, bar, out_dir })
+    }
+
     fn process(
         &self,
         old: &str,
