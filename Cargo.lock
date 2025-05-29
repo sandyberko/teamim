@@ -2719,6 +2719,7 @@ dependencies = [
  "ctrlc",
  "eyre",
  "indicatif",
+ "itertools 0.14.0",
  "maud",
  "rayon",
  "similar",

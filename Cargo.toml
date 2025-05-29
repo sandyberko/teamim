@@ -7,6 +7,7 @@ color-eyre = "0.6.3"
 thiserror = "2.0.11"
 clap = { version = "4.5.26", features = ["derive"] }
 phf = { version = "0.11.3", features = ["macros"] }
+itertools = "0.14.0"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

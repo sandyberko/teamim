@@ -1,13 +1,14 @@
 use color_eyre::Section;
 use eyre::{Context, OptionExt, bail, eyre};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use itertools::Itertools;
 use maud::Markup;
 use rayon::prelude::*;
 use similar::{Algorithm, TextDiff, get_diff_ratio, utils::TextDiffRemapper};
 use std::{
     cell::RefCell,
     fs,
-    io::{BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     iter::Peekable,
     ops::Range,
     path::{Path, PathBuf},
@@ -46,7 +47,7 @@ struct Args {
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
-    fs::create_dir(&args.out_dir)
+    fs::create_dir_all(&args.out_dir)
         .wrap_err_with(|| eyre!("Failed to create output dir {:?}", args.out_dir))?;
 
     let old = if let Some(cutoff) = args.test_cutoff {
@@ -57,7 +58,7 @@ fn main() -> eyre::Result<()> {
     };
 
     let draw_target =
-        if args.quiet { ProgressDrawTarget::hidden() } else { ProgressDrawTarget::stdout() };
+        if args.quiet { ProgressDrawTarget::hidden() } else { ProgressDrawTarget::stderr() };
     let bars = MultiProgress::with_draw_target(draw_target);
 
     let overall_pb = bars.add(ProgressBar::new_spinner());
@@ -82,7 +83,10 @@ fn main() -> eyre::Result<()> {
             })
             .collect::<eyre::Result<Vec<_>>>()?
     };
-    overall_pb.set_length(dirs.iter().map(|scroll| scroll.imgs.len() as u64).sum());
+    overall_pb.set_length(
+        dirs.iter().map(|scroll| scroll.imgs.as_deref().unwrap_or_default().len() as u64).sum(),
+    );
+    overall_pb.set_message(format!("⏳ processing {} scrolls...", dirs.len()));
 
     let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
@@ -96,7 +100,7 @@ fn main() -> eyre::Result<()> {
 
     // recognize and diff
     let mut distances = dirs
-        .par_iter()
+        .into_par_iter()
         .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
         .map(|scroll| scroll.process(old, &overall_pb, &running))
         .collect::<Result<Vec<_>, _>>()?
@@ -115,8 +119,9 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-fn write_distances(out_dir: &Path, distances: &mut [(f32, &PathBuf)]) -> eyre::Result<()> {
-    let mut w = BufWriter::new(fs::File::create(out_dir.join("distances.txt"))?);
+const DISTANCES_FILE_NAME: &str = "distances.txt";
+fn write_distances(out_dir: &Path, distances: &mut [(f32, PathBuf)]) -> eyre::Result<()> {
+    let mut w = BufWriter::new(fs::File::create(out_dir.join(DISTANCES_FILE_NAME))?);
     distances.sort_unstable_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
     for (distance, img) in distances {
         writeln!(w, "{distance:<10} {}", img.display())?;
@@ -132,7 +137,9 @@ thread_local! {
 }
 
 struct Scroll {
-    imgs: Vec<PathBuf>,
+    /// `None` if the scroll has already been processed
+    /// and we should load the existing distances file
+    imgs: Option<Vec<PathBuf>>,
     bar: ProgressBar,
     out_dir: PathBuf,
 }
@@ -143,6 +150,22 @@ impl Scroll {
         dir_bar_style: ProgressStyle,
         out_dir: &Path,
     ) -> eyre::Result<Self> {
+        let dir_name = path
+            .file_name()
+            .ok_or_else(|| eyre!("invalid dir {path:?}"))?
+            .to_str()
+            .ok_or_else(|| eyre!("non-utf8 dir name {path:?}"))?;
+
+        let out_dir = out_dir.join(dir_name);
+
+        if fs::exists(&out_dir)? {
+            let bar = bars.add(
+                ProgressBar::no_length().with_style(dir_bar_style).with_prefix(dir_name.to_owned()),
+            );
+            bar.set_message("🔷 restoring...");
+            return Ok(Scroll { imgs: None, bar, out_dir });
+        }
+
         let mut imgs = fs::read_dir(path)?
             .map(|file| eyre::Ok(file?.path()))
             .filter(|path| {
@@ -152,12 +175,6 @@ impl Scroll {
             .collect::<Result<Vec<_>, _>>()?;
         imgs.sort_unstable();
 
-        let dir_name = path
-            .file_name()
-            .ok_or_else(|| eyre!("invalid dir {path:?}"))?
-            .to_str()
-            .ok_or_else(|| eyre!("non-utf8 dir name {path:?}"))?;
-
         let bar = bars.add(
             ProgressBar::new(imgs.len() as u64)
                 .with_style(dir_bar_style)
@@ -165,27 +182,43 @@ impl Scroll {
         );
         bar.set_message("📁 initialized");
 
-        let out_dir = out_dir.join(dir_name);
-
-        Ok(Scroll { imgs, bar, out_dir })
+        Ok(Scroll { imgs: Some(imgs), bar, out_dir })
     }
 
     fn process(
-        &self,
+        self,
         old: &str,
         overall_pb: &ProgressBar,
         running: &Arc<AtomicBool>,
-    ) -> eyre::Result<Vec<(f32, &PathBuf)>> {
+    ) -> eyre::Result<Vec<(f32, PathBuf)>> {
+        let Some(imgs) = self.imgs else {
+            // parse existing distances file
+            let mut buf = String::new();
+            let filename = self.out_dir.join(DISTANCES_FILE_NAME);
+            let file = fs::File::open(&filename).wrap_err_with(|| {
+                format!("failed to open distances file: {}", filename.display())
+            })?;
+            let mut reader = BufReader::new(file);
+            let mut distances = Vec::new();
+            while reader.read_line(&mut buf)? > 0 {
+                let (distance, img) =
+                    buf.split_whitespace().collect_tuple().ok_or_eyre("invalid line")?;
+                let distance = distance.parse().wrap_err("invalid distance")?;
+                distances.push((distance, img.into()));
+                buf.clear();
+            }
+            self.bar.finish_with_message("🏁 restored");
+            return Ok(distances);
+        };
+
         fs::create_dir(&self.out_dir)?;
         // recognize
-        let pages = self
-            .imgs
-            .par_iter()
+        let pages = imgs
+            .into_par_iter()
             .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
             .map(|img| {
                 let img_name = img.file_name().ok_or_else(|| eyre!("invalid img {img:?}"))?;
                 self.bar.set_message(format!("🔍 recognizing {}", img_name.display()));
-                self.bar.tick();
 
                 CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
                     let ctx = ctx.as_mut().map_err(|err| eyre!("failed to get ctx: {err}"))?;
@@ -193,7 +226,7 @@ impl Scroll {
                     let mut line_start = 0;
                     let mut boxes = Vec::new();
                     let mut ocr_text = String::new();
-                    let (boxes_iter, width, height) = ctx.file_boxes(img)?;
+                    let (boxes_iter, width, height) = ctx.file_boxes(&img)?;
                     for (idx, bx) in boxes_iter.enumerate() {
                         const NEWLINE: &str = "\n";
                         let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {

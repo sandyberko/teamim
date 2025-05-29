@@ -5,7 +5,9 @@ use teamim::TRAINING_TEXT;
 
 #[test]
 fn generate() -> eyre::Result<()> {
-    let font = FontRef::try_from_slice(include_bytes!("../../../assets/fonts/Stam_Ashkenaz_CLM_Medium.ttf"))?;
+    let font = FontRef::try_from_slice(include_bytes!(
+        "../../../assets/fonts/Stam_Ashkenaz_CLM_Medium.ttf"
+    ))?;
     // let font = FontRef::try_from_slice(include_bytes!("../../../assets/fonts/Shlomo_Stam.ttf"))?;
     // let font = FontRef::try_from_slice(include_bytes!("../../../assets/fonts/Guttman_Stam.ttf"))?;
     // let text = "בראשית ברא אלהים את השמים ואת הארץ";

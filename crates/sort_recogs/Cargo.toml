@@ -13,6 +13,7 @@ indicatif = { version = "0.17.11", features = ["rayon"] }
 ctrlc = "3.4.5"
 similar = "2.7.0"
 maud = "0.27.0"
+itertools = { workspace = true }
 
 [lints]
 workspace = true
