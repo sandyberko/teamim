@@ -5,8 +5,9 @@ use maud::Markup;
 use rayon::prelude::*;
 use similar::{Algorithm, TextDiff, get_diff_ratio, utils::TextDiffRemapper};
 use std::{
+    cell::RefCell,
     fs,
-    io::{BufWriter, Read, Write},
+    io::{BufWriter, Write},
     iter::Peekable,
     ops::Range,
     path::{Path, PathBuf},
@@ -93,9 +94,6 @@ fn main() -> eyre::Result<()> {
         }
     })?;
 
-    // press any key to continue
-    std::io::stdin().read_exact(&mut [0])?;
-
     // recognize and diff
     let mut distances = dirs
         .par_iter()
@@ -109,7 +107,7 @@ fn main() -> eyre::Result<()> {
     } else {
         overall_pb.abandon_with_message("🚩 interrupted");
     }
-    
+
     if !args.single {
         write_distances(&args.out_dir, &mut distances)?;
     }
@@ -125,6 +123,12 @@ fn write_distances(out_dir: &Path, distances: &mut [(f32, &PathBuf)]) -> eyre::R
     }
     w.flush()?;
     Ok(())
+}
+
+thread_local! {
+    static CTX: RefCell<eyre::Result<TeamimCtx>> = {
+        RefCell::new((|| TeamimCtx::new()?.with_debug_file(Path::new("assets/tesseract.log")))())
+    };
 }
 
 struct Scroll {
@@ -183,29 +187,30 @@ impl Scroll {
                 self.bar.set_message(format!("🔍 recognizing {}", img_name.display()));
                 self.bar.tick();
 
-                let mut ctx =
-                    TeamimCtx::new()?.with_debug_file(self.out_dir.join("tesseract.log"))?;
+                CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
+                    let ctx = ctx.as_mut().map_err(|err| eyre!("failed to get ctx: {err}"))?;
 
-                let mut line_start = 0;
-                let mut boxes = Vec::new();
-                let mut ocr_text = String::new();
-                let (boxes_iter, width, height) = ctx.file_boxes(img)?;
-                for (idx, bx) in boxes_iter.enumerate() {
-                    const NEWLINE: &str = "\n";
-                    let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {
-                        bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
-                    };
-                    let value_len = value.chars().count() + NEWLINE.len();
-                    ocr_text.push_str(value);
-                    ocr_text.push(' ');
+                    let mut line_start = 0;
+                    let mut boxes = Vec::new();
+                    let mut ocr_text = String::new();
+                    let (boxes_iter, width, height) = ctx.file_boxes(img)?;
+                    for (idx, bx) in boxes_iter.enumerate() {
+                        const NEWLINE: &str = "\n";
+                        let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {
+                            bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
+                        };
+                        let value_len = value.chars().count() + NEWLINE.len();
+                        ocr_text.push_str(value);
+                        ocr_text.push(' ');
 
-                    let range = line_start..line_start + value_len;
-                    boxes.push(bx.with_value(range));
-                    line_start += value_len;
-                }
-                self.bar.inc(1);
-                overall_pb.inc(1);
-                Ok((img, ocr_text, boxes, width, height))
+                        let range = line_start..line_start + value_len;
+                        boxes.push(bx.with_value(range));
+                        line_start += value_len;
+                    }
+                    self.bar.inc(1);
+                    overall_pb.inc(1);
+                    Ok((img, ocr_text, boxes, width, height))
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
         if !running.load(atomic::Ordering::SeqCst) {
