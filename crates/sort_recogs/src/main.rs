@@ -5,9 +5,8 @@ use maud::Markup;
 use rayon::prelude::*;
 use similar::{Algorithm, TextDiff, get_diff_ratio, utils::TextDiffRemapper};
 use std::{
-    cell::RefCell,
     fs,
-    io::{BufWriter, Write},
+    io::{BufWriter, Read, Write},
     iter::Peekable,
     ops::Range,
     path::{Path, PathBuf},
@@ -15,7 +14,6 @@ use std::{
         Arc,
         atomic::{self, AtomicBool},
     },
-    thread::LocalKey,
     time::Duration,
 };
 use teamim::{
@@ -95,6 +93,9 @@ fn main() -> eyre::Result<()> {
         }
     })?;
 
+    // press any key to continue
+    std::io::stdin().read_exact(&mut [0])?;
+
     // recognize and diff
     let mut distances = dirs
         .par_iter()
@@ -103,17 +104,22 @@ fn main() -> eyre::Result<()> {
         .collect::<Result<Vec<_>, _>>()?
         .concat();
 
-    let mut w = BufWriter::new(fs::File::create(args.out_dir.join("distances.txt"))?);
-
     if running.load(atomic::Ordering::SeqCst) {
         overall_pb.finish_with_message("🏁 done");
     } else {
-        writeln!(w, "<interrupted>")?;
         overall_pb.abandon_with_message("🚩 interrupted");
     }
+    
+    if !args.single {
+        write_distances(&args.out_dir, &mut distances)?;
+    }
 
+    Ok(())
+}
+
+fn write_distances(out_dir: &Path, distances: &mut [(f32, &PathBuf)]) -> eyre::Result<()> {
+    let mut w = BufWriter::new(fs::File::create(out_dir.join("distances.txt"))?);
     distances.sort_unstable_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
-
     for (distance, img) in distances {
         writeln!(w, "{distance:<10} {}", img.display())?;
     }
@@ -153,6 +159,7 @@ impl Scroll {
                 .with_style(dir_bar_style)
                 .with_prefix(dir_name.to_owned()),
         );
+        bar.set_message("📁 initialized");
 
         let out_dir = out_dir.join(dir_name);
 
@@ -173,7 +180,7 @@ impl Scroll {
             .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
             .map(|img| {
                 let img_name = img.file_name().ok_or_else(|| eyre!("invalid img {img:?}"))?;
-                self.bar.set_message(format!("🔍 recognizing {img_name:?}"));
+                self.bar.set_message(format!("🔍 recognizing {}", img_name.display()));
                 self.bar.tick();
 
                 let mut ctx =
@@ -220,7 +227,7 @@ impl Scroll {
         let ops = diff.ops().to_vec();
         let mut ops_iter = ops.iter().copied().peekable();
         // mapping
-        let distances = pages
+        let mut distances = pages
             .into_iter()
             .map(|(img, _, boxes, width, height)| -> eyre::Result<_> {
                 self.bar.set_message(format!("🗺️ mapping {}", img.display()));
@@ -245,6 +252,10 @@ impl Scroll {
             .enumerate()
             .map(|(page_idx, res)| res.wrap_err_with(|| eyre!("failed diffing page #{page_idx}")))
             .collect::<Result<Vec<_>, _>>()?;
+
+        self.bar.set_message("📃 writing distances...");
+        write_distances(&self.out_dir, &mut distances)?;
+        self.bar.finish_with_message("🏁 done");
         Ok(distances)
     }
 }
