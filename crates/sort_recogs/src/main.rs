@@ -85,10 +85,6 @@ fn main() -> eyre::Result<()> {
     };
     overall_pb.set_length(dirs.iter().map(|scroll| scroll.imgs.len() as u64).sum());
 
-    thread_local! {
-        static CTX: RefCell<Option<TeamimCtx>> = RefCell::default();
-    }
-
     let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
         let running = running.clone();
@@ -103,7 +99,7 @@ fn main() -> eyre::Result<()> {
     let mut distances = dirs
         .par_iter()
         .take_any_while(|_| running.clone().load(atomic::Ordering::SeqCst))
-        .map(|scroll| scroll.process(old, &overall_pb, &running, &CTX))
+        .map(|scroll| scroll.process(old, &overall_pb, &running))
         .collect::<Result<Vec<_>, _>>()?
         .concat();
 
@@ -168,7 +164,6 @@ impl Scroll {
         old: &str,
         overall_pb: &ProgressBar,
         running: &Arc<AtomicBool>,
-        ctx: &'static LocalKey<RefCell<Option<TeamimCtx>>>,
     ) -> eyre::Result<Vec<(f32, &PathBuf)>> {
         fs::create_dir(&self.out_dir)?;
         // recognize
@@ -181,36 +176,29 @@ impl Scroll {
                 self.bar.set_message(format!("🔍 recognizing {img_name:?}"));
                 self.bar.tick();
 
-                ctx.with_borrow_mut(|ctx| -> eyre::Result<_> {
-                    let ctx = if let Some(ctx) = ctx.as_mut() {
-                        ctx
-                    } else {
-                        let new = TeamimCtx::new()?
-                            .with_debug_file(self.out_dir.join("tesseract.log"))?;
-                        ctx.insert(new)
+                let mut ctx =
+                    TeamimCtx::new()?.with_debug_file(self.out_dir.join("tesseract.log"))?;
+
+                let mut line_start = 0;
+                let mut boxes = Vec::new();
+                let mut ocr_text = String::new();
+                let (boxes_iter, width, height) = ctx.file_boxes(img)?;
+                for (idx, bx) in boxes_iter.enumerate() {
+                    const NEWLINE: &str = "\n";
+                    let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {
+                        bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
                     };
+                    let value_len = value.chars().count() + NEWLINE.len();
+                    ocr_text.push_str(value);
+                    ocr_text.push(' ');
 
-                    let mut line_start = 0;
-                    let mut boxes = Vec::new();
-                    let mut ocr_text = String::new();
-                    let (boxes_iter, width, height) = ctx.file_boxes(img)?;
-                    for (idx, bx) in boxes_iter.enumerate() {
-                        const NEWLINE: &str = "\n";
-                        let Some(value) = bx.value.as_str()?.strip_suffix('\n') else {
-                            bail!("missing trailing newline in {img:?}:{idx}: {:?}", bx.value);
-                        };
-                        let value_len = value.chars().count() + NEWLINE.len();
-                        ocr_text.push_str(value);
-                        ocr_text.push(' ');
-
-                        let range = line_start..line_start + value_len;
-                        boxes.push(bx.with_value(range));
-                        line_start += value_len;
-                    }
-                    self.bar.inc(1);
-                    overall_pb.inc(1);
-                    Ok((img, ocr_text, boxes, width, height))
-                })
+                    let range = line_start..line_start + value_len;
+                    boxes.push(bx.with_value(range));
+                    line_start += value_len;
+                }
+                self.bar.inc(1);
+                overall_pb.inc(1);
+                Ok((img, ocr_text, boxes, width, height))
             })
             .collect::<Result<Vec<_>, _>>()?;
         if !running.load(atomic::Ordering::SeqCst) {
