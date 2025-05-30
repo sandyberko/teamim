@@ -625,6 +625,15 @@ async function loadDiff(url: string) {
       const doc = document.implementation.createHTMLDocument();
       doc.write(`
         <table id="distances">
+          <thead>
+            <tr>
+              <th scope="col">№</th>
+              <th scope="col">מרחק</th>
+              <th scope="col">עמוד</th>
+              <th scope="col">שינויים</th>
+              <th scope="col">ריבועים</th>
+            </tr>
+          </thead>
           <tbody>
       `);
 

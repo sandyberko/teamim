@@ -287,9 +287,10 @@ async fn post_diff(text: String) -> Result<Json<Vec<teamim::DiffOp<'static>>>, D
 
 async fn get_diff_index() -> impl IntoResponse {
     let distances = include_str!("../../../assets/diffs/distances.txt");
-    let stream = stream::iter(distances.lines().enumerate()).then(diff_entry::diff_entry);
+    let stream =
+        stream::iter(distances.lines().take(1000).enumerate()).then(diff_entry::diff_entry);
     Response::builder()
-        .header(header::CONTENT_TYPE, HeaderValue::from_static(mime::IMAGE_PNG.as_ref()))
+        .header(header::CONTENT_TYPE, HeaderValue::from_static(mime::TEXT_HTML.as_ref()))
         .body(Body::from_stream(stream))
         .expect("valid headers")
 }

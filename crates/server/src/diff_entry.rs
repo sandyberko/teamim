@@ -4,7 +4,17 @@ use std::path::PathBuf;
 use tokio::fs;
 
 pub(crate) async fn diff_entry((i, line): (usize, &str)) -> eyre::Result<String> {
-    let (_, url) = line.split_once('\t').ok_or_eyre("no separating tab")?;
+    Ok(diff_entry_inner((i, line)).await.unwrap_or_else(|e| {
+        html!(tr {
+            td { (i) }
+            td { pre.err { (e) } }
+        })
+        .into_string()
+    }))
+}
+
+async fn diff_entry_inner((i, line): (usize, &str)) -> eyre::Result<String> {
+    let (distance, url) = line.split_once('\t').ok_or_eyre("no separating tab")?;
     let has_save =
         fs::try_exists(PathBuf::from("assets/corrected-diffs").join(url).with_extension("html"))
             .await?;
@@ -17,6 +27,7 @@ pub(crate) async fn diff_entry((i, line): (usize, &str)) -> eyre::Result<String>
     Ok(html! {
         tr {
             td { (i) }
+            td { (distance) }
             td { (url) }
             td { a href={"#" (url) } {
                 @if has_save { "✅" } @else { "❌" }

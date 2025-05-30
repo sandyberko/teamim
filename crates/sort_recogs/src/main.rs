@@ -58,7 +58,7 @@ fn main() -> eyre::Result<()> {
     };
 
     let draw_target =
-        if args.quiet { ProgressDrawTarget::hidden() } else { ProgressDrawTarget::stderr() };
+        if args.quiet { ProgressDrawTarget::hidden() } else { ProgressDrawTarget::stdout() };
     let bars = MultiProgress::with_draw_target(draw_target);
 
     let overall_pb = bars.add(ProgressBar::new_spinner());
@@ -124,7 +124,7 @@ fn write_distances(out_dir: &Path, distances: &mut [(f32, PathBuf)]) -> eyre::Re
     let mut w = BufWriter::new(fs::File::create(out_dir.join(DISTANCES_FILE_NAME))?);
     distances.sort_unstable_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
     for (distance, img) in distances {
-        writeln!(w, "{distance:<10} {}", img.display())?;
+        writeln!(w, "{distance}\t{}", img.display())?;
     }
     w.flush()?;
     Ok(())

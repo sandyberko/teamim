@@ -244,8 +244,6 @@ body:has(#view-solo:not(:checked)) tess-box:not(:focus) {
 main > table#distances {
   cursor: pointer;
   border-collapse: collapse;
-  
-  
 
   & > tbody > tr {
     padding: 0.2em 0;
@@ -260,6 +258,11 @@ main > table#distances {
       &:first-child {
         text-align: left;
       }
+    }
+
+    /* distance */
+    & > td:nth-child(2) {
+      text-align: left;
     }
   }
 }
