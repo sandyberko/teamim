@@ -1,4 +1,6 @@
 mod diff_entry;
+mod draw_diacritics;
+
 use axum::{
     Json, Router,
     body::{Body, Bytes},
@@ -68,6 +70,7 @@ async fn serve() -> eyre::Result<()> {
                 .route("/diffIndex", get(get_diff_index))
                 .route("/saveDiff", post(save_diff)),
         )
+        .nest("/drawDiacritics", draw_diacritics::router())
         .nest_service("/fonts", ServeDir::new("assets/fonts"))
         .nest_service("/images", ServeDir::new("assets/images"))
         .nest_service("/diffs", ServeDir::new("assets/diffs"))
@@ -208,6 +211,8 @@ enum RenderTeamimError {
     MissingImageField,
     #[error("missing box field")]
     MissingBoxesField,
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
 }
 
 impl IntoResponse for RenderTeamimError {
@@ -234,6 +239,9 @@ impl IntoResponse for RenderTeamimError {
                 (StatusCode::BAD_REQUEST, "missing box field").into_response()
             }
             RenderTeamimError::Multipart(e) => e.into_response(),
+            RenderTeamimError::Other(e) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+            }
         }
     }
 }

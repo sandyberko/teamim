@@ -103,6 +103,98 @@ impl TeamimCtx {
         let h = pix.get_h();
         Ok((diff, w, h))
     }
+
+    pub fn place_teamim(&mut self, img: &[u8], options: PlaceOptions) -> Result<Buf, PlaceError> {
+        let mut img = leptonica::pix_read_mem(img)?;
+        img.convert_to_32()?;
+
+        self.tess.set_image(&img);
+        self.tess.recognize()?;
+
+        let snippet = self.tess.get_text()?;
+        let snippet = snippet.as_str()?.trim();
+        let mut n = search::approx_match(snippet).ok_or(PlaceError::NotFound)?;
+
+        let mut chars_iter = snippet.chars().enumerate();
+        let mut cur_c: Option<(usize, char)> = None;
+        let mut cur_line = 0usize;
+        let mut cur_col = 0usize;
+        let mut boxes_iter = self.tess.results_iter(PageIteratorLevel::Symbol);
+        let mut cur_box: Option<BoundingBox<Text>> = None;
+        let teamim = include_str!("../assets/text/mam/teamim.txt");
+        'teamim: for (_, c_taam) in teamim.char_indices() {
+            match c_taam {
+                // Ta'am
+                '\u{0591}'..='\u{05AD}'
+                | '\u{5bd}'..='\u{5bf}'
+                | '\u{5c0}'
+                | '\u{5c3}'
+                | '\u{5c4}' => {
+                    if n > 0 {
+                        continue;
+                    }
+                    // should be this, but doesn't work after skipping
+                    // let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
+                    let Some((_, cur_c)) = cur_c else {
+                        continue 'teamim;
+                    };
+                    let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
+                    let cur_box = into_geometry(cur_box, OriginPos::TopLeft);
+                    place_taam(&img, options, cur_c, &cur_box, c_taam)?;
+                }
+                // text seems to mistakenly use tzinor instead of zarqa
+                '\u{05AE}' => {
+                    if n > 0 {
+                        continue;
+                    }
+                    let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
+                    let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
+                    let cur_box = into_geometry(cur_box, OriginPos::TopLeft);
+                    place_taam(&img, options, cur_c, &cur_box, '\u{0598}')?;
+                }
+                '\n' => {
+                    cur_line += 1;
+                    cur_col = 0;
+                    continue;
+                }
+                // Niqqud
+                ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' => continue,
+                _ if c_taam.is_whitespace() => continue,
+                // Letter - alef to tav
+                ('\u{05d0}'..='\u{05EA}') => {
+                    cur_col += 1;
+                    if n > 0 {
+                        n -= 1;
+                        continue;
+                    }
+                    cur_c = chars_iter.find(|(_, c)| !c.is_whitespace());
+                    cur_box = boxes_iter.next();
+
+                    let Some((box_number, cur_c)) = cur_c else {
+                        break 'teamim;
+                    };
+                    'mismatch: {
+                        if c_taam == cur_c {
+                            break 'mismatch;
+                        }
+
+                        return Err(PlaceError::Mismatch(MismatchError {
+                            box_number,
+                            expected: c_taam,
+                        }));
+                    }
+                }
+                c => {
+                    return Err(eyre!(
+                        "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
+                        c as u32
+                    )
+                    .into());
+                }
+            }
+        }
+        Ok(img.copy_to_png()?)
+    }
 }
 
 #[derive(Clone, Copy, Default)]
