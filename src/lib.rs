@@ -10,6 +10,7 @@ use std::{
     fmt::Write as _,
     fs,
     path::Path,
+    sync::LazyLock,
 };
 
 use eyre::{OptionExt, WrapErr, bail, eyre};
@@ -27,6 +28,9 @@ use training_diff::BoundingBoxDiff;
 
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
+
+static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
+    LazyLock::new(|| build_diacrit_map());
 
 #[derive(Clone)]
 pub struct TeamimCtx {
@@ -114,7 +118,18 @@ impl TeamimCtx {
 
         let snippet = self.tess.get_text()?;
         let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
-        let boxes = self.tess.results_iter(PageIteratorLevel::Symbol).collect::<Vec<_>>();
+        let boxes = self
+            .tess
+            .results_iter(PageIteratorLevel::Symbol)
+            .map(|BoundingBox { value, rect, page }| {
+                eyre::Ok(BoundingBox {
+                    value: value.as_str()?.chars().next().ok_or_eyre("empty box")?,
+                    rect,
+                    page,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let options = options.estimate_scale(&boxes);
 
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
         eprintln!("match found at {}: {}", r#match.byte_pos, &r#match.text[..50]);
@@ -126,21 +141,22 @@ impl TeamimCtx {
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let mut remapper = diff.ops().iter().peekable();
 
-        let map = build_diacrit_map()?;
-        'taam: for (char_idx, (diacritic, letter)) in map.range(snip_char_offset..) {
+        'taam: for (char_idx, (diacritic, letter)) in
+            DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..)
+        {
             eprintln!("placing [{letter}{diacritic}] at {char_idx}");
             let char_offset = char_idx - snip_char_offset;
-            let change = loop {
+            let change = 'change: loop {
                 let Some(change) = remapper.peek() else {
                     eprintln!("==> no more changes, exiting");
                     break 'taam;
                 };
                 if change.new_range().start > char_offset {
                     eprintln!("  > ⚠️ no change at {char_offset}");
-                    continue;
+                    continue 'taam;
                 }
                 if change.new_range().end > char_offset {
-                    break change;
+                    break 'change change;
                 }
                 remapper.next();
             };
@@ -208,6 +224,29 @@ fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
 pub struct PlaceOptions {
     enable_after: bool,
     debug_boxes: bool,
+    scale: f32,
+}
+
+const FULL_WIDTH_LETTERS: &[char] =
+    &['א', 'ב', 'ד', 'ה', 'ח', 'ט', 'כ', 'ל', 'מ', 'ס', 'ע', 'פ', 'צ', 'ק', 'ר', 'ש', 'ת'];
+
+impl PlaceOptions {
+    fn estimate_scale(mut self, boxes: &[BoundingBox<char>]) -> Self {
+        let mut widths = boxes
+            .iter()
+            .filter(|bx| FULL_WIDTH_LETTERS.contains(&bx.value))
+            .map(|bx| bx.rect.width())
+            .collect::<Vec<_>>();
+        widths.sort_unstable();
+        let median = widths.get(widths.len() / 2).copied().unwrap_or(0);
+
+        #[expect(clippy::cast_precision_loss)]
+        {
+            self.scale = median as f32 / 32.0;
+        }
+
+        self
+    }
 }
 
 #[derive(Error, Debug)]
@@ -365,10 +404,13 @@ fn place_taam(
     glyph
         .pix
         .try_with(|pix| {
-            let scale_factor = if glyph.placement == Placement::After { 0.4 } else { 0.5 };
+            let mut scale_factor = options.scale;
+            if glyph.placement == Placement::After {
+                scale_factor *= 0.8;
+            }
             let pix = pix.scale(scale_factor)?;
 
-            let top_margin = 4;
+            let top_margin = 6;
             let (x, y) = match glyph.placement {
                 Placement::Top => (cur_box.x, cur_box.y - top_margin - 9),
                 Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - top_margin),
@@ -467,8 +509,7 @@ mod tests {
 
         let mut ctx = TeamimCtx::new()?;
         let img = include_bytes!("../assets/images/N2/012.jpg");
-        let options = PlaceOptions { enable_after: true, debug_boxes: false };
-        ctx.place_teamim(img, options)?;
+        ctx.place_teamim(img, PlaceOptions::default())?;
         Ok(())
     }
 

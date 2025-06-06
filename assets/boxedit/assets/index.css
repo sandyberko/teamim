@@ -8,8 +8,6 @@
 :root {
   height: 100%;
   overflow: hidden;
-  font-family: system-ui;
-  color-scheme: light dark;
   interpolate-size: allow-keywords;
   --border-radius: 0.5em;
   --border: 1px solid light-dark(#ccc, #666);

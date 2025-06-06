@@ -1,0 +1,8 @@
+:root {
+  font-family: system-ui;
+  color-scheme: light dark;
+}
+
+main > img {
+    max-width: 100%;
+}

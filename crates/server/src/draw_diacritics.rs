@@ -22,11 +22,12 @@ fn page(title: Option<&str>, body: Markup) -> Markup {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { "טעמים" @if let Some(t) = title { " | " (t) } }
-                script src="build/index.js" type="module" async {}
-                link rel="stylesheet" href="index.css";
+                // script src="build/index.js" type="module" async {}
+                link rel="stylesheet" href="site.css";
             }
-            body {
-                (body)
+            body { 
+                header {}
+                main #main { (body) }
             }
         }
     }
