@@ -19,7 +19,7 @@ use leptonica_plumbing::memory::RefCounted;
 pub struct Error;
 
 pub trait PixExt: Sized {
-    fn render_box(&self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
+    fn render_box(&mut self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
     fn render_boxes(&self, boxes: Boxes, width: i32, color: (u8, u8, u8)) -> eyre::Result<()>;
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
     fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
@@ -41,7 +41,7 @@ impl PixExt for Pix {
     }
 
     fn render_box(
-        &self,
+        &mut self,
         &BoxGeometry { x, y, w, h }: &BoxGeometry,
         width: i32,
         (rval, gval, bval): (u8, u8, u8),

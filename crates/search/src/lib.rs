@@ -8,6 +8,10 @@ static SUFFIX_TABLE: LazyLock<SuffixTable> =
 /// A chunk size for searching kgrams in the suffix table in **characters**, not bytes.
 const SEARCH_CHUNK: usize = 16;
 
+pub fn text() -> &'static str {
+    SUFFIX_TABLE.text()
+}
+
 pub struct Match {
     pub byte_pos: usize,
     pub text: &'static str,

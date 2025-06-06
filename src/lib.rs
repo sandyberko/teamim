@@ -114,34 +114,51 @@ impl TeamimCtx {
 
         let snippet = self.tess.get_text()?;
         let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
+        let boxes = self.tess.results_iter(PageIteratorLevel::Symbol).collect::<Vec<_>>();
+
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
-        eprintln!("match found at {}", r#match.byte_pos);
+        eprintln!("match found at {}: {}", r#match.byte_pos, &r#match.text[..50]);
+        let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
+        eprintln!("char offset: {snip_char_offset}");
 
         // diff
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
-        let mut remapper = diff.ops().iter();
+        let mut remapper = diff.ops().iter().peekable();
 
-        // map.key -> diff -> boxes[]
-        let boxes = self.tess.results_iter(PageIteratorLevel::Symbol).collect::<Vec<_>>();
         let map = build_diacrit_map()?;
-        let snip_char_offset = r#match.byte_pos / 2;
-        for (char_idx, diacritic) in map.range(snip_char_offset..) {
-            eprintln!("placing '{diacritic}' at {char_idx}");
+        'taam: for (char_idx, (diacritic, letter)) in map.range(snip_char_offset..) {
+            eprintln!("placing [{letter}{diacritic}] at {char_idx}");
             let char_offset = char_idx - snip_char_offset;
-            let Some(change) = remapper.find(|change| change.new_range().contains(&char_offset))
-            else {
-                eprintln!("==== DONE");
-                break;
+            let change = loop {
+                let Some(change) = remapper.peek() else {
+                    eprintln!("==> no more changes, exiting");
+                    break 'taam;
+                };
+                if change.new_range().start > char_offset {
+                    eprintln!("  > ⚠️ no change at {char_offset}");
+                    continue;
+                }
+                if change.new_range().end > char_offset {
+                    break change;
+                }
+                remapper.next();
             };
             match change.tag() {
                 DiffTag::Equal => {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
+                    place_taam(
+                        &mut img,
+                        options,
+                        *letter,
+                        &into_geometry(bx, OriginPos::TopLeft),
+                        *diacritic,
+                    )?;
                     eprintln!("  > on {}", bx.value);
                 }
-                DiffTag::Delete => eprintln!("  > DELETED this should not happen"),
+                DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert => eprintln!("  > cannot place, OCR missed it"),
                 DiffTag::Replace => eprintln!("  > cannot place, OCR replaced it"),
             }
@@ -150,26 +167,35 @@ impl TeamimCtx {
     }
 }
 
-fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, char>> {
+fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
     let mut byte_idx = 0;
     let mut map = BTreeMap::new();
     let teamim = include_str!("../assets/text/mam/teamim.txt");
+    let mut last_letter = Option::<char>::None;
     for c_taam in teamim.chars() {
         match c_taam {
             // Ta'am
             '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
-                map.insert(byte_idx, c_taam);
+                // off by one, because the ta'am is placed after we encounter the letter
+                map.insert(byte_idx - 1, (c_taam, last_letter.ok_or_eyre("ta'am without letter")?));
             }
             // text seems to mistakenly use tzinor instead of zarqa
             '\u{05AE}' => {
-                map.insert(byte_idx, '\u{0598}');
+                // off by one, because the ta'am is placed after we encounter the letter
+                map.insert(
+                    byte_idx - 1,
+                    ('\u{0598}', last_letter.ok_or_eyre("ta'am without letter")?),
+                );
             }
             // Niqqud or whitespace
             ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' | '\n' | ' ' => {
                 continue;
             }
             // Letter - alef to tav
-            ('\u{05d0}'..='\u{05EA}') => byte_idx += 1,
+            ('\u{05d0}'..='\u{05EA}') => {
+                last_letter = Some(c_taam);
+                byte_idx += 1;
+            }
             c => {
                 return Err(eyre!("unexpected taaam_c: 0x{:x} {c:?}", c as u32));
             }
@@ -266,7 +292,7 @@ pub fn place_teamim(
                     continue 'teamim;
                 };
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                place_taam(&img, options, cur_c, cur_box, c_taam)?;
+                place_taam(&mut img, options, cur_c, cur_box, c_taam)?;
             }
             // text seems to mistakenly use tzinor instead of zarqa
             '\u{05AE}' => {
@@ -275,7 +301,7 @@ pub fn place_teamim(
                 }
                 let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
                 let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                place_taam(&img, options, cur_c, cur_box, '\u{0598}')?;
+                place_taam(&mut img, options, cur_c, cur_box, '\u{0598}')?;
             }
             '\n' => {
                 cur_line += 1;
@@ -322,7 +348,7 @@ pub fn place_teamim(
 }
 
 fn place_taam(
-    img: &Pix,
+    img: &mut Pix,
     options: PlaceOptions,
     cur_c: char,
     cur_box: &BoxGeometry,
@@ -443,6 +469,23 @@ mod tests {
         let img = include_bytes!("../assets/images/N2/012.jpg");
         let options = PlaceOptions { enable_after: true, debug_boxes: false };
         ctx.place_teamim(img, options)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_diactrit_map() -> eyre::Result<()> {
+        color_eyre::install()?;
+
+        let map = build_diacrit_map()?;
+        for (i, char) in search::text().chars().enumerate().take(100) {
+            eprint!("{i}:\t{char}\t");
+            if let Some((diacritic, letter)) = map.get(&i) {
+                eprint!("[{letter}{diacritic}]");
+            } else {
+                eprint!("[ ]");
+            }
+            eprintln!();
+        }
         Ok(())
     }
 }
