@@ -6,7 +6,8 @@ use axum::{
     routing::get,
 };
 use base64::prelude::*;
-use eyre::eyre;
+use bytes::Bytes;
+use eyre::{OptionExt, bail, eyre};
 use maud::{DOCTYPE, Markup, html};
 use teamim::PlaceOptions;
 
@@ -25,7 +26,7 @@ fn page(title: Option<&str>, body: Markup) -> Markup {
                 // script src="build/index.js" type="module" async {}
                 link rel="stylesheet" href="site.css";
             }
-            body { 
+            body {
                 header {}
                 main #main { (body) }
             }
@@ -39,39 +40,65 @@ async fn get_index() -> impl IntoResponse {
         html! {
             form method="post" enctype="multipart/form-data" {
                 input type="file" name="image" accept="image/*" required;
+                fieldset {
+                    legend { "טישטוש" }
+                    input type="number" name="blur" value="0.0" step="0.1";
+                }
+                fieldset {
+                    legend { "חדות" }
+                    input type="number" name="contrast" value="0.0" step="0.1";
+                }
+                fieldset {
+                    legend { "ריבועים" }
+                    input type="checkbox" name="debug_boxes" value="true";
+                }
                 input type="submit" value="צייר טעמים";
             }
         },
     )
 }
 
+#[derive(Debug, Default)]
+struct DiacriticOptions {
+    blur: f32,
+    contrast: f32,
+    debug_boxes: bool,
+    image: Bytes,
+}
+
+impl DiacriticOptions {
+    async fn from_mutipart(data: &mut Multipart) -> eyre::Result<Self> {
+        let mut options = DiacriticOptions::default();
+
+        while let Some(field) = data.next_field().await? {
+            match field.name().ok_or_eyre("Missing field name")? {
+                "image" => options.image = field.bytes().await?,
+                "blur" => options.blur = field.text().await?.parse()?,
+                "contrast" => options.contrast = field.text().await?.parse()?,
+                "debug_boxes" => options.debug_boxes = field.text().await?.parse()?,
+                name => bail!("Unexpected field: {name}"),
+            }
+        }
+
+        Ok(options)
+    }
+}
+
 async fn post_index(
     State(state): State<AppState>,
     mut data: Multipart,
 ) -> Result<impl IntoResponse, RenderTeamimError> {
-    let image = {
-        let image_field = data.next_field().await?.ok_or(RenderTeamimError::MissingImageField)?;
-        if image_field.name().is_none_or(|name| name != "image") {
-            return Err(RenderTeamimError::MissingImageField);
-        }
-        image_field.bytes().await?
-    };
-    // let boxes = {
-    //     let boxes_field = data.next_field().await?.ok_or(RenderTeamimError::MissingBoxesField)?;
-    //     if boxes_field.name().is_none_or(|name| name != "boxes") {
-    //         return Err(RenderTeamimError::MissingBoxesField);
-    //     }
-    //     boxes_field.text().await?
-    // };
+    let options =
+        DiacriticOptions::from_mutipart(&mut data).await.map_err(RenderTeamimError::BadRequest)?;
 
-    // let text = boxes.lines().flat_map(|line| line.chars().next()).collect::<String>();
-    // let boxes =
-    //     boxes.lines().map(|line| Ok(into_geometry(&parse_char_box(line)?, OriginPos::TopLeft)));
-    let image = state
-        .ctx
-        .lock()
-        .map_err(|err| eyre!("lock ctx: {err}"))?
-        .place_teamim(&image, PlaceOptions::default())?;
+    let image = state.ctx.lock().map_err(|err| eyre!("lock ctx: {err}"))?.place_teamim(
+        &options.image,
+        PlaceOptions::default()
+            .set_blur(options.blur)
+            .set_contrast(options.contrast)
+            .set_debug_boxes(options.debug_boxes),
+    )?;
+
     Ok(page(
         Some("תוצאות"),
         html! {

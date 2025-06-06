@@ -30,7 +30,7 @@ const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
-    LazyLock::new(|| build_diacrit_map());
+    LazyLock::new(build_diacrit_map);
 
 #[derive(Clone)]
 pub struct TeamimCtx {
@@ -129,6 +129,17 @@ impl TeamimCtx {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        if options.blur > 0.0 {
+            for bx in &boxes {
+                img.blur(bx.rect, options.blur)?;
+            }
+        }
+
+        if options.contrast != 0.0 {
+            img.contrast(options.contrast)?;
+        }
+
         let options = options.estimate_scale(&boxes);
 
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
@@ -225,12 +236,33 @@ pub struct PlaceOptions {
     enable_after: bool,
     debug_boxes: bool,
     scale: f32,
+    blur: f32,
+    contrast: f32,
 }
 
 const FULL_WIDTH_LETTERS: &[char] =
     &['א', 'ב', 'ד', 'ה', 'ח', 'ט', 'כ', 'ל', 'מ', 'ס', 'ע', 'פ', 'צ', 'ק', 'ר', 'ש', 'ת'];
 
 impl PlaceOptions {
+    #[must_use]
+    pub fn set_blur(mut self, blur: f32) -> Self {
+        self.blur = blur;
+        self
+    }
+
+    #[must_use]
+    pub fn set_contrast(mut self, contrast: f32) -> Self {
+        self.contrast = contrast;
+        self
+    }
+
+    #[must_use]
+    pub fn set_debug_boxes(mut self, debug_boxes: bool) -> Self {
+        self.debug_boxes = debug_boxes;
+        self
+    }
+
+    #[must_use]
     fn estimate_scale(mut self, boxes: &[BoundingBox<char>]) -> Self {
         let mut widths = boxes
             .iter()
@@ -410,11 +442,14 @@ fn place_taam(
             }
             let pix = pix.scale(scale_factor)?;
 
-            let top_margin = 6;
+            let top_margin = (4.0 * scale_factor) as i32;
+            let after_margin = (5.0 * scale_factor) as i32;
             let (x, y) = match glyph.placement {
-                Placement::Top => (cur_box.x, cur_box.y - top_margin - 9),
+                Placement::Top => {
+                    (cur_box.x, cur_box.y - top_margin - (20.0 * scale_factor) as i32)
+                }
                 Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - top_margin),
-                Placement::After => (cur_box.x - cur_box.w - 5, cur_box.y - top_margin),
+                Placement::After => (cur_box.x - cur_box.w - after_margin, cur_box.y - top_margin),
             };
 
             // debug

@@ -227,10 +227,8 @@ enum RenderTeamimError {
     Place(#[from] PlaceError),
     #[error(transparent)]
     Multipart(#[from] MultipartError),
-    #[error("missing image field")]
-    MissingImageField,
-    #[error("missing box field")]
-    MissingBoxesField,
+    #[error("invalid request: {0}")]
+    BadRequest(eyre::Report),
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
@@ -252,11 +250,8 @@ impl IntoResponse for RenderTeamimError {
                     (StatusCode::INTERNAL_SERVER_ERROR, pix_error.to_string()).into_response()
                 }
             },
-            RenderTeamimError::MissingImageField => {
-                (StatusCode::BAD_REQUEST, "missing image field").into_response()
-            }
-            RenderTeamimError::MissingBoxesField => {
-                (StatusCode::BAD_REQUEST, "missing box field").into_response()
+            RenderTeamimError::BadRequest(e) => {
+                (StatusCode::BAD_REQUEST, e.to_string()).into_response()
             }
             RenderTeamimError::Multipart(e) => e.into_response(),
             RenderTeamimError::Other(e) => {
@@ -266,21 +261,38 @@ impl IntoResponse for RenderTeamimError {
     }
 }
 
+#[derive(Default)]
+struct RenderTeamimOptions {
+    image: Bytes,
+    boxes: String,
+}
+
+impl RenderTeamimOptions {
+    async fn from_mutipart(data: &mut Multipart) -> eyre::Result<Self> {
+        let mut options = RenderTeamimOptions::default();
+
+        while let Some(field) = data.next_field().await? {
+            match field.name().ok_or_else(|| eyre!("Missing field name"))? {
+                "image" => options.image = field.bytes().await?,
+                "boxes" => options.boxes = field.text().await?,
+                name => bail!("Unexpected field: {name}"),
+            }
+        }
+
+        if options.image.is_empty() {
+            bail!("Missing image field");
+        }
+        if options.boxes.is_empty() {
+            bail!("Missing boxes field");
+        }
+
+        Ok(options)
+    }
+}
 async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, RenderTeamimError> {
-    let image = {
-        let image_field = data.next_field().await?.ok_or(RenderTeamimError::MissingImageField)?;
-        if image_field.name().is_none_or(|name| name != "image") {
-            return Err(RenderTeamimError::MissingImageField);
-        }
-        image_field.bytes().await?
-    };
-    let boxes = {
-        let boxes_field = data.next_field().await?.ok_or(RenderTeamimError::MissingBoxesField)?;
-        if boxes_field.name().is_none_or(|name| name != "boxes") {
-            return Err(RenderTeamimError::MissingBoxesField);
-        }
-        boxes_field.text().await?
-    };
+    let RenderTeamimOptions { image, boxes } = RenderTeamimOptions::from_mutipart(&mut data)
+        .await
+        .map_err(RenderTeamimError::BadRequest)?;
 
     let text = boxes.lines().flat_map(|line| line.chars().next()).collect::<String>();
     let boxes =

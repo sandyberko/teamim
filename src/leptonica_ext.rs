@@ -2,9 +2,10 @@ use core::slice;
 use std::{
     ffi::CStr,
     mem::{self, MaybeUninit},
+    ptr,
 };
 
-use eyre::{ContextCompat, bail};
+use eyre::{ContextCompat, bail, ensure};
 use leptess::{
     capi::{
         PIX_DST, PIX_SRC, boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb,
@@ -19,13 +20,20 @@ use leptonica_plumbing::memory::RefCounted;
 pub struct Error;
 
 pub trait PixExt: Sized {
-    fn render_box(&mut self, geom: &BoxGeometry, width: i32, color: (u8, u8, u8)) -> Result<(), Error>;
+    fn render_box(
+        &mut self,
+        geom: &BoxGeometry,
+        width: i32,
+        color: (u8, u8, u8),
+    ) -> Result<(), Error>;
     fn render_boxes(&self, boxes: Boxes, width: i32, color: (u8, u8, u8)) -> eyre::Result<()>;
     fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
     fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
     fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
     fn scale(&self, factor: f32) -> eyre::Result<Self>;
     fn copy_to_png(&self) -> eyre::Result<Buf>;
+    fn blur(&mut self, region: Rect, factor: f32) -> eyre::Result<()>;
+    fn contrast(&mut self, factor: f32) -> eyre::Result<()>;
 }
 
 impl PixExt for Pix {
@@ -120,6 +128,44 @@ impl PixExt for Pix {
         let len = unsafe { buf_size.assume_init() };
         Ok(Buf { ptr, len })
     }
+    fn blur(&mut self, region: Rect, factor: f32) -> eyre::Result<()> {
+        let mut char_box = unsafe {
+            let w = region.width() as i32;
+            let h = region.height() as i32;
+            capi::boxCreate(region.left - w, region.top - h, w * 2, h * 2)
+        };
+        let mut char_pix =
+            unsafe { capi::pixClipRectangle(*self.raw.as_ref(), char_box, ptr::null_mut()) };
+        let mut blurred_char_pix = unsafe { capi::pixBlockconv(char_pix, 5, 5) };
+        unsafe {
+            capi::pixRasterop(
+                *self.raw.as_ref(),
+                region.left,
+                region.top,
+                region.width() as _,
+                region.height() as _,
+                capi::PIX_SRC as _,
+                blurred_char_pix,
+                0,
+                0,
+            )
+        };
+
+        unsafe {
+            capi::boxDestroy(&raw mut char_box);
+            capi::pixDestroy(&raw mut char_pix);
+            capi::pixDestroy(&raw mut blurred_char_pix);
+        }
+
+        Ok(())
+    }
+
+    fn contrast(&mut self, factor: f32) -> eyre::Result<()> {
+        let result =
+            unsafe { capi::pixContrastTRC(*self.raw.as_ref(), *self.raw.as_ref(), factor) };
+        ensure!(!result.is_null(), "Failed to contrast");
+        Ok(())
+    }
 }
 
 pub struct Buf {
@@ -141,6 +187,8 @@ unsafe impl Send for Buf {}
 // custom bindings
 
 use leptess::capi;
+
+use crate::tesseract_ext::bounding_box::Rect;
 
 pub struct Boxes(*mut capi::Boxa);
 
