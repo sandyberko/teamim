@@ -56,8 +56,7 @@ async fn main() -> eyre::Result<()> {
     let mut writer = BufWriter::new(file);
 
     let client = Client::new();
-    // let books = ["Gen", "Exod", "Lev", "Num", "Deut"];
-    let books = ["Gen"];
+    let books = ["Gen", "Exod", "Lev", "Num", "Deut"];
 
     let mut buf = Vec::new();
     for book in books {
@@ -197,8 +196,7 @@ impl Context {
             Target::Search => {
                 for c in from_utf8(text)?.chars() {
                     if let ('\u{05d0}'..='\u{05EA}') = c {
-                        c.encode_utf8(char_buf);
-                        writer.write_all(char_buf).await?;
+                        writer.write_all(c.encode_utf8(char_buf).as_bytes()).await?;
                     }
                 }
             }

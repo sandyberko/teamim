@@ -1,6 +1,6 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = [
-    "-C",
     # this is needed for tesseract, for some reason
-    "link-args=user32.lib crypt32.lib",
+    "-C", "link-args=user32.lib crypt32.lib advapi32.lib",
+    # "-C", "target-feature=+crt-static"
 ]

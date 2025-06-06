@@ -5,8 +5,9 @@ pub mod tesseract_ext;
 pub mod training_diff;
 
 use std::{
+    collections::BTreeMap,
     ffi::{CStr, CString},
-    fmt::Write,
+    fmt::Write as _,
     fs,
     path::Path,
 };
@@ -16,7 +17,7 @@ use glyph::{GLYPHS, Placement};
 use leptess::leptonica::{self, BoxGeometry, Pix};
 use leptonica_ext::{Buf, PixExt};
 use serde::Serialize;
-use similar::TextDiff;
+use similar::{Algorithm, DiffTag, TextDiff};
 use tesseract_ext::{
     PageIteratorLevel, PageSegMode, Tess, Text,
     bounding_box::{BoundingBox, Rect},
@@ -112,89 +113,69 @@ impl TeamimCtx {
         self.tess.recognize()?;
 
         let snippet = self.tess.get_text()?;
-        let snippet = snippet.as_str()?.trim();
-        let mut n = search::approx_match(snippet).ok_or(PlaceError::NotFound)?;
+        let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
+        let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
+        eprintln!("match found at {}", r#match.byte_pos);
 
-        let mut chars_iter = snippet.chars().enumerate();
-        let mut cur_c: Option<(usize, char)> = None;
-        let mut cur_line = 0usize;
-        let mut cur_col = 0usize;
-        let mut boxes_iter = self.tess.results_iter(PageIteratorLevel::Symbol);
-        let mut cur_box: Option<BoundingBox<Text>> = None;
-        let teamim = include_str!("../assets/text/mam/teamim.txt");
-        'teamim: for (_, c_taam) in teamim.char_indices() {
-            match c_taam {
-                // Ta'am
-                '\u{0591}'..='\u{05AD}'
-                | '\u{5bd}'..='\u{5bf}'
-                | '\u{5c0}'
-                | '\u{5c3}'
-                | '\u{5c4}' => {
-                    if n > 0 {
-                        continue;
-                    }
-                    // should be this, but doesn't work after skipping
-                    // let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
-                    let Some((_, cur_c)) = cur_c else {
-                        continue 'teamim;
-                    };
-                    let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                    let cur_box = into_geometry(cur_box, OriginPos::TopLeft);
-                    place_taam(&img, options, cur_c, &cur_box, c_taam)?;
-                }
-                // text seems to mistakenly use tzinor instead of zarqa
-                '\u{05AE}' => {
-                    if n > 0 {
-                        continue;
-                    }
-                    let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
-                    let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                    let cur_box = into_geometry(cur_box, OriginPos::TopLeft);
-                    place_taam(&img, options, cur_c, &cur_box, '\u{0598}')?;
-                }
-                '\n' => {
-                    cur_line += 1;
-                    cur_col = 0;
-                    continue;
-                }
-                // Niqqud
-                ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' => continue,
-                _ if c_taam.is_whitespace() => continue,
-                // Letter - alef to tav
-                ('\u{05d0}'..='\u{05EA}') => {
-                    cur_col += 1;
-                    if n > 0 {
-                        n -= 1;
-                        continue;
-                    }
-                    cur_c = chars_iter.find(|(_, c)| !c.is_whitespace());
-                    cur_box = boxes_iter.next();
+        // diff
+        let (old, new) = (snippet.as_str(), r#match.text);
+        let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
+        let mut remapper = diff.ops().iter();
 
-                    let Some((box_number, cur_c)) = cur_c else {
-                        break 'teamim;
-                    };
-                    'mismatch: {
-                        if c_taam == cur_c {
-                            break 'mismatch;
-                        }
-
-                        return Err(PlaceError::Mismatch(MismatchError {
-                            box_number,
-                            expected: c_taam,
-                        }));
-                    }
+        // map.key -> diff -> boxes[]
+        let boxes = self.tess.results_iter(PageIteratorLevel::Symbol).collect::<Vec<_>>();
+        let map = build_diacrit_map()?;
+        let snip_char_offset = r#match.byte_pos / 2;
+        for (char_idx, diacritic) in map.range(snip_char_offset..) {
+            eprintln!("placing '{diacritic}' at {char_idx}");
+            let char_offset = char_idx - snip_char_offset;
+            let Some(change) = remapper.find(|change| change.new_range().contains(&char_offset))
+            else {
+                eprintln!("==== DONE");
+                break;
+            };
+            match change.tag() {
+                DiffTag::Equal => {
+                    let char_offset_in_change = char_offset - change.new_range().start;
+                    let box_idx = change.old_range().start + char_offset_in_change;
+                    let bx = &boxes[box_idx];
+                    eprintln!("  > on {}", bx.value);
                 }
-                c => {
-                    return Err(eyre!(
-                        "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
-                        c as u32
-                    )
-                    .into());
-                }
+                DiffTag::Delete => eprintln!("  > DELETED this should not happen"),
+                DiffTag::Insert => eprintln!("  > cannot place, OCR missed it"),
+                DiffTag::Replace => eprintln!("  > cannot place, OCR replaced it"),
             }
         }
         Ok(img.copy_to_png()?)
     }
+}
+
+fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, char>> {
+    let mut byte_idx = 0;
+    let mut map = BTreeMap::new();
+    let teamim = include_str!("../assets/text/mam/teamim.txt");
+    for c_taam in teamim.chars() {
+        match c_taam {
+            // Ta'am
+            '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
+                map.insert(byte_idx, c_taam);
+            }
+            // text seems to mistakenly use tzinor instead of zarqa
+            '\u{05AE}' => {
+                map.insert(byte_idx, '\u{0598}');
+            }
+            // Niqqud or whitespace
+            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' | '\n' | ' ' => {
+                continue;
+            }
+            // Letter - alef to tav
+            ('\u{05d0}'..='\u{05EA}') => byte_idx += 1,
+            c => {
+                return Err(eyre!("unexpected taaam_c: 0x{:x} {c:?}", c as u32));
+            }
+        }
+    }
+    Ok(map)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -448,4 +429,20 @@ pub fn find_truth_text(ocr_text: &str) -> Option<&str> {
         end += 1;
     }
     Some(&old[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_place_teamim() -> eyre::Result<()> {
+        color_eyre::install()?;
+
+        let mut ctx = TeamimCtx::new()?;
+        let img = include_bytes!("../assets/images/N2/012.jpg");
+        let options = PlaceOptions { enable_after: true, debug_boxes: false };
+        ctx.place_teamim(img, options)?;
+        Ok(())
+    }
 }
