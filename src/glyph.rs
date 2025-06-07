@@ -17,6 +17,13 @@ pub struct Glyph {
     pub pix: &'static LocalKey<LazyCell<Pix>>,
 }
 
+impl PartialEq for Glyph {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl Eq for Glyph {}
+
 impl Glyph {
     const fn new(
         name: &'static str,

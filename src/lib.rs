@@ -26,6 +26,8 @@ use tesseract_ext::{
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
+use crate::glyph::{MAQAF, SOF_PASUQ};
+
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
@@ -439,16 +441,27 @@ fn place_taam(
 
             let g_margin_top = (6.0 * scale_factor) as i32;
             let margin_top = (20.0 * scale_factor) as i32;
-            let margin_left = (5.0 * scale_factor) as i32;
-            let (x, y) = match glyph.placement {
-                Placement::Top => (cur_box.x, cur_box.y - g_margin_top - margin_top),
-                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - g_margin_top),
-                Placement::After => (cur_box.x - cur_box.w - margin_left, cur_box.y - g_margin_top),
+            let (x, y) = {
+                let BoxGeometry { x, y, w, h } = *cur_box;
+                match glyph.placement {
+                    Placement::Top => (x, y - g_margin_top - margin_top),
+                    Placement::Bottom => (x, y + h - g_margin_top),
+                    Placement::After => {
+                        if glyph == &MAQAF {
+                            let lamed = if cur_c == 'ל' { h / 2 } else { 0 };
+                            (x - w - (5.0 * scale_factor) as i32, y + lamed - g_margin_top)
+                        } else if glyph == &SOF_PASUQ {
+                            (x - w - (3.0 * scale_factor) as i32, y - g_margin_top)
+                        } else {
+                            panic!("unexpected diacritic [א{c_taam}] placed after")
+                        }
+                    }
+                }
             };
 
             // debug
             let w = pix.get_w().try_into().unwrap();
-            let h = pix.get_w().try_into().unwrap();
+            let h = pix.get_h().try_into().unwrap();
             if options.debug_boxes {
                 img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
             }
@@ -538,7 +551,10 @@ mod tests {
 
         let mut ctx = TeamimCtx::new()?;
         let img = include_bytes!("../assets/images/N2/012.jpg");
-        ctx.place_teamim(img, PlaceOptions::default())?;
+        let options =
+            PlaceOptions { debug_boxes: true, inline_diacs: true, ..PlaceOptions::default() };
+        let img = ctx.place_teamim(img, options)?;
+        fs::write(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/images/N2/012.png"), img)?;
         Ok(())
     }
 
