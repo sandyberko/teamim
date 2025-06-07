@@ -55,7 +55,7 @@ struct RenderArgs {
 
     /// Render `Placement::After` te'amim like maqaf
     #[clap(long)]
-    enable_after: bool,
+    inline_diacs: bool,
 }
 
 fn main() -> eyre::Result<()> {
@@ -242,7 +242,7 @@ fn place_taam(
         bail!("no glyph for {c_taam:?} {:x}", c_taam as u32);
     };
 
-    if !args.render.enable_after && glyph.placement == Placement::After {
+    if !args.render.inline_diacs && glyph.placement == Placement::After {
         return Ok(());
     }
 

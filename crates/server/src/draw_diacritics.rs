@@ -33,7 +33,7 @@ fn page(title: Option<&str>, body: Markup) -> Markup {
         }
     }
 }
-
+// 169.jpg
 async fn get_index() -> impl IntoResponse {
     page(
         Some("צייר"),
@@ -42,15 +42,21 @@ async fn get_index() -> impl IntoResponse {
                 input type="file" name="image" accept="image/*" required;
                 fieldset {
                     legend { "טישטוש" }
-                    input type="number" name="blur" value="0.0" step="0.1";
+                    input type="number" name="blur" value="0" step="1";
                 }
                 fieldset {
                     legend { "חדות" }
                     input type="number" name="contrast" value="0.0" step="0.1";
                 }
                 fieldset {
-                    legend { "ריבועים" }
-                    input type="checkbox" name="debug_boxes" value="true";
+                    label {
+                        input type="checkbox" name="debug_boxes" value="true";
+                        span { "ריבועים" }
+                    }
+                    label {
+                        input type="checkbox" name="inline_diacs" value="true";
+                        span { "מקף וסוף-פסוק" }
+                    }
                 }
                 input type="submit" value="צייר טעמים";
             }
@@ -58,11 +64,9 @@ async fn get_index() -> impl IntoResponse {
     )
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct DiacriticOptions {
-    blur: f32,
-    contrast: f32,
-    debug_boxes: bool,
+    place: PlaceOptions,
     image: Bytes,
 }
 
@@ -73,9 +77,10 @@ impl DiacriticOptions {
         while let Some(field) = data.next_field().await? {
             match field.name().ok_or_eyre("Missing field name")? {
                 "image" => options.image = field.bytes().await?,
-                "blur" => options.blur = field.text().await?.parse()?,
-                "contrast" => options.contrast = field.text().await?.parse()?,
-                "debug_boxes" => options.debug_boxes = field.text().await?.parse()?,
+                "blur" => options.place.blur = field.text().await?.parse()?,
+                "contrast" => options.place.contrast = field.text().await?.parse()?,
+                "debug_boxes" => options.place.debug_boxes = field.text().await?.parse()?,
+                "inline_diacs" => options.place.inline_diacs = field.text().await?.parse()?,
                 name => bail!("Unexpected field: {name}"),
             }
         }
@@ -91,13 +96,11 @@ async fn post_index(
     let options =
         DiacriticOptions::from_mutipart(&mut data).await.map_err(RenderTeamimError::BadRequest)?;
 
-    let image = state.ctx.lock().map_err(|err| eyre!("lock ctx: {err}"))?.place_teamim(
-        &options.image,
-        PlaceOptions::default()
-            .set_blur(options.blur)
-            .set_contrast(options.contrast)
-            .set_debug_boxes(options.debug_boxes),
-    )?;
+    let image = state
+        .ctx
+        .lock()
+        .map_err(|err| eyre!("lock ctx: {err}"))?
+        .place_teamim(&options.image, options.place)?;
 
     Ok(page(
         Some("תוצאות"),

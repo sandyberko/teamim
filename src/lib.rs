@@ -130,10 +130,8 @@ impl TeamimCtx {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        if options.blur > 0.0 {
-            for bx in &boxes {
-                img.blur(bx.rect, options.blur)?;
-            }
+        if options.blur != 0 {
+            img.blur(options.blur)?;
         }
 
         if options.contrast != 0.0 {
@@ -143,9 +141,7 @@ impl TeamimCtx {
         let options = options.estimate_scale(&boxes);
 
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
-        eprintln!("match found at {}: {}", r#match.byte_pos, &r#match.text[..50]);
         let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
-        eprintln!("char offset: {snip_char_offset}");
 
         // diff
         let (old, new) = (snippet.as_str(), r#match.text);
@@ -155,15 +151,12 @@ impl TeamimCtx {
         'taam: for (char_idx, (diacritic, letter)) in
             DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..)
         {
-            eprintln!("placing [{letter}{diacritic}] at {char_idx}");
             let char_offset = char_idx - snip_char_offset;
             let change = 'change: loop {
                 let Some(change) = remapper.peek() else {
-                    eprintln!("==> no more changes, exiting");
                     break 'taam;
                 };
                 if change.new_range().start > char_offset {
-                    eprintln!("  > ⚠️ no change at {char_offset}");
                     continue 'taam;
                 }
                 if change.new_range().end > char_offset {
@@ -183,7 +176,6 @@ impl TeamimCtx {
                         &into_geometry(bx, OriginPos::TopLeft),
                         *diacritic,
                     )?;
-                    eprintln!("  > on {}", bx.value);
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert => eprintln!("  > cannot place, OCR missed it"),
@@ -200,9 +192,10 @@ fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
     let teamim = include_str!("../assets/text/mam/teamim.txt");
     let mut last_letter = Option::<char>::None;
     for c_taam in teamim.chars() {
+        #[expect(clippy::match_same_arms)]
         match c_taam {
             // Ta'am
-            '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
+            '\u{0591}'..='\u{05AD}' | '\u{5bd}' | '\u{5be}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
                 // off by one, because the ta'am is placed after we encounter the letter
                 map.insert(byte_idx - 1, (c_taam, last_letter.ok_or_eyre("ta'am without letter")?));
             }
@@ -214,10 +207,12 @@ fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
                     ('\u{0598}', last_letter.ok_or_eyre("ta'am without letter")?),
                 );
             }
-            // Niqqud or whitespace
-            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' | '\n' | ' ' => {
-                continue;
-            }
+            // Niqqud
+            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' => continue,
+            // Rafeh
+            '\u{05bf}' => continue,
+            // whitespace
+            '\n' | ' ' => continue,
             // Letter - alef to tav
             ('\u{05d0}'..='\u{05EA}') => {
                 last_letter = Some(c_taam);
@@ -233,11 +228,11 @@ fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
 
 #[derive(Clone, Copy, Default)]
 pub struct PlaceOptions {
-    enable_after: bool,
-    debug_boxes: bool,
-    scale: f32,
-    blur: f32,
-    contrast: f32,
+    pub inline_diacs: bool,
+    pub debug_boxes: bool,
+    pub scale: f32,
+    pub blur: i32,
+    pub contrast: f32,
 }
 
 const FULL_WIDTH_LETTERS: &[char] =
@@ -245,7 +240,7 @@ const FULL_WIDTH_LETTERS: &[char] =
 
 impl PlaceOptions {
     #[must_use]
-    pub fn set_blur(mut self, blur: f32) -> Self {
+    pub fn set_blur(mut self, blur: i32) -> Self {
         self.blur = blur;
         self
     }
@@ -429,7 +424,7 @@ fn place_taam(
         bail!("no glyph for {c_taam:?} {:x}", c_taam as u32);
     };
 
-    if !options.enable_after && glyph.placement == Placement::After {
+    if !options.inline_diacs && glyph.placement == Placement::After {
         return Ok(());
     }
 
@@ -438,18 +433,17 @@ fn place_taam(
         .try_with(|pix| {
             let mut scale_factor = options.scale;
             if glyph.placement == Placement::After {
-                scale_factor *= 0.8;
+                scale_factor *= 0.6;
             }
             let pix = pix.scale(scale_factor)?;
 
-            let top_margin = (4.0 * scale_factor) as i32;
-            let after_margin = (5.0 * scale_factor) as i32;
+            let g_margin_top = (6.0 * scale_factor) as i32;
+            let margin_top = (20.0 * scale_factor) as i32;
+            let margin_left = (5.0 * scale_factor) as i32;
             let (x, y) = match glyph.placement {
-                Placement::Top => {
-                    (cur_box.x, cur_box.y - top_margin - (20.0 * scale_factor) as i32)
-                }
-                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - top_margin),
-                Placement::After => (cur_box.x - cur_box.w - after_margin, cur_box.y - top_margin),
+                Placement::Top => (cur_box.x, cur_box.y - g_margin_top - margin_top),
+                Placement::Bottom => (cur_box.x, cur_box.y + cur_box.h - g_margin_top),
+                Placement::After => (cur_box.x - cur_box.w - margin_left, cur_box.y - g_margin_top),
             };
 
             // debug

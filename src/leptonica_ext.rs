@@ -32,7 +32,7 @@ pub trait PixExt: Sized {
     fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
     fn scale(&self, factor: f32) -> eyre::Result<Self>;
     fn copy_to_png(&self) -> eyre::Result<Buf>;
-    fn blur(&mut self, region: Rect, factor: f32) -> eyre::Result<()>;
+    fn blur(&mut self, kernel_size: i32) -> eyre::Result<()>;
     fn contrast(&mut self, factor: f32) -> eyre::Result<()>;
 }
 
@@ -128,35 +128,15 @@ impl PixExt for Pix {
         let len = unsafe { buf_size.assume_init() };
         Ok(Buf { ptr, len })
     }
-    fn blur(&mut self, region: Rect, factor: f32) -> eyre::Result<()> {
-        let mut char_box = unsafe {
-            let w = region.width() as i32;
-            let h = region.height() as i32;
-            capi::boxCreate(region.left - w, region.top - h, w * 2, h * 2)
+    fn blur(&mut self, kernel_size: i32) -> eyre::Result<()> {
+        let pixd = unsafe {
+            capi::pixBlockconv(*self.raw.as_ref(), kernel_size, kernel_size)
         };
-        let mut char_pix =
-            unsafe { capi::pixClipRectangle(*self.raw.as_ref(), char_box, ptr::null_mut()) };
-        let mut blurred_char_pix = unsafe { capi::pixBlockconv(char_pix, 5, 5) };
-        unsafe {
-            capi::pixRasterop(
-                *self.raw.as_ref(),
-                region.left,
-                region.top,
-                region.width() as _,
-                region.height() as _,
-                capi::PIX_SRC as _,
-                blurred_char_pix,
-                0,
-                0,
-            )
+        ensure!(!pixd.is_null(), "Failed to blur");
+        self.raw = {
+            let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(pixd) };
+            unsafe { RefCounted::new(plumbing_pix) }
         };
-
-        unsafe {
-            capi::boxDestroy(&raw mut char_box);
-            capi::pixDestroy(&raw mut char_pix);
-            capi::pixDestroy(&raw mut blurred_char_pix);
-        }
-
         Ok(())
     }
 
@@ -187,8 +167,6 @@ unsafe impl Send for Buf {}
 // custom bindings
 
 use leptess::capi;
-
-use crate::tesseract_ext::bounding_box::Rect;
 
 pub struct Boxes(*mut capi::Boxa);
 
