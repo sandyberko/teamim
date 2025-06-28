@@ -88,7 +88,7 @@ fn main() -> eyre::Result<()> {
             let boxes = BufReader::new(File::open(corrected)?)
                 .lines()
                 .map(|line| Ok(into_geometry(&parse_char_box(&line?)?, OriginPos::TopLeft)));
-            place_teamim(&pix, &args, &text, boxes)?;
+            place_teamim(&mut pix, &args, &text, boxes)?;
         }
     } else {
         let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
@@ -124,7 +124,7 @@ fn main() -> eyre::Result<()> {
             let boxes = tess
                 .results_iter(PageIteratorLevel::Symbol)
                 .map(|r| Ok(into_geometry(&r, OriginPos::TopLeft)));
-            place_teamim(&pix, &args, text.as_str()?, boxes)?;
+            place_teamim(&mut pix, &args, text.as_str()?, boxes)?;
         }
     }
 
@@ -135,7 +135,7 @@ fn main() -> eyre::Result<()> {
 }
 
 fn place_teamim(
-    img: &Pix,
+    img: &mut Pix,
     args: &Args,
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
@@ -232,7 +232,7 @@ fn place_teamim(
 }
 
 fn place_taam(
-    img: &Pix,
+    img: &mut Pix,
     args: &Args,
     cur_c: char,
     cur_box: &BoxGeometry,
