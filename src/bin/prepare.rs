@@ -39,10 +39,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     for in_file in fs::read_dir(args.input_dir)? {
         let in_file = in_file?;
 
-        println!("Processing {:?}...", in_file.file_name());
+        println!("Processing {}...", in_file.file_name().display());
 
         if !in_file.file_type()?.is_file() {
-            println!("{:?} is not a file", in_file.file_name());
+            println!("{} is not a file", in_file.file_name().display());
             continue;
         }
         let mut reader = BufReader::new(File::open(in_file.path())?);

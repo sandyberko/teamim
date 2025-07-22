@@ -76,9 +76,9 @@ fn main() -> eyre::Result<()> {
             outs.into_iter()
                 .map(|(path, output)| {
                     if output.status.success() {
-                        println!("{} {path:?}", "Generated".blue());
+                        println!("{} {}", "Generated".blue(), path.display());
                     } else {
-                        println!("{} {path:?}", "Failed".red());
+                        println!("{} {}", "Failed".red(), path.display());
                     }
 
                     // print output to current process

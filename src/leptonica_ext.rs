@@ -2,7 +2,6 @@ use core::slice;
 use std::{
     ffi::CStr,
     mem::{self, MaybeUninit},
-    ptr,
 };
 
 use eyre::{ContextCompat, bail, ensure};
@@ -129,9 +128,7 @@ impl PixExt for Pix {
         Ok(Buf { ptr, len })
     }
     fn blur(&mut self, kernel_size: i32) -> eyre::Result<()> {
-        let pixd = unsafe {
-            capi::pixBlockconv(*self.raw.as_ref(), kernel_size, kernel_size)
-        };
+        let pixd = unsafe { capi::pixBlockconv(*self.raw.as_ref(), kernel_size, kernel_size) };
         ensure!(!pixd.is_null(), "Failed to blur");
         self.raw = {
             let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(pixd) };

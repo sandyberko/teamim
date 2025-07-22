@@ -118,7 +118,7 @@ fn main() -> eyre::Result<()> {
             }
 
             w.flush()?;
-            println!("Wrote to {write_boxes:?}");
+            println!("Wrote to {}", write_boxes.display());
         } else {
             // Boxes
             let boxes = tess
@@ -128,7 +128,7 @@ fn main() -> eyre::Result<()> {
         }
     }
 
-    println!("Writing to {:?}", args.output);
+    println!("Writing to {}", args.output.display());
     let output = CString::new(args.output.into_os_string().into_encoded_bytes())?;
     pix.write(&output)?;
     Ok(())
