@@ -212,7 +212,6 @@ where
             clippy::cast_possible_wrap,
             clippy::cast_possible_truncation,
             clippy::cast_precision_loss,
-            clippy::cast_sign_loss
         )]
         for line_i in 0..LINE_COUNT {
             let Some((line_bounds, line)) = self.layout_line() else {

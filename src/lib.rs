@@ -430,6 +430,7 @@ fn place_taam(
         return Ok(());
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     glyph
         .pix
         .try_with(|pix| {

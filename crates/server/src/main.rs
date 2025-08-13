@@ -13,9 +13,8 @@ use axum::{
 use color_eyre::Section;
 use eyre::{bail, eyre};
 use futures::{StreamExt, stream};
-use maud::{Markup, html};
+use maud::Markup;
 use serde::{Deserialize, Serialize};
-use teamim_markup::render_div;
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
     path::PathBuf,
@@ -25,6 +24,7 @@ use teamim::{
     MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, place_teamim,
     tesseract_ext::bounding_box::parse_char_box, training_diff::Div,
 };
+use teamim_markup::render_div;
 use thiserror::Error;
 use tokio::{
     fs::{self, File},

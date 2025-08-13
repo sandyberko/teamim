@@ -414,10 +414,10 @@ impl Context {
         match self.next(xml, buf).await? {
             Event::Empty(elem) if elem.name().as_ref() == b"cant-combined" => (),
             Event::Start(elem) if elem.name().as_ref() == b"cant-combined" => loop {
-                if let Event::End(end) = self.next(xml, buf).await? {
-                    if end.name().as_ref() == b"cant-combined" {
-                        break;
-                    }
+                if let Event::End(end) = self.next(xml, buf).await?
+                    && end.name().as_ref() == b"cant-combined"
+                {
+                    break;
                 }
             },
             _ => bail!("expected combined"),
@@ -434,10 +434,10 @@ impl Context {
         match self.next(xml, buf).await? {
             Event::Empty(elem) if elem.name().as_ref() == b"cant-bet" => (),
             Event::Start(elem) if elem.name().as_ref() == b"cant-bet" => loop {
-                if let Event::End(end) = self.next(xml, buf).await? {
-                    if end.name().as_ref() == b"cant-bet" {
-                        break;
-                    }
+                if let Event::End(end) = self.next(xml, buf).await?
+                    && end.name().as_ref() == b"cant-bet"
+                {
+                    break;
                 }
             },
             _ => bail!("expected bet"),
