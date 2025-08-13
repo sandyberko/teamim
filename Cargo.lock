@@ -2615,6 +2615,7 @@ dependencies = [
  "open",
  "serde",
  "teamim",
+ "teamim-markup",
  "thiserror 2.0.11",
  "tokio",
  "tower",
@@ -2728,10 +2729,10 @@ dependencies = [
  "eyre",
  "indicatif",
  "itertools 0.14.0",
- "maud",
  "rayon",
  "similar",
  "teamim",
+ "teamim-markup",
 ]
 
 [[package]]
@@ -2860,6 +2861,14 @@ dependencies = [
  "serde",
  "similar",
  "thiserror 2.0.11",
+]
+
+[[package]]
+name = "teamim-markup"
+version = "0.1.0"
+dependencies = [
+ "maud",
+ "teamim",
 ]
 
 [[package]]

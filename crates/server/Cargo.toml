@@ -23,6 +23,7 @@ tracing-error = "0.2.1"
 tracing = "0.1.41"
 futures = "0.3.31"
 base64 = "0.22.1"
+teamim-markup = { version = "0.1.0", path = "../teamim-markup" }
 
 [dev-dependencies]
 insta = "1.42.1"

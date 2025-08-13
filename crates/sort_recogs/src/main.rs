@@ -2,7 +2,6 @@ use color_eyre::Section;
 use eyre::{Context, OptionExt, bail, eyre};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use itertools::Itertools;
-use maud::Markup;
 use rayon::prelude::*;
 use similar::{Algorithm, TextDiff, get_diff_ratio, utils::TextDiffRemapper};
 use std::{
@@ -23,6 +22,7 @@ use teamim::{
     tesseract_ext::bounding_box::BoundingBox,
     training_diff::{self, Div},
 };
+use teamim_markup::render_div;
 
 use clap::Parser;
 
@@ -278,7 +278,7 @@ impl Scroll {
                     fs::File::create(&out_file)
                         .wrap_err_with(|| eyre!("failed to create diff file: {out_file:?}"))?,
                 );
-                write!(w, "{}", Markup::from(div).into_string())?;
+                write!(w, "{}", render_div(div).into_string())?;
 
                 self.bar.set_message(format!("📊 calculating ratio {}", img.display()));
                 let old_len = pages_ctx.page_ops.iter().map(|op| op.old_range().len()).sum();
