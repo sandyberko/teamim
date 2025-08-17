@@ -1,92 +1,24 @@
-use accesskit::{Node, Role};
-use masonry::{
-    core::{Widget, WidgetPod},
-    kurbo::{Insets, Size},
-    properties::Padding,
-    widgets,
-};
-use smallvec::SmallVec;
-use smallvec::smallvec;
-use std::marker::PhantomData;
+mod widget;
+
 use xilem::{
-    core::{View, ViewMarker}, Affine, Color, Pod, Vec2, ViewCtx
+    Pod, Vec2, ViewCtx, WidgetView,
+    core::{MessageResult, View, ViewMarker},
+    masonry::kurbo::Size,
+    view::transformed,
 };
 
-struct TBoxState {
-    pos: Vec2,
-    size: Size,
+use self::widget::{TBox, TBoxState};
+
+pub(crate) fn tbox<State>(pos: impl Into<Vec2>, size: impl Into<Size>) -> impl WidgetView<State>
+where
+    State: Send + Sync + 'static,
+{
+    let (pos, size) = (pos.into(), size.into());
+    let child = TBoxView { initial: TBoxState { size } };
+    transformed(child).translate(pos)
 }
 
-pub(crate) struct TBox {
-    inner: WidgetPod<dyn Widget>,
-    state: TBoxState,
-}
-
-type TextState = ();
-
-impl TBox {
-    pub(crate) fn new(pos: impl Into<Vec2>, size: impl Into<Size>) -> Self {
-        let (pos, size) = (pos.into(), size.into());
-        let textbox = widgets::Textbox::new("TEXT");
-        Self {
-            inner: WidgetPod::new_with_transform(Box::new(textbox), Affine::translate(pos)),
-            state: TBoxState { pos, size },
-        }
-    }
-}
-
-const TEXTBOX_MARGIN: Padding = Padding::horizontal(2.0);
-
-impl Widget for TBox {
-    fn register_children(&mut self, ctx: &mut masonry::core::RegisterCtx) {
-        ctx.register_child(&mut self.inner);
-    }
-
-    fn layout(
-        &mut self,
-        ctx: &mut masonry::core::LayoutCtx,
-        _props: &mut masonry::core::PropertiesMut<'_>,
-        bc: &masonry::core::BoxConstraints,
-    ) -> masonry::kurbo::Size {
-        self.state.size
-    }
-
-    fn paint(
-        &mut self,
-        ctx: &mut masonry::core::PaintCtx,
-        _props: &masonry::core::PropertiesRef<'_>,
-        scene: &mut masonry::vello::Scene,
-    ) {
-        let size = ctx.size();
-        let border_width = 1.0;
-        let outline_rect = size.to_rect().inset(Insets::new(
-            -TEXTBOX_MARGIN.left - border_width / 2.,
-            -TEXTBOX_MARGIN.top - border_width / 2.,
-            -TEXTBOX_MARGIN.left - border_width / 2.,
-            -TEXTBOX_MARGIN.bottom - border_width / 2.,
-        ));
-        masonry::util::stroke(scene, &outline_rect, Color::WHITE, border_width);
-    }
-
-    fn accessibility_role(&self) -> Role {
-        todo!()
-    }
-
-    fn accessibility(
-        &mut self,
-        ctx: &mut masonry::core::AccessCtx,
-        _props: &masonry::core::PropertiesRef<'_>,
-        node: &mut Node,
-    ) {
-        todo!()
-    }
-
-    fn children_ids(&self) -> SmallVec<[masonry::core::WidgetId; 16]> {
-        smallvec![self.inner.id()]
-    }
-}
-
-struct TBoxView {
+pub(crate) struct TBoxView {
     initial: TBoxState,
 }
 
@@ -100,38 +32,36 @@ where
 
     type ViewState = ();
 
-    fn build(&self, ctx: &mut ViewCtx) -> (Self::Element, Self::ViewState) {
-        ctx.with_leaf_action_widget(|ctx| {
-            ctx.new_pod(TBox::new(self.initial.pos, self.initial.size))
-        })
+    fn build(&self, ctx: &mut ViewCtx, _app_state: &mut State) -> (Self::Element, Self::ViewState) {
+        ctx.with_leaf_action_widget(|_ctx| Pod::new(TBox::new(self.initial)))
     }
 
     fn rebuild(
         &self,
-        prev: &Self,
-        view_state: &mut Self::ViewState,
-        ctx: &mut ViewCtx,
-        element: xilem::core::Mut<'_, Self::Element>,
+        _prev: &Self,
+        _view_state: &mut Self::ViewState,
+        _ctx: &mut ViewCtx,
+        _element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut State,
     ) {
-        todo!()
     }
 
     fn teardown(
         &self,
-        view_state: &mut Self::ViewState,
-        ctx: &mut ViewCtx,
-        element: xilem::core::Mut<'_, Self::Element>,
+        _view_state: &mut Self::ViewState,
+        _ctx: &mut ViewCtx,
+        _element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut State,
     ) {
-        todo!()
     }
 
     fn message(
         &self,
-        view_state: &mut Self::ViewState,
-        id_path: &[xilem::core::ViewId],
-        message: xilem::core::DynMessage,
-        app_state: &mut State,
-    ) -> xilem::core::MessageResult<Action, xilem::core::DynMessage> {
-        todo!()
+        _view_state: &mut Self::ViewState,
+        _message: &mut xilem::core::MessageContext,
+        _element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut State,
+    ) -> xilem::core::MessageResult<Action> {
+        MessageResult::Nop
     }
 }

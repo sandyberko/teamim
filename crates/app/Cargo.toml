@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-accesskit = "0.19.0"
-masonry = "0.3.0"
 smallvec = "1.15.1"
 xilem = { git = "https://github.com/linebender/xilem", rev = "05888a2be02a5de10516b6c4d64fce693e843b2b", version = "0.3.0" }
 

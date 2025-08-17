@@ -4,18 +4,18 @@
 //! A to-do-list app, loosely inspired by todomvc.
 
 // On Windows platform, don't show a console when opening the app.
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// mod box_view;
+mod box_view;
 
 use xilem::{
-    EventLoop, EventLoopBuilder, InsertNewline, WidgetView, WindowOptions, Xilem,
-    style::Style as _,
-    view::{Axis, button, checkbox, flex, flex_row, sized_box, text_input, zstack},
+    EventLoop, EventLoopBuilder, WidgetView, WindowOptions, Xilem,
+    masonry::{core::NoAction, properties::types::Length},
+    view::{sized_box, transformed, zstack},
     winit::error::EventLoopError,
 };
 
-// use crate::box_view::TBox;
+use crate::box_view::{TBoxView, tbox};
 
 struct Task {
     description: String,
@@ -37,47 +37,48 @@ impl TaskList {
 }
 
 fn app_logic(task_list: &mut TaskList) -> impl WidgetView<TaskList> + use<> {
-    // sized_box(zstack((TBox::new((0., 0.), (200., 50.)), TBox::new((0., 70.), (200., 50.)))))
-    //     .width(200.)
-    //     .height(200.)
+    sized_box(zstack((tbox((0., 0.), (200., 50.)), tbox((0., 70.), (200., 50.)))))
+        .width(Length::px(200.))
+        .height(Length::px(200.))
 
-    let input_box =
-        text_input(task_list.next_task.clone(), |task_list: &mut TaskList, new_value| {
-            task_list.next_task = new_value;
-        })
-        .placeholder("ex: 'Do the dishes', 'File my taxes', ...")
-        .insert_newline(InsertNewline::OnShiftEnter)
-        .on_enter(|task_list: &mut TaskList, _| {
-            task_list.add_task();
-        });
-    let first_line = flex((
-        input_box,
-        button("Add task".to_string(), |task_list: &mut TaskList| {
-            task_list.add_task();
-        }),
-    ))
-    .direction(Axis::Vertical);
+    // use xilem::{style::Style as _, view::*, *};
+    // let input_box =
+    //     text_input(task_list.next_task.clone(), |task_list: &mut TaskList, new_value| {
+    //         task_list.next_task = new_value;
+    //     })
+    //     .placeholder("ex: 'Do the dishes', 'File my taxes', ...")
+    //     .insert_newline(InsertNewline::OnShiftEnter)
+    //     .on_enter(|task_list: &mut TaskList, _| {
+    //         task_list.add_task();
+    //     });
+    // let first_line = flex((
+    //     input_box,
+    //     button("Add task".to_string(), |task_list: &mut TaskList| {
+    //         task_list.add_task();
+    //     }),
+    // ))
+    // .direction(Axis::Vertical);
 
-    let tasks = task_list
-        .tasks
-        .iter()
-        .enumerate()
-        .map(|(i, task)| {
-            let checkbox = checkbox(
-                task.description.clone(),
-                task.done,
-                move |data: &mut TaskList, checked| {
-                    data.tasks[i].done = checked;
-                },
-            );
-            let delete_button = button("Delete", move |data: &mut TaskList| {
-                data.tasks.remove(i);
-            });
-            flex_row((checkbox, delete_button))
-        })
-        .collect::<Vec<_>>();
+    // let tasks = task_list
+    //     .tasks
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(i, task)| {
+    //         let checkbox = checkbox(
+    //             task.description.clone(),
+    //             task.done,
+    //             move |data: &mut TaskList, checked| {
+    //                 data.tasks[i].done = checked;
+    //             },
+    //         );
+    //         let delete_button = button("Delete", move |data: &mut TaskList| {
+    //             data.tasks.remove(i);
+    //         });
+    //         flex_row((checkbox, delete_button))
+    //     })
+    //     .collect::<Vec<_>>();
 
-    flex((first_line, tasks)).padding(50.)
+    // flex((first_line, tasks)).padding(50.)
 }
 
 fn run(event_loop: EventLoopBuilder) -> Result<(), EventLoopError> {
