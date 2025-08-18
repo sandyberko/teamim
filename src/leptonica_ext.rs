@@ -1,7 +1,7 @@
 use core::slice;
 use std::{
     ffi::CStr,
-    mem::MaybeUninit,
+    mem::{ManuallyDrop, MaybeUninit},
     ptr::{self, NonNull},
 };
 
@@ -23,6 +23,10 @@ pub struct BoxGeometry {
     pub h: i32,
 }
 
+/// Number of channels in a pixel: RGBA
+const CHANNELS: usize = 4;
+
+// TODO PhantomData<Format>
 pub struct PixBox(NonNull<leptonica_sys::Pix>);
 impl Drop for PixBox {
     fn drop(&mut self) {
@@ -47,6 +51,34 @@ impl PixBox {
     // TODO private
     pub(crate) fn as_mut_ptr(&mut self) -> *mut leptonica_sys::Pix {
         self.0.as_ptr()
+    }
+
+    /// 32-bit words/line
+    fn get_wpl(&self) -> i32 {
+        unsafe { leptonica_sys::pixGetWpl(self.as_ptr()) }
+    }
+
+    // TODO PixRef instead?
+    // TODO take &[u32], use align_to?
+    /// takes a callback so that `Pix::drop` won't drop the data as well
+    pub fn from_rgba8_with<Out>(
+        data: &mut [u8],
+        width: i32,
+        height: i32,
+        f: impl FnOnce(&mut Self) -> Out,
+    ) -> eyre::Result<Out> {
+        // see [pixCreateNoInit](https://tpgit.github.io/Leptonica/leptprotos_8h.html#ae543abd33a12b28abe481e36b1bbf21f)
+        let pix = unsafe { leptonica_sys::pixCreateHeader(width, height, 32) };
+        let pix = NonNull::new(pix).ok_or_eyre("failed to create pix")?;
+        let mut pix = ManuallyDrop::new(Self(pix));
+        let wpl = pix.get_wpl();
+        assert_eq!(data.len(), wpl as usize * CHANNELS * height as usize, "data length mismatch");
+        unsafe { leptonica_sys::pixSetData(pix.as_mut_ptr(), data.as_mut_ptr().cast()) };
+        unsafe { leptonica_sys::pixSetPadBits(pix.as_mut_ptr(), 0) };
+        let result = f(&mut pix);
+        unsafe { leptonica_sys::pixSetData(pix.as_mut_ptr(), ptr::null_mut()) };
+        unsafe { ManuallyDrop::drop(&mut pix) };
+        Ok(result)
     }
 
     pub fn read(filename: &CStr) -> eyre::Result<Self> {
@@ -179,7 +211,6 @@ impl AsRef<[u8]> for Buf {
 // TODO check safety
 unsafe impl Send for Buf {}
 unsafe impl Sync for Buf {}
-
 
 // TODO private
 pub struct Boxes(pub(crate) NonNull<leptonica_sys::Boxa>);

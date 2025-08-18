@@ -15,7 +15,7 @@ use std::{
 
 use eyre::Context;
 use rfd::FileDialog;
-use teamim::{PlaceOptions, TeamimCtx};
+use teamim::{PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
     core::{fork, lens},
@@ -114,10 +114,18 @@ impl TaskList {
         };
 
         let options = PlaceOptions::default();
-        match self.ctx.place_teamim(data.data(), options) {
-            Ok(img) => {
+        let mut data = data.data().to_vec();
+        let result = PixBox::from_rgba8_with(
+            &mut data,
+            width.try_into().unwrap(),
+            height.try_into().unwrap(),
+            |img| self.ctx.place_teamim_pix(img, options),
+        )
+        .unwrap_or_else(|err| Err(err.into()));
+        match result {
+            Ok(()) => {
                 self.img = ImgState::Loaded(Ok(Image::new(
-                    Blob::new(Arc::new(img)),
+                    Blob::new(Arc::new(data)),
                     format,
                     width,
                     height,

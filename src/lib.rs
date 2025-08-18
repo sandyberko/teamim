@@ -107,11 +107,20 @@ impl TeamimCtx {
         Ok((diff, w, h))
     }
 
+    // TODO return something like BufPNG
     pub fn place_teamim(&mut self, img: &[u8], options: PlaceOptions) -> Result<Buf, PlaceError> {
         let mut img = Pix::read_mem(img)?;
         img = img.into_32()?;
+        self.place_teamim_pix(&mut img, options)?;
+        Ok(img.copy_to_png()?)
+    }
 
-        self.tess.set_image(&mut img);
+    pub fn place_teamim_pix(
+        &mut self,
+        img: &mut Pix,
+        options: PlaceOptions,
+    ) -> Result<(), PlaceError> {
+        self.tess.set_image(img);
         self.tess.recognize()?;
 
         let snippet = self.tess.get_text()?;
@@ -168,7 +177,7 @@ impl TeamimCtx {
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
                     place_taam(
-                        &mut img,
+                        img,
                         options,
                         *letter,
                         &into_geometry(bx, OriginPos::TopLeft),
@@ -180,7 +189,7 @@ impl TeamimCtx {
                 DiffTag::Replace => eprintln!("  > cannot place, OCR replaced it"),
             }
         }
-        Ok(img.copy_to_png()?)
+        Ok(())
     }
 }
 
