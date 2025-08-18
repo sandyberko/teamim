@@ -15,8 +15,7 @@ use std::{
 
 use eyre::{OptionExt, WrapErr, bail, eyre};
 use glyph::{GLYPHS, Placement};
-use leptess::leptonica::{self, BoxGeometry, Pix};
-use leptonica_ext::{Buf, PixExt};
+use leptonica_ext::{Buf, PixBox as Pix};
 use serde::Serialize;
 use similar::{Algorithm, DiffTag, TextDiff};
 use tesseract_ext::{
@@ -26,7 +25,10 @@ use tesseract_ext::{
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
-use crate::glyph::{MAQAF, SOF_PASUQ};
+use crate::{
+    glyph::{MAQAF, SOF_PASUQ},
+    leptonica_ext::BoxGeometry,
+};
 
 const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
@@ -54,19 +56,13 @@ impl TeamimCtx {
         Ok(self)
     }
 
-    pub fn file_text(&mut self, img: impl AsRef<Path>) -> eyre::Result<Text> {
-        let pix = leptonica::pix_read(img.as_ref())?;
-        self.tess.set_image(&pix);
-        self.tess.recognize()?;
-        self.tess.get_text()
-    }
-
     pub fn file_boxes(
         &mut self,
         img: impl AsRef<Path>,
-    ) -> eyre::Result<(impl Iterator<Item = BoundingBox<Text>>, u32, u32)> {
-        let pix = leptonica::pix_read(img.as_ref())?;
-        self.tess.set_image(&pix);
+    ) -> eyre::Result<(impl Iterator<Item = BoundingBox<Text>>, i32, i32)> {
+        let filename = CString::new(img.as_ref().to_str().ok_or_eyre("non-utf8 path")?)?;
+        let mut pix = Pix::read(&filename)?;
+        self.tess.set_image(&mut pix);
         self.tess.recognize()?;
 
         let boxes = self.tess.results_iter(PageIteratorLevel::Textline);
@@ -74,8 +70,8 @@ impl TeamimCtx {
     }
 
     pub fn recognize(&mut self, img: &[u8]) -> eyre::Result<String> {
-        let pix = leptonica::pix_read_mem(img)?;
-        self.tess.set_image(&pix);
+        let mut pix = Pix::read_mem(img)?;
+        self.tess.set_image(&mut pix);
         self.tess.recognize()?;
 
         let mut w = String::new();
@@ -88,9 +84,9 @@ impl TeamimCtx {
     pub fn recognize_training(
         &mut self,
         img: &[u8],
-    ) -> eyre::Result<(Vec<BoundingBoxDiff>, u32, u32)> {
-        let pix = leptonica::pix_read_mem(img)?;
-        self.tess.set_image(&pix);
+    ) -> eyre::Result<(Vec<BoundingBoxDiff>, i32, i32)> {
+        let mut pix = Pix::read_mem(img)?;
+        self.tess.set_image(&mut pix);
         self.tess.recognize()?;
 
         // TODO is it already owned?
@@ -112,10 +108,10 @@ impl TeamimCtx {
     }
 
     pub fn place_teamim(&mut self, img: &[u8], options: PlaceOptions) -> Result<Buf, PlaceError> {
-        let mut img = leptonica::pix_read_mem(img)?;
-        img.convert_to_32()?;
+        let mut img = Pix::read_mem(img)?;
+        img = img.into_32()?;
 
-        self.tess.set_image(&img);
+        self.tess.set_image(&mut img);
         self.tess.recognize()?;
 
         let snippet = self.tess.get_text()?;
@@ -318,8 +314,6 @@ pub enum PlaceError {
     NotFound,
     #[error("Mismatch at box {0}")]
     Mismatch(MismatchError),
-    #[error("Pix error: {0}")]
-    Pix(#[from] leptess::leptonica::PixError),
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
@@ -330,8 +324,8 @@ pub fn place_teamim(
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
 ) -> Result<Buf, PlaceError> {
-    let mut img = leptonica::pix_read_mem(img)?;
-    img.convert_to_32()?;
+    let mut img = Pix::read_mem(img)?;
+    img = img.into_32()?;
 
     let consonants = fs::read_to_string("./assets/text/mam/consonants/torah.txt")
         .wrap_err("failed to read consonants")?;
@@ -438,7 +432,9 @@ fn place_taam(
             if glyph.placement == Placement::After {
                 scale_factor *= 0.6;
             }
-            let pix = pix.scale(scale_factor)?;
+
+            // TODO don't clone
+            let pix = Pix::clone(pix).scale(scale_factor)?;
 
             let g_margin_top = (6.0 * scale_factor) as i32;
             let margin_top = (20.0 * scale_factor) as i32;
@@ -461,14 +457,14 @@ fn place_taam(
             };
 
             // debug
-            let w = pix.get_w().try_into().unwrap();
-            let h = pix.get_h().try_into().unwrap();
+            let w = pix.get_w();
+            let h = pix.get_h();
             if options.debug_boxes {
                 img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
             }
 
             // + h ???
-            img.render_img(&pix, x, y + h)
+            img.render_img(pix, x, y + h)
         })?
         .wrap_err("failed to render text")?;
     if options.debug_boxes {

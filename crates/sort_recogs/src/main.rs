@@ -271,6 +271,8 @@ impl Scroll {
                 self.bar.set_message(format!("🗺️ mapping {}", img.display()));
 
                 let tess_box = pages_ctx.map_diff_page(&mut ops_iter, &boxes)?;
+                let width = width.try_into().unwrap();
+                let height = height.try_into().unwrap();
                 let div = Div { width, height, tess_box };
                 let img_name = img.file_name().ok_or_else(|| eyre!("invalid img {img:?}"))?;
                 let out_file = self.out_dir.join(img_name).with_extension("html");

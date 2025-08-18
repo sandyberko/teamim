@@ -189,6 +189,8 @@ async fn post_recognize_training(
     }
     let (tess_box, width, height) =
         state.ctx.lock().map_err(|err| eyre!("lock error: {err}"))?.recognize_training(&image)?;
+    let width = width.try_into().unwrap();
+    let height = height.try_into().unwrap();
     Ok(render_div(Div { width, height, tess_box }))
 }
 
@@ -226,9 +228,6 @@ impl IntoResponse for RenderTeamimError {
                 }
                 PlaceError::Other(e) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, Json(e.to_string())).into_response()
-                }
-                PlaceError::Pix(pix_error) => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, pix_error.to_string()).into_response()
                 }
             },
             RenderTeamimError::BadRequest(e) => {

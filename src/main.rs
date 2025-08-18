@@ -7,12 +7,11 @@ use std::{
 
 use clap::Parser;
 use eyre::{Context, ContextCompat, OptionExt, bail};
-use leptess::leptonica::{self, BoxGeometry, Pix};
 use teamim::{
     OriginPos, fuzzy_find,
     glyph::{GLYPHS, Placement},
     into_geometry,
-    leptonica_ext::PixExt,
+    leptonica_ext::{BoxGeometry, PixBox},
     tesseract_ext::{PageIteratorLevel, Tess, bounding_box::parse_char_box},
 };
 
@@ -62,9 +61,10 @@ fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
-    let mut pix = leptonica::pix_read(&args.input)?;
-    pix.convert_to_32()?;
-    let img_h: i32 = pix.get_h().try_into().unwrap();
+    let filename = CString::new(args.input.to_str().ok_or_eyre("non-utf8 path")?)?;
+    let mut pix = PixBox::read(&filename)?;
+    pix = pix.into_32()?;
+    let img_h: i32 = pix.get_h();
 
     if let Some(corrected) = &args.corrected {
         if corrected.extension() != Some(OsStr::new("box")) {
@@ -93,7 +93,7 @@ fn main() -> eyre::Result<()> {
     } else {
         let mut tess = Tess::new(c"./assets/tessdata", c"stam")?;
 
-        tess.set_image(&pix);
+        tess.set_image(&mut pix);
         tess.recognize()?;
 
         if args.render.debug_boxes {
@@ -135,7 +135,7 @@ fn main() -> eyre::Result<()> {
 }
 
 fn place_teamim(
-    img: &mut Pix,
+    img: &mut PixBox,
     args: &Args,
     text: &str,
     boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
@@ -232,7 +232,7 @@ fn place_teamim(
 }
 
 fn place_taam(
-    img: &mut Pix,
+    img: &mut PixBox,
     args: &Args,
     cur_c: char,
     cur_box: &BoxGeometry,
@@ -252,7 +252,8 @@ fn place_taam(
             eprintln!("ta'am {} on {cur_c:?}, placed {:?}", glyph.name, glyph.placement);
 
             let scale_factor = if glyph.placement == Placement::After { 0.4 } else { 0.5 };
-            let pix = pix.scale(scale_factor)?;
+            // TODO don't clone
+            let pix = PixBox::clone(pix).scale(scale_factor)?;
 
             let top_margin = 4;
             let (x, y) = match glyph.placement {
@@ -262,14 +263,14 @@ fn place_taam(
             };
 
             // debug
-            let w = pix.get_w().try_into().unwrap();
-            let h = pix.get_w().try_into().unwrap();
+            let w = pix.get_w();
+            let h = pix.get_w();
             if args.render.debug_boxes {
                 img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
             }
 
             // + h ???
-            img.render_img(&pix, x, y + h)
+            img.render_img(pix, x, y + h)
         })?
         .wrap_err("failed to render text")?;
     if args.render.debug_boxes {

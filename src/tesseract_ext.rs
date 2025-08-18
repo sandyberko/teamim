@@ -10,9 +10,9 @@ use std::{
 
 use bounding_box::{BoundingBox, Rect};
 use eyre::{OptionExt, bail};
-use leptess::{capi, leptonica};
+use tesseract_sys as capi;
 
-use crate::leptonica_ext::Boxes;
+use crate::leptonica_ext::{Boxes, PixBox};
 
 #[derive(Copy, Clone)]
 #[cfg_attr(not(target_os = "windows"), repr(u32))]
@@ -83,8 +83,8 @@ impl Tess {
         ResultIter { raw: NonNull::new(iter_ptr).unwrap(), level, is_first: true }
     }
 
-    pub fn set_image(&mut self, img: &leptonica::Pix) {
-        unsafe { capi::TessBaseAPISetImage2(self.raw.as_ptr(), *img.raw.as_ref()) }
+    pub fn set_image(&mut self, img: &mut PixBox) {
+        unsafe { capi::TessBaseAPISetImage2(self.raw.as_ptr(), img.as_mut_ptr()) }
     }
 
     pub fn recognize(&mut self) -> eyre::Result<()> {
@@ -109,11 +109,7 @@ impl Tess {
                 ptr::null_mut(),
             )
         };
-        if ptr.is_null() {
-            bail!("failed to get component images");
-        } else {
-            Ok(unsafe { Boxes::new(ptr) })
-        }
+        NonNull::new(ptr).ok_or_eyre("failed to get component images").map(Boxes)
     }
 
     pub fn get_text(&self) -> eyre::Result<Text> {

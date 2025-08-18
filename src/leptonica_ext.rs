@@ -1,77 +1,111 @@
 use core::slice;
 use std::{
     ffi::CStr,
-    mem::{self, MaybeUninit},
+    mem::MaybeUninit,
+    ptr::{self, NonNull},
 };
 
-use eyre::{ContextCompat, bail, ensure};
-use leptess::{
-    capi::{
-        PIX_DST, PIX_SRC, boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb,
-        pixRenderBoxaArb, pixScale, pixWriteAutoFormat,
-    },
-    leptonica::{BoxGeometry, Pix},
+use eyre::{ContextCompat, OptionExt, bail, ensure};
+use leptonica_sys::{
+    PIX_DST, PIX_SRC, boxCreate, pixConvertTo32, pixRasterop, pixRenderBoxArb, pixRenderBoxaArb,
+    pixScale, pixWriteAutoFormat,
 };
-use leptonica_plumbing::memory::RefCounted;
 
 #[derive(Debug, thiserror::Error)]
 #[error("Generic Leptonica error")]
 pub struct Error;
 
-pub trait PixExt: Sized {
-    fn render_box(
-        &mut self,
-        geom: &BoxGeometry,
-        width: i32,
-        color: (u8, u8, u8),
-    ) -> Result<(), Error>;
-    fn render_boxes(&self, boxes: Boxes, width: i32, color: (u8, u8, u8)) -> eyre::Result<()>;
-    fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error>;
-    fn write(&self, path: &CStr) -> Result<(), eyre::Error>;
-    fn convert_to_32(&mut self) -> Result<(), eyre::Error>;
-    fn scale(&self, factor: f32) -> eyre::Result<Self>;
-    fn copy_to_png(&self) -> eyre::Result<Buf>;
-    fn blur(&mut self, kernel_size: i32) -> eyre::Result<()>;
-    fn contrast(&mut self, factor: f32) -> eyre::Result<()>;
+#[derive(Debug, Clone, Copy)]
+pub struct BoxGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
 }
 
-impl PixExt for Pix {
-    fn render_boxes(
-        &self,
-        boxes: Boxes,
+pub struct PixBox(NonNull<leptonica_sys::Pix>);
+impl Drop for PixBox {
+    fn drop(&mut self) {
+        let mut raw = self.as_mut_ptr();
+        unsafe { leptonica_sys::pixDestroy(&raw mut raw) }
+    }
+}
+
+impl Clone for PixBox {
+    fn clone(&self) -> Self {
+        let new = unsafe { leptonica_sys::pixCopy(ptr::null_mut(), self.as_ptr()) };
+        NonNull::new(new).map(Self).unwrap()
+    }
+}
+
+impl PixBox {
+    // TODO private
+    pub(crate) fn as_ptr(&self) -> *const leptonica_sys::Pix {
+        self.0.as_ptr()
+    }
+
+    // TODO private
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut leptonica_sys::Pix {
+        self.0.as_ptr()
+    }
+
+    pub fn read(filename: &CStr) -> eyre::Result<Self> {
+        let ptr = unsafe { leptonica_sys::pixRead(filename.as_ptr()) };
+        NonNull::new(ptr).ok_or_eyre("failed to read image").map(Self)
+    }
+
+    pub fn read_mem(img: &[u8]) -> eyre::Result<Self> {
+        let ptr = unsafe { leptonica_sys::pixReadMem(img.as_ptr(), img.len()) };
+        NonNull::new(ptr).ok_or_eyre("failed to read image").map(Self)
+    }
+
+    #[must_use]
+    pub fn get_w(&self) -> i32 {
+        unsafe { leptonica_sys::pixGetWidth(self.as_ptr()) }
+    }
+
+    #[must_use]
+    pub fn get_h(&self) -> i32 {
+        unsafe { leptonica_sys::pixGetHeight(self.as_ptr()) }
+    }
+
+    pub fn render_boxes(
+        &mut self,
+        mut boxes: Boxes,
         width: i32,
         (rval, gval, bval): (u8, u8, u8),
     ) -> eyre::Result<()> {
-        let result =
-            unsafe { pixRenderBoxaArb(*self.raw.as_ref(), boxes.0, width, rval, gval, bval) };
+        let result = unsafe {
+            pixRenderBoxaArb(self.as_mut_ptr(), boxes.as_mut_ptr(), width, rval, gval, bval)
+        };
         if result == 0 { Ok(()) } else { bail!("Failed to render boxes") }
     }
 
-    fn render_box(
+    pub fn render_box(
         &mut self,
         &BoxGeometry { x, y, w, h }: &BoxGeometry,
         width: i32,
         (rval, gval, bval): (u8, u8, u8),
     ) -> Result<(), Error> {
         let r#box = unsafe { boxCreate(x, y, w, h) };
-        let result = unsafe { pixRenderBoxArb(*self.raw.as_ref(), r#box, width, rval, gval, bval) };
+        let result = unsafe { pixRenderBoxArb(self.as_mut_ptr(), r#box, width, rval, gval, bval) };
         if result == 0 { Ok(()) } else { Err(Error) }
     }
 
     /// ⚠️ `y` should be the bottom of the `src` image!
-    fn render_img(&self, src: &Pix, x: i32, y: i32) -> Result<(), eyre::Error> {
-        let pix_dest = *self.raw.as_ref();
-        let pix_source: *mut _ = *src.raw.as_ref();
+    pub fn render_img(&mut self, mut src: PixBox, x: i32, y: i32) -> Result<(), eyre::Error> {
+        let pix_dest = self.as_mut_ptr();
+        let pix_source = src.as_mut_ptr();
 
-        let y = y.checked_sub_unsigned(src.get_h()).wrap_err("ta'am is over the edge")?;
+        let y = y.checked_sub(src.get_h()).wrap_err("ta'am is over the edge")?;
 
         let result = unsafe {
             pixRasterop(
                 pix_dest,
                 x,
                 y,
-                src.get_w().try_into().unwrap(),
-                src.get_h().try_into().unwrap(),
+                src.get_w(),
+                src.get_h(),
                 (PIX_SRC & PIX_DST).try_into().unwrap(),
                 pix_source,
                 0,
@@ -81,42 +115,29 @@ impl PixExt for Pix {
         if result == 0 { Ok(()) } else { bail!("Failed to render image") }
     }
 
-    fn write(&self, filename: &CStr) -> Result<(), eyre::Error> {
-        let result = unsafe { pixWriteAutoFormat(filename.as_ptr(), *self.raw.as_ref()) };
+    pub fn write(&mut self, filename: &CStr) -> Result<(), eyre::Error> {
+        let result = unsafe { pixWriteAutoFormat(filename.as_ptr(), self.as_mut_ptr()) };
         if result == 0 { Ok(()) } else { bail!("Failed to write. error code: {result}") }
     }
 
-    fn convert_to_32(&mut self) -> Result<(), eyre::Error> {
-        let result = unsafe { pixConvertTo32(*self.raw.as_ref()) };
-        if result.is_null() {
-            bail!("Failed to convert to 32")
-        }
-
-        let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(result) };
-        let raw = unsafe { RefCounted::new(plumbing_pix) };
-        let _ = mem::replace(&mut self.raw, raw);
-        Ok(())
+    pub fn into_32(&mut self) -> Result<PixBox, eyre::Error> {
+        let result = unsafe { pixConvertTo32(self.as_mut_ptr()) };
+        NonNull::new(result).ok_or_eyre("failed to convert to 32").map(Self)
     }
 
-    fn scale(&self, factor: f32) -> eyre::Result<Self> {
-        let result = unsafe { pixScale(*self.raw.as_ref(), factor, factor) };
-        if result.is_null() {
-            bail!("scale failed");
-        }
-
-        let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(result) };
-        let raw = unsafe { RefCounted::new(plumbing_pix) };
-        Ok(Self { raw })
+    pub fn scale(&mut self, factor: f32) -> eyre::Result<Self> {
+        let result = unsafe { pixScale(self.as_mut_ptr(), factor, factor) };
+        NonNull::new(result).ok_or_eyre("scale failed").map(Self)
     }
 
-    fn copy_to_png(&self) -> eyre::Result<Buf> {
+    pub fn copy_to_png(&mut self) -> eyre::Result<Buf> {
         let mut buf_ptr = MaybeUninit::uninit();
         let mut buf_size = MaybeUninit::uninit();
         let result = unsafe {
-            capi::pixWriteMemPng(
+            leptonica_sys::pixWriteMemPng(
                 buf_ptr.as_mut_ptr(),
                 buf_size.as_mut_ptr(),
-                *self.raw.as_ref(),
+                self.as_mut_ptr(),
                 0.0,
             )
         };
@@ -127,19 +148,15 @@ impl PixExt for Pix {
         let len = unsafe { buf_size.assume_init() };
         Ok(Buf { ptr, len })
     }
-    fn blur(&mut self, kernel_size: i32) -> eyre::Result<()> {
-        let pixd = unsafe { capi::pixBlockconv(*self.raw.as_ref(), kernel_size, kernel_size) };
-        ensure!(!pixd.is_null(), "Failed to blur");
-        self.raw = {
-            let plumbing_pix = unsafe { leptonica_plumbing::Pix::new_from_pointer(pixd) };
-            unsafe { RefCounted::new(plumbing_pix) }
-        };
-        Ok(())
+    pub fn blur(&mut self, kernel_size: i32) -> eyre::Result<Self> {
+        let pixd =
+            unsafe { leptonica_sys::pixBlockconv(self.as_mut_ptr(), kernel_size, kernel_size) };
+        NonNull::new(pixd).ok_or_eyre("failed to blur").map(Self)
     }
 
-    fn contrast(&mut self, factor: f32) -> eyre::Result<()> {
+    pub fn contrast(&mut self, factor: f32) -> eyre::Result<()> {
         let result =
-            unsafe { capi::pixContrastTRC(*self.raw.as_ref(), *self.raw.as_ref(), factor) };
+            unsafe { leptonica_sys::pixContrastTRC(self.as_mut_ptr(), self.as_mut_ptr(), factor) };
         ensure!(!result.is_null(), "Failed to contrast");
         Ok(())
     }
@@ -151,7 +168,7 @@ pub struct Buf {
 }
 impl Drop for Buf {
     fn drop(&mut self) {
-        unsafe { capi::free(self.ptr.cast()) }
+        unsafe { leptonica_sys::free(self.ptr.cast()) }
     }
 }
 impl AsRef<[u8]> for Buf {
@@ -161,20 +178,17 @@ impl AsRef<[u8]> for Buf {
 }
 // TODO check safety
 unsafe impl Send for Buf {}
-// custom bindings
 
-use leptess::capi;
-
-pub struct Boxes(*mut capi::Boxa);
-
+// TODO private
+pub struct Boxes(pub(crate) NonNull<leptonica_sys::Boxa>);
 impl Drop for Boxes {
     fn drop(&mut self) {
-        unsafe { capi::boxaDestroy(&raw mut self.0) }
+        let mut raw = self.0.as_ptr();
+        unsafe { leptonica_sys::boxaDestroy(&raw mut raw) }
     }
 }
-
 impl Boxes {
-    pub unsafe fn new(ptr: *mut capi::Boxa) -> Self {
-        Self(ptr)
+    fn as_mut_ptr(&mut self) -> *mut leptonica_sys::Boxa {
+        self.0.as_ptr()
     }
 }

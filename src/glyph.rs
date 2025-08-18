@@ -1,6 +1,6 @@
 use std::{cell::LazyCell, thread::LocalKey};
 
-use leptess::leptonica::Pix;
+use crate::leptonica_ext::PixBox as Pix;
 use phf::{Map, phf_map};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -39,7 +39,7 @@ macro_rules! glyph {
         thread_local! {
             static PIX: LazyCell<Pix> = LazyCell::new(|| {
                 let buf = include_bytes!(concat!("../assets/glyphs/", $name, ".tif"));
-                leptess::leptonica::pix_read_mem(buf)
+                Pix::read_mem(buf)
                     .expect(concat!("failed to load ", $name))
             });
         }
