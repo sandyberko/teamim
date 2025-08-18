@@ -8,89 +8,105 @@
 
 mod box_view;
 
-use xilem::{
-    EventLoop, EventLoopBuilder, WidgetView, WindowOptions, Xilem,
-    masonry::{core::NoAction, properties::types::Length},
-    view::{sized_box, transformed, zstack},
-    winit::error::EventLoopError,
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use crate::box_view::{TBoxView, tbox};
+use rfd::FileDialog;
+use xilem::{
+    core::{fork, lens}, masonry::properties::types::{AsUnit, Length}, view::{button, flex, image, portal, prose, sized_box, spinner, task, task_raw, zstack}, winit::error::EventLoopError, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem
+};
 
-struct Task {
-    description: String,
-    done: bool,
+use crate::box_view::tbox;
+
+const IMG_EXTS: &[&str] = &["jpg", "jpeg", "png"];
+const FONT_SIZE: Length = Length::const_px(16.);
+
+#[derive(Default)]
+enum ImgState {
+    #[default]
+    None,
+    Pending(Arc<PathBuf>),
+    Loaded(eyre::Result<Image>),
 }
-
-struct TaskList {
-    next_task: String,
-    tasks: Vec<Task>,
-}
-
-impl TaskList {
-    fn add_task(&mut self) {
-        if self.next_task.is_empty() {
-            return;
+const RED: Color = Color::from_rgb8(255, 0, 0);
+impl ImgState {
+    fn view(&mut self) -> impl WidgetView<Self> + use<> {
+        match self {
+            Self::None => prose("לא נבחרה תמונה").boxed(),
+            Self::Pending(path) => {
+                let task = task_raw(
+                    {
+                        let path = path.clone();
+                        move |proxy| {
+                            // TODO double clone?
+                            let path = path.clone();
+                            async move {
+                                let path_str = path.display();
+                                let result = image_from_path(&*path).await;
+                                if let Err(err) = &result {
+                                    tracing::warn!("Loading image from {path_str} failed: {err:?}");
+                                }
+                                let _ = proxy.message(result);
+                            }
+                        }
+                    },
+                    move |state: &mut Self, image| {
+                        *state = ImgState::Loaded(image);
+                    },
+                );
+                fork(
+                    flex((
+                        sized_box(spinner()).height(FONT_SIZE).width(FONT_SIZE),
+                        prose(path.to_string_lossy()),
+                    )),
+                    task,
+                )
+                .boxed()
+            }
+            Self::Loaded(Ok(img)) => portal(image(img)).boxed(),
+            Self::Loaded(Err(msg)) => prose(msg.to_string()).text_color(RED).boxed(),
         }
-        self.tasks.push(Task { description: std::mem::take(&mut self.next_task), done: false });
     }
 }
 
-fn app_logic(task_list: &mut TaskList) -> impl WidgetView<TaskList> + use<> {
+async fn image_from_path(path: impl AsRef<Path>) -> eyre::Result<Image> {
+    let bytes = ::tokio::fs::read(path).await?;
+    let image = image::load_from_memory(&bytes)?.into_rgba8();
+    let width = image.width();
+    let height = image.height();
+    let data = image.into_vec();
+    Ok(Image::new(Blob::new(Arc::new(data)), ImageFormat::Rgba8, width, height))
+}
+
+#[derive(Default)]
+struct TaskList {
+    img: ImgState,
+}
+fn app_logic(_state: &mut TaskList) -> impl WidgetView<TaskList> + use<> {
+    flex((
+        button("בחר תמונה", |state: &mut TaskList| {
+            state.img = FileDialog::new()
+                .add_filter("תמונה", IMG_EXTS)
+                .pick_file()
+                .map_or(ImgState::default(), |path| ImgState::Pending(Arc::new(path)));
+        }),
+        lens(ImgState::view, |state: &mut TaskList| &mut state.img),
+    ))
+}
+
+fn tboxes_example<State>() -> impl WidgetView<State> + use<State>
+where
+    State: Send + Sync + 'static,
+{
     sized_box(zstack((tbox((0., 0.), (200., 50.)), tbox((0., 70.), (200., 50.)))))
-        .width(Length::px(200.))
-        .height(Length::px(200.))
-
-    // use xilem::{style::Style as _, view::*, *};
-    // let input_box =
-    //     text_input(task_list.next_task.clone(), |task_list: &mut TaskList, new_value| {
-    //         task_list.next_task = new_value;
-    //     })
-    //     .placeholder("ex: 'Do the dishes', 'File my taxes', ...")
-    //     .insert_newline(InsertNewline::OnShiftEnter)
-    //     .on_enter(|task_list: &mut TaskList, _| {
-    //         task_list.add_task();
-    //     });
-    // let first_line = flex((
-    //     input_box,
-    //     button("Add task".to_string(), |task_list: &mut TaskList| {
-    //         task_list.add_task();
-    //     }),
-    // ))
-    // .direction(Axis::Vertical);
-
-    // let tasks = task_list
-    //     .tasks
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(i, task)| {
-    //         let checkbox = checkbox(
-    //             task.description.clone(),
-    //             task.done,
-    //             move |data: &mut TaskList, checked| {
-    //                 data.tasks[i].done = checked;
-    //             },
-    //         );
-    //         let delete_button = button("Delete", move |data: &mut TaskList| {
-    //             data.tasks.remove(i);
-    //         });
-    //         flex_row((checkbox, delete_button))
-    //     })
-    //     .collect::<Vec<_>>();
-
-    // flex((first_line, tasks)).padding(50.)
+        .width(200.px())
+        .height(200.px())
 }
 
 fn run(event_loop: EventLoopBuilder) -> Result<(), EventLoopError> {
-    let data = TaskList {
-        // Add a placeholder task for Android, whilst the
-        next_task: "My Next Task".into(),
-        tasks: vec![
-            Task { description: "Buy milk".into(), done: false },
-            Task { description: "Buy eggs".into(), done: true },
-            Task { description: "Buy bread".into(), done: false },
-        ],
-    };
+    let data = TaskList::default();
 
     let app = Xilem::new_simple(data, app_logic, WindowOptions::new("To Do MVC"));
     app.run_in(event_loop)
