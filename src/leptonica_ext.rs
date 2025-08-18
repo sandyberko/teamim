@@ -178,6 +178,8 @@ impl AsRef<[u8]> for Buf {
 }
 // TODO check safety
 unsafe impl Send for Buf {}
+unsafe impl Sync for Buf {}
+
 
 // TODO private
 pub struct Boxes(pub(crate) NonNull<leptonica_sys::Boxa>);

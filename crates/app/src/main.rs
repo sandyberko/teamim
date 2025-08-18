@@ -13,9 +13,14 @@ use std::{
     sync::Arc,
 };
 
+use eyre::Context;
 use rfd::FileDialog;
+use teamim::{PlaceOptions, TeamimCtx};
 use xilem::{
-    core::{fork, lens}, masonry::properties::types::{AsUnit, Length}, view::{button, flex, image, portal, prose, sized_box, spinner, task, task_raw, zstack}, winit::error::EventLoopError, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem
+    Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
+    core::{fork, lens},
+    masonry::properties::types::{AsUnit, Length},
+    view::{button, flex, image, portal, prose, sized_box, spinner, task_raw, zstack},
 };
 
 use crate::box_view::tbox;
@@ -80,20 +85,50 @@ async fn image_from_path(path: impl AsRef<Path>) -> eyre::Result<Image> {
     Ok(Image::new(Blob::new(Arc::new(data)), ImageFormat::Rgba8, width, height))
 }
 
-#[derive(Default)]
 struct TaskList {
     img: ImgState,
+    ctx: TeamimCtx,
 }
-fn app_logic(_state: &mut TaskList) -> impl WidgetView<TaskList> + use<> {
-    flex((
-        button("בחר תמונה", |state: &mut TaskList| {
-            state.img = FileDialog::new()
-                .add_filter("תמונה", IMG_EXTS)
-                .pick_file()
-                .map_or(ImgState::default(), |path| ImgState::Pending(Arc::new(path)));
-        }),
-        lens(ImgState::view, |state: &mut TaskList| &mut state.img),
-    ))
+impl TaskList {
+    fn view(_: &mut Self) -> impl WidgetView<Self> + use<> {
+        flex((
+            button("בחר תמונה", Self::handle_img_select),
+            button("צייר טעמים", Self::handle_draw_teamim),
+            lens(ImgState::view, |state: &mut Self| &mut state.img),
+        ))
+    }
+
+    fn handle_img_select(&mut self) {
+        self.img = FileDialog::new()
+            .add_filter("תמונה", IMG_EXTS)
+            .pick_file()
+            .map_or(ImgState::default(), |path| ImgState::Pending(Arc::new(path)));
+    }
+
+    // TODO task
+    fn handle_draw_teamim(&mut self) {
+        let ImgState::Loaded(Ok(Image { ref mut data, format, width, height, .. })) = self.img
+        else {
+            tracing::error!("draw teamim: no image loaded");
+            return;
+        };
+
+        let options = PlaceOptions::default();
+        match self.ctx.place_teamim(data.data(), options) {
+            Ok(img) => {
+                self.img = ImgState::Loaded(Ok(Image::new(
+                    Blob::new(Arc::new(img)),
+                    format,
+                    width,
+                    height,
+                )));
+            }
+            Err(err) => {
+                tracing::error!("failed to place teamim: {err}");
+                self.img = ImgState::Loaded(Err(err.into()));
+            }
+        }
+    }
 }
 
 fn tboxes_example<State>() -> impl WidgetView<State> + use<State>
@@ -105,11 +140,11 @@ where
         .height(200.px())
 }
 
-fn run(event_loop: EventLoopBuilder) -> Result<(), EventLoopError> {
-    let data = TaskList::default();
+fn run(event_loop: EventLoopBuilder) -> eyre::Result<()> {
+    let data = TaskList { img: ImgState::default(), ctx: TeamimCtx::new()? };
 
-    let app = Xilem::new_simple(data, app_logic, WindowOptions::new("To Do MVC"));
-    app.run_in(event_loop)
+    let app = Xilem::new_simple(data, TaskList::view, WindowOptions::new("To Do MVC"));
+    app.run_in(event_loop).wrap_err("event loop error")
 }
 
 // Boilerplate code: Identical across all applications which support Android
@@ -119,7 +154,7 @@ fn run(event_loop: EventLoopBuilder) -> Result<(), EventLoopError> {
 // This is treated as dead code by the Android version of the example, but is actually live
 // This hackery is required because Cargo doesn't care to support this use case, of one
 // example which works across Android and desktop
-fn main() -> Result<(), EventLoopError> {
+fn main() -> eyre::Result<()> {
     run(EventLoop::with_user_event())
 }
 #[cfg(target_os = "android")]
