@@ -9,7 +9,6 @@ image = "0.25.6"
 rfd = "0.15.4"
 smallvec = "1.15.1"
 teamim = { version = "0.1.0", path = "../.." }
-tokio = { version = "1.47.1", features = ["fs"] }
 tracing = "0.1.41"
 xilem = { git = "https://github.com/linebender/xilem", rev = "05888a2be02a5de10516b6c4d64fce693e843b2b", version = "0.3.0" }
 

@@ -1,4 +1,4 @@
-use maud::{html, Markup};
+use maud::{Markup, html};
 use teamim::training_diff::{DiffOp, Div};
 
 #[must_use]

@@ -285,7 +285,6 @@ dependencies = [
  "rfd",
  "smallvec",
  "teamim",
- "tokio",
  "tracing",
  "xilem",
 ]

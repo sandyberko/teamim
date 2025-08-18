@@ -26,7 +26,10 @@ pub fn approx_match(query: &str) -> Option<Match> {
                 .char_indices()
                 .nth(query.chars().count())
                 .map_or(query.len(), |(idx, _)| idx);
-            return Some(Match { byte_pos: start, text: &SUFFIX_TABLE.text()[start..start + char_len] });
+            return Some(Match {
+                byte_pos: start,
+                text: &SUFFIX_TABLE.text()[start..start + char_len],
+            });
         }
         query_byte_offset += kgram.len();
     }
