@@ -15,12 +15,16 @@ use eyre::WrapErr;
 use image::ImageReader;
 use rfd::FileDialog;
 use teamim::{PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use tracing::{debug, error};
 use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
     core::{fork, lens, map_action, map_state},
     masonry::properties::types::{AsUnit, Length},
     tokio::sync::mpsc::UnboundedSender,
-    view::{button, flex, image, portal, prose, sized_box, task_raw, worker, zstack},
+    view::{
+        MainAxisAlignment, ObjectFit, button, flex, flex_row, image, portal, prose, sized_box,
+        task_raw, worker, zstack,
+    },
 };
 
 use crate::box_view::tbox;
@@ -67,7 +71,8 @@ impl LoadedImage {
                         .send(state.img.clone())
                         .ok();
                 }),
-                portal(image(&self.img)),
+                // TODO: zoom
+                portal(image(&self.img).fit(ObjectFit::FitWidth)),
             )),
             worker(
                 move |proxy, mut recv| async move {
@@ -140,7 +145,10 @@ fn draw_btn<State: 'static>(
                 Err(err) => flex((btn, err_prose(err))).boxed(),
             }
         }
-        DrawingState::Pending => flex((spinner(), prose("מצייר..."))).boxed(),
+        DrawingState::Pending => flex_row((spinner(), prose("מצייר...")))
+            .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .must_fill_major_axis(false)
+            .boxed(),
     }
 }
 
@@ -151,6 +159,7 @@ fn err_prose<S, A>(msg: &eyre::Error) -> impl WidgetView<S, A> + use<S, A> {
 
 impl ImgState {
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
+        debug!("ImgState::view: {self:?}");
         match self {
             Self::None => prose("לא נבחרה תמונה").boxed(),
             Self::Pending(path) => {
@@ -181,6 +190,7 @@ impl ImgState {
                 if let Self::Loaded(Ok(loaded)) = img_state {
                     loaded
                 } else {
+                    error!("LoadedState rquested while img_state is {img_state:?}");
                     panic!("LoadedState rquested while img_state is {img_state:?}")
                 }
             })

@@ -2501,7 +2501,6 @@ dependencies = [
 [[package]]
 name = "masonry"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "accesskit",
  "dpi",
@@ -2515,7 +2514,6 @@ dependencies = [
 [[package]]
 name = "masonry_core"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "accesskit",
  "anymap3",
@@ -2537,7 +2535,6 @@ dependencies = [
 [[package]]
 name = "masonry_winit"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "accesskit_winit",
  "copypasta",
@@ -5117,7 +5114,6 @@ dependencies = [
 [[package]]
 name = "tree_arena"
 version = "0.1.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "hashbrown",
 ]
@@ -6382,7 +6378,6 @@ checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
 [[package]]
 name = "xilem"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "masonry",
  "masonry_winit",
@@ -6396,7 +6391,6 @@ dependencies = [
 [[package]]
 name = "xilem_core"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
 dependencies = [
  "anymore",
  "hashbrown",
