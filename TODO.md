@@ -1,9 +1,12 @@
 # TODO
 
 ## xilem app
-- save image to file
+- red teamim in JPEG
 - select multiple images and folders
 - misses
+- RTL flex
+- job worker as action & ref param instead of state?
+- PlaceOptions, drawing option
 
 ## other
 

@@ -45,12 +45,12 @@ where
         _app_state: &mut State,
     ) {
     }
-
     fn teardown(
         &self,
         _view_state: &mut Self::ViewState,
         _ctx: &mut ViewCtx,
         _element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut State,
     ) {
     }
 

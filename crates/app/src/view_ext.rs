@@ -1,5 +1,5 @@
 use xilem::core::{
-    MapMessage, MapState, MessageResult, View, ViewPathTracker, map_action, map_state,
+    MapMessage, MapState, MessageResult, View, ViewPathTracker, map_message, map_state,
 };
 
 pub(crate) trait ViewExt<State, Action, Context>: View<State, Action, Context>
@@ -8,27 +8,7 @@ where
     Action: 'static,
     Context: ViewPathTracker + 'static,
 {
-    #[expect(clippy::type_complexity)]
-    /// See [`::xilem::core::map_action`]
-    fn map_action<ParentAction, F>(
-        self,
-        map_fn: F,
-    ) -> MapMessage<
-        Self,
-        State,
-        ParentAction,
-        Action,
-        Context,
-        impl Fn(&mut State, MessageResult<Action>) -> MessageResult<ParentAction> + 'static,
-    >
-    where
-        Self: Sized,
-        ParentAction: 'static,
-        F: Fn(&mut State, Action) -> ParentAction + 'static,
-    {
-        map_action(self, map_fn)
-    }
-
+    /// See [`::xilem::core::map_state`]
     fn map_state<ParentState, F>(
         self,
         f: F,
@@ -39,6 +19,19 @@ where
         F: Fn(&mut ParentState) -> &mut State + 'static,
     {
         map_state(self, f)
+    }
+
+    /// See [`::xilem::core::map_message`]
+    fn map_message<ParentAction, F>(
+        self,
+        map_fn: F,
+    ) -> MapMessage<Self, State, ParentAction, Action, Context, F>
+    where
+        Self: Sized,
+        ParentAction: 'static,
+        F: Fn(&mut State, MessageResult<Action>) -> MessageResult<ParentAction> + 'static,
+    {
+        map_message(self, map_fn)
     }
 }
 

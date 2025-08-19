@@ -1,9 +1,9 @@
 {
     "configurations": [
         {
+            "name": "Cargo run (LLDB)",
             "type": "lldb",
             "request": "launch",
-            "name": "Cargo launch",
             "cargo": {
                 "args": [
                     "build",
@@ -14,12 +14,12 @@
             "args": []
         },
         {
+            "name": "Cargo run (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
-            "preLaunchTask": "rust: cargo build -p server",
-            "name": "cargo run -p server",
+            "preLaunchTask": "rust: cargo build",
             "cwd": "${workspaceFolder}",
-            "program": "D:\\.cargo\\target\\debug\\server.exe",
+            "program": "D:\\.cargo\\target\\debug\\${input:package}.exe",
             "environment": [
                 {
                     "name": "RUST_BACKTRACE",
@@ -39,6 +39,17 @@
             "osx": {
                 "MIMode": "lldb"
             }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "package",
+            "type": "pickString",
+            "description": "Select Cargo package",
+            "options": [
+                "app",
+                "server",
+            ]
         }
     ]
 }

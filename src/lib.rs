@@ -36,6 +36,14 @@ const LANG: &CStr = c"stam";
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
 
+#[derive(Debug)]
+pub struct DiacMiss {
+    pub letter: char,
+    pub diacritic: char,
+    pub char_idx: usize,
+    pub top: i32,
+}
+
 #[derive(Clone)]
 pub struct TeamimCtx {
     tess: Tess,
@@ -119,7 +127,7 @@ impl TeamimCtx {
         &mut self,
         img: &mut Pix,
         options: PlaceOptions,
-    ) -> Result<(), PlaceError> {
+    ) -> Result<Vec<DiacMiss>, PlaceError> {
         self.tess.set_image(img);
         self.tess.recognize()?;
 
@@ -155,9 +163,11 @@ impl TeamimCtx {
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let mut remapper = diff.ops().iter().peekable();
 
-        'taam: for (char_idx, (diacritic, letter)) in
-            DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..)
-        {
+        let mut last_diacrit_top = 0;
+        let mut misses = Vec::new();
+
+        let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
+        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
             let char_offset = char_idx - snip_char_offset;
             let change = 'change: loop {
                 let Some(change) = remapper.peek() else {
@@ -176,20 +186,22 @@ impl TeamimCtx {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
+                    last_diacrit_top = last_diacrit_top.max(bx.rect.top);
                     place_taam(
                         img,
                         options,
-                        *letter,
+                        letter,
                         &into_geometry(bx, OriginPos::TopLeft),
-                        *diacritic,
+                        diacritic,
                     )?;
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
-                DiffTag::Insert => eprintln!("  > cannot place, OCR missed it"),
-                DiffTag::Replace => eprintln!("  > cannot place, OCR replaced it"),
+                DiffTag::Insert | DiffTag::Replace => {
+                    misses.push(DiacMiss { letter, diacritic, char_idx, top: last_diacrit_top });
+                }
             }
         }
-        Ok(())
+        Ok(misses)
     }
 }
 
