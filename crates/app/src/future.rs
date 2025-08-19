@@ -1,11 +1,12 @@
 use xilem::{
     WidgetView,
+    masonry::properties::types::AsUnit,
     view::{Label, MainAxisAlignment, button, flex, flex_row, sized_box},
 };
 
 use crate::{FONT_SIZE, err_prose};
 
-pub(crate) fn spinner<S: 'static, A: 'static>() -> impl WidgetView<S, A> + use<S, A> {
+fn spinner<S: 'static, A: 'static>() -> impl WidgetView<S, A> + use<S, A> {
     sized_box(xilem::view::spinner()).height(FONT_SIZE).width(FONT_SIZE)
 }
 
@@ -25,25 +26,40 @@ impl<Pending, T> Future<Pending, T> {
             Self::Pending(pending) => Future::Pending(pending),
         }
     }
+
+    pub(crate) fn ready_ok(&self) -> Option<&T> {
+        match self {
+            Self::Ready(Ok(ok)) => Some(ok),
+            _ => None,
+        }
+    }
 }
 
-pub(crate) fn future_btn<Pending, Ready, State: 'static, Action: 'static>(
+pub(crate) fn future_btn<Pending, Ready, State, Action, PedningTag, ReadyTag, F>(
     state: &Future<Pending, Ready>,
-    pending_tag: impl Into<Label>,
-    ready_tag: impl Into<Label>,
-    callback: impl Fn(&mut State) -> Action + Send + Sync + 'static,
-) -> impl WidgetView<State, Action> {
+    pending_tag: PedningTag,
+    ready_tag: ReadyTag,
+    callback: F,
+) -> impl WidgetView<State, Action> + use<Pending, Ready, State, Action, PedningTag, ReadyTag, F>
+where
+    State: 'static,
+    Action: 'static,
+    PedningTag: Into<Label>,
+    ReadyTag: Into<Label>,
+    F: Fn(&mut State) -> Action + Send + Sync + 'static,
+{
     match state {
         Future::Ready(status) => {
-            let btn = button(ready_tag, callback);
-            match status {
-                Ok(_) => btn.boxed(),
-                Err(err) => flex((btn, err_prose(err))).boxed(),
-            }
+            flex((button(ready_tag, callback), status.as_ref().err().map(|err| err_prose(err))))
+                .boxed()
         }
-        Future::Pending(_) => flex_row((spinner(), pending_tag.into()))
-            .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .must_fill_major_axis(false)
-            .boxed(),
+        // TODO: use exact button layout
+        Future::Pending(_) => sized_box(
+            flex_row((spinner(), pending_tag.into()))
+                .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                .must_fill_major_axis(false),
+        )
+        .height((FONT_SIZE.get() * 2.0).px())
+        .boxed(),
     }
 }

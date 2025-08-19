@@ -16,22 +16,28 @@ use eyre::WrapErr;
 use image::ImageReader;
 use rfd::FileDialog;
 use teamim::{PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
-use tracing::{debug, error};
+use tracing::error;
 use xilem::{
-    Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
-    core::{fork, lens, map_state},
+    Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
+    WindowOptions, Xilem,
+    core::{fork, map_state},
     masonry::properties::types::{AsUnit, Length},
+    style::{Padding, Style},
     tokio::sync::mpsc::UnboundedSender,
-    view::{ObjectFit, button, flex, image, portal, prose, sized_box, task_raw, worker, zstack},
+    view::{
+        CrossAxisAlignment, MainAxisAlignment, ObjectFit, flex, flex_row, image, portal, prose,
+        sized_box, task_raw, worker, zstack,
+    },
 };
 
 use crate::{
     box_view::tbox,
-    future::{Future, future_btn, spinner},
+    future::{Future, future_btn},
 };
 
 const IMG_EXTS: &[&str] = &["jpg", "jpeg", "png"];
 const FONT_SIZE: Length = Length::const_px(16.);
+const PADDING: Padding = Padding::all(FONT_SIZE.get() * 0.2);
 
 thread_local! {
     static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
@@ -51,23 +57,9 @@ impl LoadedImage {
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         fork(
-            flex((
-                future_btn(
-                    &self.drawing,
-                    "מצייר...",
-                    "צייר טעמים",
-                    |state: &mut Self| {
-                        state
-                            .request
-                            .as_mut()
-                            .expect("draw request sender to be set")
-                            .send(state.img.clone())
-                            .ok();
-                    },
-                ),
-                // TODO: zoom
-                portal(image(&self.img).fit(ObjectFit::FitWidth)),
-            )),
+            // TODO: zoom
+            portal(image(&self.img).fit(ObjectFit::FitWidth)),
+            // draw teamim worker
             worker(
                 move |proxy, mut recv| async move {
                     while let Some(img) = recv.recv().await {
@@ -108,6 +100,7 @@ impl LoadedImage {
     }
 }
 
+const GRAY: Color = Color::from_rgb8(128, 128, 128);
 const RED: Color = Color::from_rgb8(255, 0, 0);
 fn err_prose<S, A>(msg: &eyre::Error) -> impl WidgetView<S, A> + use<S, A> {
     prose(msg.to_string()).text_color(RED)
@@ -127,7 +120,32 @@ struct TaskList {
 impl TaskList {
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         flex((
-            button("בחר תמונה", Self::handle_img_select),
+            // toolbar
+            flex_row((
+                self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
+                    future_btn(
+                        &loaded.drawing,
+                        "מצייר...",
+                        "צייר טעמים",
+                        |state: &mut Self| {
+                            let Future::Ready(Ok(Some(loaded))) = &mut state.img else {
+                                error!("Drawing button pressed while no image is loaded");
+                                return;
+                            };
+                            loaded
+                                .request
+                                .as_mut()
+                                .expect("draw request sender to be set")
+                                .send(loaded.img.clone())
+                                .ok();
+                        },
+                    )
+                }),
+                future_btn(&self.img, "טוען...", "בחר תמונה", Self::handle_img_select),
+            ))
+            .main_axis_alignment(MainAxisAlignment::End)
+            .padding(PADDING)
+            .boxed(),
             match &mut self.img {
                 Future::Pending(path) => {
                     let task = task_raw(
@@ -152,7 +170,15 @@ impl TaskList {
                             state.img = Future::Ready(image.map(|img| Some(LoadedImage::new(img))));
                         },
                     );
-                    fork(flex((spinner(), prose(path.to_string_lossy()))), task).boxed()
+                    fork(
+                        flex(
+                            prose(path.to_string_lossy())
+                                .text_alignment(TextAlign::Center)
+                                .text_color(GRAY),
+                        ),
+                        task,
+                    )
+                    .boxed()
                 }
                 Future::Ready(Ok(Some(loaded))) => map_state(loaded.view(), |state: &mut Self| {
                     // TODO panic???
@@ -166,10 +192,14 @@ impl TaskList {
                     }
                 })
                 .boxed(),
-                Future::Ready(Ok(None)) => prose("לא נבחרה תמונה").boxed(),
+                Future::Ready(Ok(None)) => prose("לא נבחרה תמונה")
+                    .text_alignment(TextAlign::Center)
+                    .text_color(GRAY)
+                    .boxed(),
                 Future::Ready(Err(msg)) => err_prose(msg).boxed(),
             },
         ))
+        .cross_axis_alignment(CrossAxisAlignment::Fill)
     }
 
     fn handle_img_select(&mut self) {
@@ -192,7 +222,7 @@ where
 fn run(event_loop: EventLoopBuilder) -> eyre::Result<()> {
     let data = TaskList { img: Future::Ready(Ok(None)) };
 
-    let app = Xilem::new_simple(data, TaskList::view, WindowOptions::new("To Do MVC"));
+    let app = Xilem::new_simple(data, TaskList::view, WindowOptions::new("טעמים"));
     app.run_in(event_loop).wrap_err("event loop error")
 }
 
