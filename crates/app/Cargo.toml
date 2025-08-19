@@ -10,7 +10,7 @@ rfd = "0.15.4"
 smallvec = "1.15.1"
 teamim = { version = "0.1.0", path = "../.." }
 tracing = "0.1.41"
-xilem = { git = "https://github.com/linebender/xilem", rev = "05888a2be02a5de10516b6c4d64fce693e843b2b", version = "0.3.0" }
+xilem = { git = "https://github.com/linebender/xilem", rev = "4823145e1756ff5773f5c2bfc24322e04e06fa93" }
 
 [lints]
 workspace = true
