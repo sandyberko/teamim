@@ -7,8 +7,6 @@ mod box_view;
 
 use std::{
     cell::RefCell,
-    fs::File,
-    io::BufReader,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -56,7 +54,13 @@ impl LoadedImage {
     }
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
-        flex((draw_btn(&self.drawing, Self::handle_draw_teamim), portal(image(&self.img)))).boxed()
+        flex((
+            map_action(draw_btn(&self.drawing), |state: &mut Self, DrawMesssage| {
+                state.handle_draw_teamim();
+            }),
+            portal(image(&self.img)),
+        ))
+        .boxed()
     }
 
     // TODO task
@@ -92,21 +96,17 @@ enum DrawingState {
     Drawing,
 }
 
-fn draw_btn<'prop, State, Action, F>(
-    state: &'prop DrawingState,
-    callback: F,
-) -> impl WidgetView<State, Action> + use<State, Action, F> + 'static
-where
-    State: 'static,
-    Action: 'static,
-    F: for<'a> Fn(&'a mut State) -> Action + Send + Sync + 'static,
-{
+struct DrawMesssage;
+
+fn draw_btn<State: 'static>(
+    state: &DrawingState,
+) -> impl WidgetView<State, DrawMesssage> + use<State> {
     match state {
         DrawingState::Idle(status) => {
-            let btn = button("צייר טעמים", callback);
+            let btn = button("צייר טעמים", |_| DrawMesssage);
             match status {
                 Ok(()) => btn.boxed(),
-                Err(err) => flex((map_action(btn, |_, _| todo!()), err_prose(err))).boxed(),
+                Err(err) => flex((btn, err_prose(err))).boxed(),
             }
         }
         DrawingState::Drawing => flex((spinner(), prose("מצייר..."))).boxed(),
