@@ -18,7 +18,7 @@ use teamim::{PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 use tracing::{debug, error};
 use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
-    core::{fork, lens, map_action, map_state},
+    core::{fork, lens, map_state},
     masonry::properties::types::{AsUnit, Length},
     tokio::sync::mpsc::UnboundedSender,
     view::{
@@ -51,19 +51,19 @@ thread_local! {
 #[derive(Debug)]
 struct LoadedImage {
     img: Image,
-    drawing: DrawingState<()>,
+    drawing: Future<()>,
     request: Option<UnboundedSender<Image>>,
 }
 
 impl LoadedImage {
     fn new(img: Image) -> Self {
-        Self { img, drawing: DrawingState::Ready(Ok(())), request: None }
+        Self { img, drawing: Future::Ready(Ok(())), request: None }
     }
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         fork(
             flex((
-                map_action(draw_btn(&self.drawing), |state: &mut Self, DrawMesssage| {
+                future_btn(&self.drawing, |state: &mut Self| {
                     state
                         .request
                         .as_mut()
@@ -77,13 +77,13 @@ impl LoadedImage {
             worker(
                 move |proxy, mut recv| async move {
                     while let Some(img) = recv.recv().await {
-                        proxy.message(DrawingState::Pending).ok();
+                        proxy.message(Future::Pending).ok();
                         let result = Self::draw_teamim(&img);
-                        proxy.message(DrawingState::Ready(result)).ok();
+                        proxy.message(Future::Ready(result)).ok();
                     }
                 },
                 |state: &mut Self, sender| state.request = Some(sender),
-                |state: &mut Self, resp: DrawingState<Blob<u8>>| {
+                |state: &mut Self, resp: Future<Blob<u8>>| {
                     state.drawing = resp.map(|data| {
                         state.img.data = data;
                     });
@@ -115,37 +115,36 @@ impl LoadedImage {
 }
 
 #[derive(Debug)]
-enum DrawingState<T> {
+enum Future<T> {
     Ready(eyre::Result<T>),
     Pending,
 }
 
-impl<T> DrawingState<T> {
-    fn map<U, F>(self, f: F) -> DrawingState<U>
+impl<T> Future<T> {
+    fn map<U, F>(self, f: F) -> Future<U>
     where
         F: FnOnce(T) -> U,
     {
         match self {
-            Self::Ready(result) => DrawingState::Ready(result.map(f)),
-            Self::Pending => DrawingState::Pending,
+            Self::Ready(result) => Future::Ready(result.map(f)),
+            Self::Pending => Future::Pending,
         }
     }
 }
 
-struct DrawMesssage;
-
-fn draw_btn<State: 'static>(
-    state: &DrawingState<()>,
-) -> impl WidgetView<State, DrawMesssage> + use<State> {
+fn future_btn<State: 'static, Action: 'static>(
+    state: &Future<()>,
+    callback: impl Fn(&mut State) -> Action + Send + Sync + 'static,
+) -> impl WidgetView<State, Action> {
     match state {
-        DrawingState::Ready(status) => {
-            let btn = button("צייר טעמים", |_| DrawMesssage);
+        Future::Ready(status) => {
+            let btn = button("צייר טעמים", callback);
             match status {
                 Ok(()) => btn.boxed(),
                 Err(err) => flex((btn, err_prose(err))).boxed(),
             }
         }
-        DrawingState::Pending => flex_row((spinner(), prose("מצייר...")))
+        Future::Pending => flex_row((spinner(), prose("מצייר...")))
             .main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .must_fill_major_axis(false)
             .boxed(),
