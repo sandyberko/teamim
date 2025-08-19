@@ -19,7 +19,8 @@ use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, WidgetView, WindowOptions, Xilem,
     core::{fork, lens, map_action, map_state},
     masonry::properties::types::{AsUnit, Length},
-    view::{button, flex, image, portal, prose, sized_box, task_raw, zstack},
+    tokio::sync::mpsc::UnboundedSender,
+    view::{button, flex, image, portal, prose, sized_box, task_raw, worker, zstack},
 };
 
 use crate::box_view::tbox;
@@ -31,7 +32,7 @@ fn spinner<S: 'static, A: 'static>() -> impl WidgetView<S, A> + use<S, A> {
     sized_box(xilem::view::spinner()).height(FONT_SIZE).width(FONT_SIZE)
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 enum ImgState {
     #[default]
     None,
@@ -43,73 +44,103 @@ thread_local! {
     static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
 }
 
+#[derive(Debug)]
 struct LoadedImage {
     img: Image,
-    drawing: DrawingState,
+    drawing: DrawingState<()>,
+    request: Option<UnboundedSender<Image>>,
 }
 
 impl LoadedImage {
     fn new(img: Image) -> Self {
-        Self { img, drawing: DrawingState::Idle(Ok(())) }
+        Self { img, drawing: DrawingState::Ready(Ok(())), request: None }
     }
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
-        flex((
-            map_action(draw_btn(&self.drawing), |state: &mut Self, DrawMesssage| {
-                state.handle_draw_teamim();
-            }),
-            portal(image(&self.img)),
-        ))
+        fork(
+            flex((
+                map_action(draw_btn(&self.drawing), |state: &mut Self, DrawMesssage| {
+                    state
+                        .request
+                        .as_mut()
+                        .expect("draw request sender to be set")
+                        .send(state.img.clone())
+                        .ok();
+                }),
+                portal(image(&self.img)),
+            )),
+            worker(
+                move |proxy, mut recv| async move {
+                    while let Some(img) = recv.recv().await {
+                        proxy.message(DrawingState::Pending).ok();
+                        let result = Self::draw_teamim(&img);
+                        proxy.message(DrawingState::Ready(result)).ok();
+                    }
+                },
+                |state: &mut Self, sender| state.request = Some(sender),
+                |state: &mut Self, resp: DrawingState<Blob<u8>>| {
+                    state.drawing = resp.map(|data| {
+                        state.img.data = data;
+                    });
+                },
+            ),
+        )
         .boxed()
     }
 
-    // TODO task
-    fn handle_draw_teamim(&mut self) {
-        let result = TEAMIM_CTX.with_borrow_mut(|ctx| {
+    fn draw_teamim(img: &Image) -> eyre::Result<Blob<u8>> {
+        TEAMIM_CTX.with_borrow_mut(|ctx| {
             if ctx.is_none() {
                 *ctx = Some(TeamimCtx::new()?);
             }
-            self.try_handle_draw_teamim(ctx.as_mut().unwrap())
-        });
-        if let Err(err) = result {
-            self.drawing = DrawingState::Idle(Err(err));
-        }
-    }
+            let ctx = ctx.as_mut().unwrap();
 
-    fn try_handle_draw_teamim(&mut self, ctx: &mut TeamimCtx) -> eyre::Result<()> {
-        let options = PlaceOptions::default();
-        let mut data = self.img.data.data().to_vec();
-        PixBox::from_rgba8_with(
-            &mut data,
-            self.img.width.try_into().unwrap(),
-            self.img.height.try_into().unwrap(),
-            |img| ctx.place_teamim_pix(img, options),
-        )
-        .unwrap_or_else(|err| Err(err.into()))?;
-        self.img.data = Blob::new(Arc::new(data));
-        Ok(())
+            let options = PlaceOptions::default();
+            let mut data = img.data.data().to_vec();
+            PixBox::from_rgba8_with(
+                &mut data,
+                img.width.try_into().unwrap(),
+                img.height.try_into().unwrap(),
+                |img| ctx.place_teamim_pix(img, options),
+            )
+            .unwrap_or_else(|err| Err(err.into()))?;
+            Ok(Blob::new(Arc::new(data)))
+        })
     }
 }
 
-enum DrawingState {
-    Idle(eyre::Result<()>),
-    Drawing,
+#[derive(Debug)]
+enum DrawingState<T> {
+    Ready(eyre::Result<T>),
+    Pending,
+}
+
+impl<T> DrawingState<T> {
+    fn map<U, F>(self, f: F) -> DrawingState<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Self::Ready(result) => DrawingState::Ready(result.map(f)),
+            Self::Pending => DrawingState::Pending,
+        }
+    }
 }
 
 struct DrawMesssage;
 
 fn draw_btn<State: 'static>(
-    state: &DrawingState,
+    state: &DrawingState<()>,
 ) -> impl WidgetView<State, DrawMesssage> + use<State> {
     match state {
-        DrawingState::Idle(status) => {
+        DrawingState::Ready(status) => {
             let btn = button("צייר טעמים", |_| DrawMesssage);
             match status {
                 Ok(()) => btn.boxed(),
                 Err(err) => flex((btn, err_prose(err))).boxed(),
             }
         }
-        DrawingState::Drawing => flex((spinner(), prose("מצייר..."))).boxed(),
+        DrawingState::Pending => flex((spinner(), prose("מצייר..."))).boxed(),
     }
 }
 
@@ -147,7 +178,11 @@ impl ImgState {
             }
             Self::Loaded(Ok(loaded)) => map_state(loaded.view(), |img_state: &mut Self| {
                 // TODO panic???
-                if let Self::Loaded(Ok(loaded)) = img_state { loaded } else { panic!() }
+                if let Self::Loaded(Ok(loaded)) = img_state {
+                    loaded
+                } else {
+                    panic!("LoadedState rquested while img_state is {img_state:?}")
+                }
             })
             .boxed(),
             Self::Loaded(Err(msg)) => err_prose(msg).boxed(),
