@@ -4,16 +4,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod box_view;
-mod future;
+mod job;
+mod view_ext;
 
-use std::{
-    cell::RefCell,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{cell::RefCell, path::Path, sync::Arc};
 
-use eyre::WrapErr;
-use image::ImageReader;
+use eyre::{OptionExt, WrapErr};
+use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
 use teamim::{PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 use tracing::error;
@@ -23,16 +20,16 @@ use xilem::{
     core::{fork, map_state},
     masonry::properties::types::{AsUnit, Length},
     style::{Padding, Style},
-    tokio::sync::mpsc::UnboundedSender,
     view::{
         CrossAxisAlignment, MainAxisAlignment, ObjectFit, flex, flex_row, image, portal, prose,
-        sized_box, task_raw, worker, zstack,
+        sized_box, task_raw, zstack,
     },
 };
 
 use crate::{
     box_view::tbox,
-    future::{Future, future_btn},
+    job::{FutureSender, Job, future_btn},
+    view_ext::ViewExt,
 };
 
 const IMG_EXTS: &[&str] = &["jpg", "jpeg", "png"];
@@ -44,39 +41,74 @@ thread_local! {
 }
 
 #[derive(Debug)]
+enum ModifiedState {
+    Unmodified,
+    Modified { saving: FutureSender<(Image, Arc<Path>), ()> },
+}
+
+impl ModifiedState {
+    pub(crate) fn new_modified() -> Self {
+        Self::Modified { saving: FutureSender::new(()) }
+    }
+
+    fn modified_mut(&mut self) -> Option<&mut FutureSender<(Image, Arc<Path>), ()>> {
+        match self {
+            Self::Modified { saving } => Some(saving),
+            Self::Unmodified => None,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct LoadedImage {
+    path: Arc<Path>,
     img: Image,
-    drawing: Future<(), ()>,
-    request: Option<UnboundedSender<Image>>,
+    drawing: FutureSender<Image, ModifiedState>,
 }
 
 impl LoadedImage {
-    fn new(img: Image) -> Self {
-        Self { img, drawing: Future::Ready(Ok(())), request: None }
+    fn new(img: Image, path: Arc<Path>) -> Self {
+        Self { img, path, drawing: FutureSender::new(ModifiedState::Unmodified) }
     }
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
+        let draw_worker =
+            FutureSender::worker(Self::draw_teamim, |_| ModifiedState::new_modified())
+                .map_state::<Self, _>(|loaded_img| &mut loaded_img.drawing)
+                .map_action(|loaded_img, data| {
+                    let Some(data) = data else { return };
+                    data.clone_into(&mut loaded_img.img.data);
+                });
+
+        let err_msg = "saving when image is modified";
+        let save_worker = FutureSender::worker(Self::try_save, |()| ())
+            .map_state::<Self, _>(|loaded_image| {
+                loaded_image
+                    .drawing
+                    .state
+                    .ready_ok_mut()
+                    .and_then(ModifiedState::modified_mut)
+                    .expect(err_msg)
+            })
+            .map_action(|loaded_img, done| {
+                if done.is_some() {
+                    *loaded_img.drawing.state.ready_ok_mut().expect(err_msg) =
+                        ModifiedState::Unmodified;
+                }
+            });
+
         fork(
             // TODO: zoom
             portal(image(&self.img).fit(ObjectFit::FitWidth)),
-            // draw teamim worker
-            worker(
-                move |proxy, mut recv| async move {
-                    while let Some(img) = recv.recv().await {
-                        proxy.message(Future::Pending(())).ok();
-                        let result = Self::draw_teamim(&img);
-                        proxy.message(Future::Ready(result)).ok();
-                    }
-                },
-                |state: &mut Self, sender| state.request = Some(sender),
-                |state: &mut Self, resp: Future<(), Blob<u8>>| {
-                    state.drawing = resp.map(|data| {
-                        state.img.data = data;
-                    });
-                },
+            (
+                draw_worker,
+                self.drawing
+                    .state
+                    .ready_ok_mut()
+                    .and_then(ModifiedState::modified_mut)
+                    .map(|_| save_worker),
             ),
         )
-        .boxed()
     }
 
     fn draw_teamim(img: &Image) -> eyre::Result<Blob<u8>> {
@@ -98,15 +130,36 @@ impl LoadedImage {
             Ok(Blob::new(Arc::new(data)))
         })
     }
+
+    fn try_save((img, path): &(Image, Arc<Path>)) -> eyre::Result<()> {
+        let mut dialog = FileDialog::new().set_title("שמור תמונה").add_filter("תמונה", IMG_EXTS);
+        if let Some(dir) = path.parent() {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(file_name) = path.file_name() {
+            dialog = dialog.set_file_name(file_name.to_str().ok_or_eyre("שם הקובץ  לא תקין")?);
+        }
+        let path = dialog.save_file().ok_or_eyre("שמירה בוטלה")?;
+        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(img.width, img.height, img.data.data())
+            .expect("`data` to be big enough for width * height");
+        let format = image::ImageFormat::from_path(&path)?;
+        let err_msg = "שמירה נכשלה";
+        if format == image::ImageFormat::Jpeg {
+            // FIXME: red diacs?
+            ConvertBuffer::<ImageBuffer<Rgb<u8>, _>>::convert(&img)
+                .save_with_format(&path, format)
+                .wrap_err(err_msg)?;
+        } else {
+            img.save_with_format(&path, format).wrap_err(err_msg)?;
+        }
+        Ok(())
+    }
 }
 
 const GRAY: Color = Color::from_rgb8(128, 128, 128);
 const RED: Color = Color::from_rgb8(255, 0, 0);
-fn err_prose<S, A>(msg: &eyre::Error) -> impl WidgetView<S, A> + use<S, A> {
-    prose(msg.to_string()).text_color(RED)
-}
 
-fn image_from_path(path: impl AsRef<Path>) -> eyre::Result<Image> {
+fn image_read(path: impl AsRef<Path>) -> eyre::Result<Image> {
     let image = ImageReader::open(path)?.decode()?.into_rgba8();
     let width = image.width();
     let height = image.height();
@@ -115,74 +168,98 @@ fn image_from_path(path: impl AsRef<Path>) -> eyre::Result<Image> {
 }
 
 struct TaskList {
-    img: Future<Arc<PathBuf>, Option<LoadedImage>>,
+    img: Job<Option<LoadedImage>, Arc<Path>>,
 }
 impl TaskList {
+    fn handle_draw(&mut self) {
+        let Job::Ready(Ok(Some(loaded))) = &mut self.img else {
+            error!("Drawing button pressed while no image is loaded");
+            return;
+        };
+        loaded
+            .drawing
+            .sender
+            .as_mut()
+            .expect("draw request sender to be set")
+            .send(loaded.img.clone())
+            .ok();
+    }
+
+    fn handle_save_req(&mut self) {
+        let Some(img) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
+            error!("Saving button pressed when image is not modified");
+            return;
+        };
+
+        let payload = (img.img.clone(), Arc::clone(&img.path));
+
+        let Some(saving) = img.drawing.state.ready_ok_mut().and_then(ModifiedState::modified_mut)
+        else {
+            error!("Saving button pressed when image is not modified");
+            return;
+        };
+
+        saving.sender.as_mut().expect("save request sender to be set").send(payload).ok();
+    }
+
+    fn handle_img_select(&mut self) {
+        self.img = FileDialog::new()
+            .set_title("בחר תמונה")
+            .add_filter("תמונה", IMG_EXTS)
+            .pick_file()
+            .map_or(Job::Ready(Ok(None)), |path| Job::Running(path.into()));
+    }
+
+    fn view_pending(path: &Arc<Path>) -> impl WidgetView<Self> + use<> {
+        let draw_task = task_raw(
+            {
+                let path = path.clone();
+                move |proxy| {
+                    // TODO double clone?
+                    let path = path.clone();
+                    async move {
+                        let img = image_read(&path).inspect_err(|err| {
+                            tracing::warn!("Loading image from {} failed: {err:?}", path.display());
+                        });
+                        proxy.message((img, path)).ok();
+                    }
+                }
+            },
+            move |state: &mut Self, (image, path)| {
+                state.img = Job::Ready(image.map(|img| Some(LoadedImage::new(img, path))));
+            },
+        );
+
+        fork(
+            flex(prose(path.to_string_lossy()).text_alignment(TextAlign::Center).text_color(GRAY)),
+            draw_task,
+        )
+    }
+
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         flex((
             // toolbar
             flex_row((
-                self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
-                    future_btn(
-                        &loaded.drawing,
-                        "מצייר...",
-                        "צייר טעמים",
-                        |state: &mut Self| {
-                            let Future::Ready(Ok(Some(loaded))) = &mut state.img else {
-                                error!("Drawing button pressed while no image is loaded");
-                                return;
-                            };
-                            loaded
-                                .request
-                                .as_mut()
-                                .expect("draw request sender to be set")
-                                .send(loaded.img.clone())
-                                .ok();
-                        },
-                    )
+                // save
+                self.img.ready_ok_mut().and_then(|img| {
+                    let saving = img.as_mut()?.drawing.state.ready_ok_mut()?.modified_mut()?;
+                    Some(future_btn(&saving.state, "שומר...", "שמור", Self::handle_save_req))
                 }),
+                // draw
+                self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
+                    future_btn(&loaded.drawing.state, "מצייר...", "צייר טעמים", Self::handle_draw)
+                }),
+                // select
                 future_btn(&self.img, "טוען...", "בחר תמונה", Self::handle_img_select),
             ))
             .main_axis_alignment(MainAxisAlignment::End)
             .padding(PADDING)
             .boxed(),
             match &mut self.img {
-                Future::Pending(path) => {
-                    let task = task_raw(
-                        {
-                            let path = path.clone();
-                            move |proxy| {
-                                // TODO double clone?
-                                let path = path.clone();
-                                async move {
-                                    let path_str = path.display();
-                                    let result = image_from_path(&*path);
-                                    if let Err(err) = &result {
-                                        tracing::warn!(
-                                            "Loading image from {path_str} failed: {err:?}"
-                                        );
-                                    }
-                                    let _ = proxy.message(result);
-                                }
-                            }
-                        },
-                        move |state: &mut Self, image| {
-                            state.img = Future::Ready(image.map(|img| Some(LoadedImage::new(img))));
-                        },
-                    );
-                    fork(
-                        flex(
-                            prose(path.to_string_lossy())
-                                .text_alignment(TextAlign::Center)
-                                .text_color(GRAY),
-                        ),
-                        task,
-                    )
-                    .boxed()
-                }
-                Future::Ready(Ok(Some(loaded))) => map_state(loaded.view(), |state: &mut Self| {
+                Job::Running(path) => Self::view_pending(path).boxed(),
+                Job::Ready(Ok(Some(loaded))) => map_state(loaded.view(), |state: &mut Self| {
                     // TODO panic???
-                    if let Future::Ready(Ok(Some(loaded))) = &mut state.img {
+                    if let Job::Ready(Ok(Some(loaded))) = &mut state.img {
                         loaded
                     } else {
                         // error!("LoadedState rquested while state.img is {:?}", state.img);
@@ -192,21 +269,14 @@ impl TaskList {
                     }
                 })
                 .boxed(),
-                Future::Ready(Ok(None)) => prose("לא נבחרה תמונה")
+                Job::Ready(Ok(None)) => prose("לא נבחרה תמונה")
                     .text_alignment(TextAlign::Center)
                     .text_color(GRAY)
                     .boxed(),
-                Future::Ready(Err(msg)) => err_prose(msg).boxed(),
+                Job::Ready(Err(_)) => prose("🖼️").boxed(),
             },
         ))
         .cross_axis_alignment(CrossAxisAlignment::Fill)
-    }
-
-    fn handle_img_select(&mut self) {
-        self.img = FileDialog::new()
-            .add_filter("תמונה", IMG_EXTS)
-            .pick_file()
-            .map_or(Future::Ready(Ok(None)), |path| Future::Pending(Arc::new(path)));
     }
 }
 
@@ -220,7 +290,7 @@ where
 }
 
 fn run(event_loop: EventLoopBuilder) -> eyre::Result<()> {
-    let data = TaskList { img: Future::Ready(Ok(None)) };
+    let data = TaskList { img: Job::Ready(Ok(None)) };
 
     let app = Xilem::new_simple(data, TaskList::view, WindowOptions::new("טעמים"));
     app.run_in(event_loop).wrap_err("event loop error")

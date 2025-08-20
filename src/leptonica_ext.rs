@@ -67,12 +67,17 @@ impl PixBox {
         height: i32,
         f: impl FnOnce(&mut Self) -> Out,
     ) -> eyre::Result<Out> {
+        // TODO depth from size_of::<Pixel>
         // see [pixCreateNoInit](https://tpgit.github.io/Leptonica/leptprotos_8h.html#ae543abd33a12b28abe481e36b1bbf21f)
         let pix = unsafe { leptonica_sys::pixCreateHeader(width, height, 32) };
         let pix = NonNull::new(pix).ok_or_eyre("failed to create pix")?;
         let mut pix = ManuallyDrop::new(Self(pix));
         let wpl = pix.get_wpl();
-        assert_eq!(data.len(), wpl as usize * CHANNELS * height as usize, "data length mismatch");
+        assert_eq!(
+            data.len(),
+            usize::try_from(wpl)? * CHANNELS * usize::try_from(height)?,
+            "data length mismatch"
+        );
         unsafe { leptonica_sys::pixSetData(pix.as_mut_ptr(), data.as_mut_ptr().cast()) };
         unsafe { leptonica_sys::pixSetPadBits(pix.as_mut_ptr(), 0) };
         let result = f(&mut pix);

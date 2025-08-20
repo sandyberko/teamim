@@ -1,5 +1,12 @@
 # TODO
 
+## xilem app
+- save image to file
+- select multiple images and folders
+- misses
+
+## other
+
 - use `ab_glyph` directly for better RTL support, warping, and finding bounding boxes
 - Rect should be u32? right?
 - boxedit: `box-container` isn't getting a size
@@ -65,7 +72,6 @@ I think I'll stick with box files:
   - save as Pix 1bit masks?
   - resize per set of images
 - TryInto & TryFrom for BoundingBox
-- remove leptess, depend on \*-sys instead
 - box file origin bottom-left for training
 - boxedit
   - diff
