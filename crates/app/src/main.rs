@@ -18,7 +18,7 @@ use xilem::{
     WindowOptions, Xilem,
     core::{MessageProxy, MessageResult, fork},
     masonry::properties::types::{AsUnit, Length},
-    style::{Padding, Style},
+    style::{Background, Padding, Style},
     tokio::sync::mpsc::UnboundedSender,
     view::{
         CrossAxisAlignment, MainAxisAlignment, ObjectFit, flex, flex_row, image, label, portal,
@@ -280,8 +280,33 @@ impl TaskList {
                 match &mut self.loading {
                     JobState::Running(path) => Self::view_pending(path).map_message(nop).boxed(),
                     JobState::Ready(Ok(Some(loaded))) => {
-                        // TODO: zoom
-                        portal(image(&loaded.img).fit(ObjectFit::FitWidth)).boxed()
+                        flex((
+                            loaded.drawing.ready_ok_mut().and_then(DrawIdle::modified_mut).map(
+                                |modified| {
+                                    sized_box(
+                                        flex_row(
+                                            modified
+                                                .misses
+                                                .iter()
+                                                .map(|miss| prose(miss.char_idx.to_string()))
+                                                .collect::<Vec<_>>(),
+                                        )
+                                        .main_axis_alignment(MainAxisAlignment::Start)
+                                        .padding(PADDING)
+                                        .background(Background::Color(Color::from_rgba8(
+                                            255, 200, 200, 200,
+                                        )))
+                                        .border(Color::from_rgb8(255, 0, 0), 2.)
+                                        .corner_radius(8.),
+                                    )
+                                    .width(300.px())
+                                    .height(200.px())
+                                }
+                            ),
+                            // TODO: zoom
+                            portal(image(&loaded.img).fit(ObjectFit::FitWidth)),
+                        ))
+                        .boxed()
                     }
                     JobState::Ready(Ok(None)) => label("לא נבחרה תמונה")
                         .text_alignment(TextAlign::Center)
