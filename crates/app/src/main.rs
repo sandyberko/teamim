@@ -12,7 +12,7 @@ use std::{cell::RefCell, path::Path, sync::Arc};
 use eyre::{OptionExt, WrapErr};
 use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
-use teamim::{DiacMiss, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
     WindowOptions, Xilem,
@@ -74,12 +74,12 @@ impl DrawIdle {
     }
 }
 
-type DrawingJob = JobState<DrawIdle>;
+type DrawingJob = JobState<DrawIdle, Option<DrawProgress>>;
 
 #[derive(Debug)]
 enum Msg {
     Select(JobState<LoadedImage>),
-    Draw(JobState<DrawIdle>),
+    Draw(DrawingJob),
     Save(JobState<()>),
 }
 
@@ -145,7 +145,7 @@ fn try_save((img, path): &(Image, Arc<Path>)) -> eyre::Result<()> {
     Ok(())
 }
 
-fn draw_teamim(img: &Image) -> eyre::Result<Modified> {
+fn draw_teamim(img: &Image, progress_callback: impl Fn(DrawProgress)) -> eyre::Result<Modified> {
     TEAMIM_CTX.with_borrow_mut(|ctx| {
         if ctx.is_none() {
             *ctx = Some(TeamimCtx::new()?);
@@ -158,7 +158,7 @@ fn draw_teamim(img: &Image) -> eyre::Result<Modified> {
             &mut data,
             img.width.try_into().unwrap(),
             img.height.try_into().unwrap(),
-            |img| ctx.place_teamim_pix(img, options),
+            |img| ctx.place_teamim_pix(img, options, progress_callback),
         )
         .unwrap_or_else(|err| Err(err.into()))?;
         let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
@@ -217,11 +217,14 @@ impl TaskList {
                     return MessageResult::Stale;
                 };
                 match &job_state {
-                    JobState::Running(()) => {
+                    JobState::Running(None) => {
                         let Some(sender) = self.sender.as_ref() else {
                             return MessageResult::Stale;
                         };
                         sender.send(ChanMsg::Draw(loaded.img.clone())).ok();
+                    }
+                    JobState::Running(progress @ Some(_)) => {
+                        loaded.drawing = JobState::Running(*progress)
                     }
                     JobState::Ready(Ok(DrawIdle::Modified(modified))) => {
                         loaded.img = modified.image.clone();
@@ -294,6 +297,18 @@ impl TaskList {
     fn toolbar<State: Send + Sync + 'static>(&self) -> impl WidgetView<State, Msg> {
         flex_row((
             self.loading.ready_ok().and_then(Option::as_ref).map(|loaded| {
+                let draw_progress_tag = if let JobState::Running(Some(progress)) = &loaded.drawing {
+                    match progress {
+                        DrawProgress::Recognizing => "מזהה...",
+                        DrawProgress::ImageEffects => "עיבוד תמונה...",
+                        DrawProgress::Searching => "מחפש...",
+                        DrawProgress::Diffing => "משווה...",
+                        DrawProgress::Placing => "מניח...",
+                    }
+                } else {
+                    "מצייר..."
+                };
+
                 (
                     loaded.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
                         // save
@@ -302,8 +317,8 @@ impl TaskList {
                         })
                     }),
                     // draw
-                    job_btn(&loaded.drawing, "מצייר...", "צייר טעמים", |_| {
-                        Msg::Draw(JobState::Running(()))
+                    job_btn(&loaded.drawing, draw_progress_tag, "צייר טעמים", |_| {
+                        Msg::Draw(JobState::Running(None))
                     }),
                 )
             }),
@@ -329,8 +344,10 @@ async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
                 proxy.message(Msg::Select(JobState::Ready(loaded))).ok();
             }
             ChanMsg::Draw(image) => {
-                let result = draw_teamim(&image).map(DrawIdle::Modified);
-                proxy.message(Msg::Draw(JobState::Ready(result))).ok();
+                let result = draw_teamim(&image, |progress| {
+                    proxy.message(Msg::Draw(job::JobState::Running(Some(progress)))).ok();
+                });
+                proxy.message(Msg::Draw(JobState::Ready(result.map(DrawIdle::Modified)))).ok();
             }
             ChanMsg::Save(image, path) => {
                 let result = try_save(&(image, path));

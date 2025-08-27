@@ -44,6 +44,15 @@ pub struct DiacMiss {
     pub top: i32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DrawProgress {
+    Recognizing,
+    ImageEffects,
+    Searching,
+    Diffing,
+    Placing,
+}
+
 #[derive(Clone)]
 pub struct TeamimCtx {
     tess: Tess,
@@ -119,7 +128,7 @@ impl TeamimCtx {
     pub fn place_teamim(&mut self, img: &[u8], options: PlaceOptions) -> Result<Buf, PlaceError> {
         let mut img = Pix::read_mem(img)?;
         img = img.into_32()?;
-        self.place_teamim_pix(&mut img, options)?;
+        self.place_teamim_pix(&mut img, options, |_| ())?;
         Ok(img.copy_to_png()?)
     }
 
@@ -127,7 +136,9 @@ impl TeamimCtx {
         &mut self,
         img: &mut Pix,
         options: PlaceOptions,
+        progress_callback: impl Fn(DrawProgress),
     ) -> Result<Vec<DiacMiss>, PlaceError> {
+        progress_callback(DrawProgress::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
 
@@ -145,6 +156,7 @@ impl TeamimCtx {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        progress_callback(DrawProgress::ImageEffects);
         if options.blur != 0 {
             img.blur(options.blur)?;
         }
@@ -155,14 +167,17 @@ impl TeamimCtx {
 
         let options = options.estimate_scale(&boxes);
 
+        progress_callback(DrawProgress::Searching);
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
         let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
 
         // diff
+        progress_callback(DrawProgress::Diffing);
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let mut remapper = diff.ops().iter().peekable();
 
+        progress_callback(DrawProgress::Placing);
         let mut last_diacrit_top = 0;
         let mut misses = Vec::new();
 

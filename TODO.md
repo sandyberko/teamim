@@ -6,8 +6,8 @@
 - misses
 - RTL flex
 - PlaceOptions, drawing option
-- show progress details in draw button: detecting, searching, success, etc.
 - save extension title
+- indicate success
 
 ## other
 
