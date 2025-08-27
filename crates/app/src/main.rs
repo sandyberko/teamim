@@ -14,15 +14,15 @@ use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
 use teamim::{DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 use xilem::{
-    Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
+    Affine, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
     WindowOptions, Xilem,
     core::{MessageProxy, MessageResult, fork, lens},
-    masonry::properties::types::{AsUnit, Length},
-    style::{Background, Padding, Style},
+    masonry::properties::types::{AsUnit, Length, UnitPoint},
+    style::{Padding, Style},
     tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
-        CrossAxisAlignment, MainAxisAlignment, ObjectFit, checkbox, flex, flex_row, image, label,
-        portal, prose, sized_box, text_input, worker, zstack,
+        CrossAxisAlignment, MainAxisAlignment, ObjectFit, ZStackItem, checkbox, flex, flex_row,
+        image, label, portal, prose, sized_box, text_input, worker, zstack, zstack_item,
     },
 };
 
@@ -91,6 +91,7 @@ struct LoadedImage {
     drawing: DrawingJob,
 }
 
+const DIAC_MISSES: &str = " טעמים חסרים";
 impl LoadedImage {
     fn new(img: Image, path: Arc<Path>) -> Self {
         Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)) }
@@ -98,29 +99,36 @@ impl LoadedImage {
 
     fn view(&self) -> impl WidgetView<TaskList, Msg> + use<> {
         flex((
-            self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
-                sized_box(portal(
-                    flex_row(
-                        modified
-                            .misses
-                            .iter()
-                            .map(|miss| prose(miss.char_idx.to_string()))
-                            .collect::<Vec<_>>(),
-                    )
-                    .main_axis_alignment(MainAxisAlignment::Start)
-                    .padding(PADDING)
-                    .background(Background::Color(Color::from_rgba8(255, 200, 200, 200)))
-                    .border(Color::from_rgb8(255, 0, 0), 2.)
-                    .corner_radius(8.),
-                ))
-                .width(300.px())
-                .height(200.px())
-            }),
             lens(place_opts_form, |app: &mut TaskList| &mut app.place_opts)
                 .map_action(|_, _| Msg::PlaceOpts),
+            self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
+                flex_row((label(DIAC_MISSES), label(modified.misses.len().to_string())))
+            }),
             // TODO: zoom
-            portal(image(&self.img).fit(ObjectFit::FitWidth)),
+            portal(zstack((image(&self.img).fit(ObjectFit::FitWidth), self.misses_view()))),
         ))
+    }
+
+    fn misses_view(
+        &self,
+    ) -> Vec<ZStackItem<impl WidgetView<TaskList, Msg> + use<>, TaskList, Msg>> {
+        self.drawing
+            .ready_ok()
+            .and_then(DrawIdle::modified)
+            .into_iter()
+            .flat_map(|modified| {
+                modified.misses.iter().enumerate().map(|(i, miss)| {
+                    zstack_item(
+                        prose(Arc::clone(&miss.missing_text))
+                            .text_color(RED)
+                            .text_size(FONT_SIZE.get() as f32 * 2.),
+                        UnitPoint::TOP_LEFT,
+                    )
+                    // .transform(Affine::translate((miss.left as f64, miss.top as f64)))
+                    // .transform(Affine::translate((-20., (FONT_SIZE.get() * 2. * i as f64))))
+                })
+            })
+            .collect()
     }
 }
 

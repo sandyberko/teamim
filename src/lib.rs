@@ -10,14 +10,14 @@ use std::{
     fmt::Write as _,
     fs,
     path::Path,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use eyre::{OptionExt, WrapErr, bail, eyre};
 use glyph::{GLYPHS, Placement};
 use leptonica_ext::{Buf, PixBox as Pix};
 use serde::Serialize;
-use similar::{Algorithm, DiffTag, TextDiff};
+use similar::{Algorithm, DiffTag, TextDiff, utils::TextDiffRemapper};
 use tesseract_ext::{
     PageIteratorLevel, PageSegMode, Tess, Text,
     bounding_box::{BoundingBox, Rect},
@@ -42,6 +42,8 @@ pub struct DiacMiss {
     pub diacritic: char,
     pub char_idx: usize,
     pub top: i32,
+    pub left: i32,
+    pub missing_text: Arc<str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -175,17 +177,19 @@ impl TeamimCtx {
         progress_callback(DrawProgress::Diffing);
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
-        let mut remapper = diff.ops().iter().peekable();
+        let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
+        let mut ops = diff.ops().iter().peekable();
 
         progress_callback(DrawProgress::Placing);
         let mut last_diacrit_top = 0;
+        let mut last_diacrit_left = 0;
         let mut misses = Vec::new();
 
         let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
         'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
             let char_offset = char_idx - snip_char_offset;
             let change = 'change: loop {
-                let Some(change) = remapper.peek() else {
+                let Some(change) = ops.peek() else {
                     break 'taam;
                 };
                 if change.new_range().start > char_offset {
@@ -194,14 +198,15 @@ impl TeamimCtx {
                 if change.new_range().end > char_offset {
                     break 'change change;
                 }
-                remapper.next();
+                ops.next();
             };
             match change.tag() {
                 DiffTag::Equal => {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
-                    last_diacrit_top = last_diacrit_top.max(bx.rect.top);
+                    last_diacrit_top = last_diacrit_top.min(bx.rect.top);
+                    last_diacrit_left = last_diacrit_left.max(bx.rect.left);
                     place_taam(
                         img,
                         options,
@@ -212,7 +217,14 @@ impl TeamimCtx {
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
-                    misses.push(DiacMiss { letter, diacritic, char_idx, top: last_diacrit_top });
+                    let top = img.get_h() - last_diacrit_top;
+                    let left = last_diacrit_left;
+                    let missing_text = remapper
+                        .slice_old(change.old_range())
+                        .ok_or_eyre("invalid range")?
+                        .to_string()
+                        .into();
+                    misses.push(DiacMiss { letter, diacritic, char_idx, top, left, missing_text });
                 }
             }
         }

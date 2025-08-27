@@ -8,6 +8,7 @@
 - PlaceOptions, drawing option
 - save extension title
 - indicate success
+- allow redrawing on original
 
 ## other
 
