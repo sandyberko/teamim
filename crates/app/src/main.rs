@@ -19,10 +19,10 @@ use xilem::{
     core::{MessageProxy, MessageResult, fork},
     masonry::properties::types::{AsUnit, Length},
     style::{Background, Padding, Style},
-    tokio::sync::mpsc::UnboundedSender,
+    tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
         CrossAxisAlignment, MainAxisAlignment, ObjectFit, flex, flex_row, image, label, portal,
-        prose, sized_box, task_raw, worker, zstack,
+        prose, sized_box, worker, zstack,
     },
 };
 
@@ -59,6 +59,13 @@ enum DrawIdle {
 }
 
 impl DrawIdle {
+    fn modified(&self) -> Option<&Modified> {
+        match self {
+            Self::Modified(modified) => Some(modified),
+            Self::Unmodified => None,
+        }
+    }
+
     fn modified_mut(&mut self) -> Option<&mut Modified> {
         match self {
             Self::Modified(modified) => Some(modified),
@@ -71,10 +78,9 @@ type DrawingJob = JobState<DrawIdle>;
 
 #[derive(Debug)]
 enum Msg {
-    Select(JobState<Image>),
+    Select(JobState<LoadedImage>),
     Draw(JobState<DrawIdle>),
     Save(JobState<()>),
-    Other,
 }
 
 #[derive(Debug)]
@@ -87,6 +93,31 @@ struct LoadedImage {
 impl LoadedImage {
     fn new(img: Image, path: Arc<Path>) -> Self {
         Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)) }
+    }
+
+    fn view<State: Send + Sync + 'static>(&self) -> impl WidgetView<State, Msg> {
+        flex((
+            self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
+                sized_box(portal(
+                    flex_row::<State, _, _>(
+                        modified
+                            .misses
+                            .iter()
+                            .map(|miss| prose(miss.char_idx.to_string()))
+                            .collect::<Vec<_>>(),
+                    )
+                    .main_axis_alignment(MainAxisAlignment::Start)
+                    .padding(PADDING)
+                    .background(Background::Color(Color::from_rgba8(255, 200, 200, 200)))
+                    .border(Color::from_rgb8(255, 0, 0), 2.)
+                    .corner_radius(8.),
+                ))
+                .width(300.px())
+                .height(200.px())
+            }),
+            // TODO: zoom
+            portal(image(&self.img).fit(ObjectFit::FitWidth)),
+        ))
     }
 }
 
@@ -147,6 +178,7 @@ fn image_read(path: impl AsRef<Path>) -> eyre::Result<Image> {
 }
 
 enum ChanMsg {
+    Select(Arc<Path>),
     Draw(Image),
     Save(Image, Arc<Path>),
 }
@@ -157,46 +189,26 @@ struct TaskList {
 }
 
 impl TaskList {
-    fn handle_img_select(&mut self) {
-        self.loading = FileDialog::new()
-            .set_title("בחר תמונה")
-            .add_filter("תמונה", IMG_EXTS)
-            .pick_file()
-            .map_or(JobState::Ready(Ok(None)), |path| JobState::Running(path.into()));
-    }
-
-    fn view_pending(path: &Arc<Path>) -> impl WidgetView<Self> + use<> {
-        let load_task = task_raw(
-            {
-                let path = path.clone();
-                move |proxy| {
-                    // TODO double clone?
-                    let path = path.clone();
-                    async move {
-                        let img = image_read(&path).inspect_err(|err| {
-                            tracing::warn!("Loading image from {} failed: {err:?}", path.display());
-                        });
-                        proxy.message((img, path)).ok();
-                    }
-                }
-            },
-            move |state: &mut Self, (image, path)| {
-                state.loading = JobState::Ready(image.map(|img| Some(LoadedImage::new(img, path))));
-            },
-        );
-
-        fork(
-            flex(prose(path.to_string_lossy()).text_alignment(TextAlign::Center).text_color(GRAY)),
-            load_task,
-        )
+    fn handle_img_select(&mut self) -> MessageResult<()> {
+        let Some(path) =
+            FileDialog::new().set_title("בחר תמונה").add_filter("תמונה", IMG_EXTS).pick_file()
+        else {
+            return MessageResult::Nop;
+        };
+        let Some(sender) = &self.sender else { return MessageResult::Stale };
+        let path = Arc::from(path);
+        sender.send(ChanMsg::Select(Arc::clone(&path))).ok();
+        self.loading = JobState::Running(Arc::clone(&path));
+        MessageResult::Action(())
     }
 
     fn update(&mut self, msg: MessageResult<Msg>) -> MessageResult<()> {
         let MessageResult::Action(action) = msg else { return msg.map(|_| ()) };
         match action {
             Msg::Select(job_state) => {
-                if let JobState::Running(()) = job_state {
-                    self.handle_img_select();
+                match job_state {
+                    JobState::Running(()) => return self.handle_img_select(),
+                    JobState::Ready(ready) => self.loading = JobState::Ready(ready.map(Some)),
                 }
                 MessageResult::Action(())
             }
@@ -223,118 +235,53 @@ impl TaskList {
                 let Some(loaded) = self.loading.ready_ok_mut().and_then(Option::as_mut) else {
                     return MessageResult::Stale;
                 };
-
-                let Some(modified) = loaded.drawing.ready_ok_mut().and_then(DrawIdle::modified_mut)
-                else {
+                let Some(draw_idle) = loaded.drawing.ready_ok_mut() else {
+                    return MessageResult::Stale;
+                };
+                let Some(modified) = draw_idle.modified_mut() else {
                     return MessageResult::Stale;
                 };
 
-                if let JobState::Running(()) = job_state {
-                    let Some(sender) = self.sender.as_ref() else {
-                        return MessageResult::Stale;
-                    };
-                    sender
-                        .send(ChanMsg::Save(modified.image.clone(), Arc::clone(&loaded.path)))
-                        .ok();
+                match job_state {
+                    JobState::Running(()) => {
+                        let Some(sender) = self.sender.as_ref() else {
+                            return MessageResult::Stale;
+                        };
+                        sender
+                            .send(ChanMsg::Save(modified.image.clone(), Arc::clone(&loaded.path)))
+                            .ok();
+                        modified.saving = JobState::Running(());
+                    }
+                    JobState::Ready(_) => *draw_idle = DrawIdle::Unmodified,
                 }
 
-                modified.saving = job_state;
                 MessageResult::Action(())
             }
-            Msg::Other => MessageResult::Action(()),
         }
     }
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         fork(
             flex((
-                // toolbar
-                flex_row((
-                    self.loading.ready_ok_mut().and_then(Option::as_mut).map(|loaded| {
-                        (
-                            loaded.drawing.ready_ok_mut().and_then(DrawIdle::modified_mut).map(
-                                |modified| {
-                                    // save
-                                    job_btn(&modified.saving, "שמור...", "שמור", |_| {
-                                        Msg::Save(JobState::Running(()))
-                                    })
-                                },
-                            ),
-                            // draw
-                            job_btn(
-                                &loaded.drawing,
-                                "מצייר...",
-                                "צייר טעמים",
-                                |_| Msg::Draw(JobState::Running(())),
-                            ),
-                        )
-                    }),
-                    // select
-                    job_btn(&self.loading, "טוען...", "בחר תמונה", |_| {
-                        Msg::Select(JobState::Running(()))
-                    }),
-                ))
-                .main_axis_alignment(MainAxisAlignment::End)
-                .padding(PADDING)
-                .boxed(),
-                match &mut self.loading {
-                    JobState::Running(path) => Self::view_pending(path).map_message(nop).boxed(),
-                    JobState::Ready(Ok(Some(loaded))) => {
-                        flex((
-                            loaded.drawing.ready_ok_mut().and_then(DrawIdle::modified_mut).map(
-                                |modified| {
-                                    sized_box(
-                                        flex_row(
-                                            modified
-                                                .misses
-                                                .iter()
-                                                .map(|miss| prose(miss.char_idx.to_string()))
-                                                .collect::<Vec<_>>(),
-                                        )
-                                        .main_axis_alignment(MainAxisAlignment::Start)
-                                        .padding(PADDING)
-                                        .background(Background::Color(Color::from_rgba8(
-                                            255, 200, 200, 200,
-                                        )))
-                                        .border(Color::from_rgb8(255, 0, 0), 2.)
-                                        .corner_radius(8.),
-                                    )
-                                    .width(300.px())
-                                    .height(200.px())
-                                }
-                            ),
-                            // TODO: zoom
-                            portal(image(&loaded.img).fit(ObjectFit::FitWidth)),
-                        ))
-                        .boxed()
-                    }
+                self.toolbar().boxed(),
+                match &self.loading {
+                    JobState::Running(path) => flex(
+                        prose(path.to_string_lossy())
+                            .text_alignment(TextAlign::Center)
+                            .text_color(GRAY),
+                    )
+                    .boxed(),
+                    JobState::Ready(Ok(Some(loaded))) => loaded.view().boxed(),
                     JobState::Ready(Ok(None)) => label("לא נבחרה תמונה")
                         .text_alignment(TextAlign::Center)
                         .color(GRAY)
-                        .map_message(nop)
                         .boxed(),
-                    JobState::Ready(Err(_)) => prose("🖼️").map_message(nop).boxed(),
+                    JobState::Ready(Err(_)) => prose("🖼️").boxed(),
                 },
             ))
             .cross_axis_alignment(CrossAxisAlignment::Fill),
             worker(
-                move |proxy: MessageProxy<Msg>, mut recv| {
-                    async move {
-                        while let Some(msg) = recv.recv().await {
-                            // debug!("start message received");
-                            match msg {
-                                ChanMsg::Draw(image) => {
-                                    let result = draw_teamim(&image).map(DrawIdle::Modified);
-                                    proxy.message(Msg::Draw(JobState::Ready(result))).ok();
-                                }
-                                ChanMsg::Save(image, path) => {
-                                    let result = try_save(&(image, path));
-                                    proxy.message(Msg::Save(JobState::Ready(result))).ok();
-                                }
-                            }
-                        }
-                    }
-                },
+                work,
                 |app: &mut Self, sender: UnboundedSender<ChanMsg>| {
                     app.sender = Some(sender);
                 },
@@ -343,10 +290,54 @@ impl TaskList {
         )
         .map_message(Self::update)
     }
+
+    fn toolbar<State: Send + Sync + 'static>(&self) -> impl WidgetView<State, Msg> {
+        flex_row((
+            self.loading.ready_ok().and_then(Option::as_ref).map(|loaded| {
+                (
+                    loaded.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
+                        // save
+                        job_btn(&modified.saving, "שמור...", "שמור", |_| {
+                            Msg::Save(JobState::Running(()))
+                        })
+                    }),
+                    // draw
+                    job_btn(&loaded.drawing, "מצייר...", "צייר טעמים", |_| {
+                        Msg::Draw(JobState::Running(()))
+                    }),
+                )
+            }),
+            // select
+            job_btn(&self.loading, "טוען...", "בחר תמונה", |_| {
+                Msg::Select(JobState::Running(()))
+            }),
+        ))
+        .main_axis_alignment(MainAxisAlignment::End)
+        .padding(PADDING)
+    }
 }
 
-fn nop(_: &mut TaskList, msg: MessageResult<()>) -> MessageResult<Msg> {
-    msg.map(|()| Msg::Other)
+async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
+    while let Some(msg) = recv.recv().await {
+        // debug!("start message received");
+        match msg {
+            ChanMsg::Select(path) => {
+                let img = image_read(&path).inspect_err(|err| {
+                    tracing::warn!("Loading image from {} failed: {err:?}", path.display());
+                });
+                let loaded = img.map(|img| LoadedImage::new(img, path.into()));
+                proxy.message(Msg::Select(JobState::Ready(loaded))).ok();
+            }
+            ChanMsg::Draw(image) => {
+                let result = draw_teamim(&image).map(DrawIdle::Modified);
+                proxy.message(Msg::Draw(JobState::Ready(result))).ok();
+            }
+            ChanMsg::Save(image, path) => {
+                let result = try_save(&(image, path));
+                proxy.message(Msg::Save(JobState::Ready(result))).ok();
+            }
+        }
+    }
 }
 
 fn tboxes_example<State>() -> impl WidgetView<State> + use<State>
