@@ -16,13 +16,13 @@ use teamim::{DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::Pix
 use xilem::{
     Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
     WindowOptions, Xilem,
-    core::{MessageProxy, MessageResult, fork},
+    core::{MessageProxy, MessageResult, fork, lens},
     masonry::properties::types::{AsUnit, Length},
     style::{Background, Padding, Style},
     tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
-        CrossAxisAlignment, MainAxisAlignment, ObjectFit, flex, flex_row, image, label, portal,
-        prose, sized_box, worker, zstack,
+        CrossAxisAlignment, MainAxisAlignment, ObjectFit, checkbox, flex, flex_row, image, label,
+        portal, prose, sized_box, text_input, worker, zstack,
     },
 };
 
@@ -81,6 +81,7 @@ enum Msg {
     Select(JobState<LoadedImage>),
     Draw(DrawingJob),
     Save(JobState<()>),
+    PlaceOpts,
 }
 
 #[derive(Debug)]
@@ -95,11 +96,11 @@ impl LoadedImage {
         Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)) }
     }
 
-    fn view<State: Send + Sync + 'static>(&self) -> impl WidgetView<State, Msg> {
+    fn view(&self) -> impl WidgetView<TaskList, Msg> + use<> {
         flex((
             self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
                 sized_box(portal(
-                    flex_row::<State, _, _>(
+                    flex_row(
                         modified
                             .misses
                             .iter()
@@ -115,6 +116,8 @@ impl LoadedImage {
                 .width(300.px())
                 .height(200.px())
             }),
+            lens(place_opts_form, |app: &mut TaskList| &mut app.place_opts)
+                .map_action(|_, _| Msg::PlaceOpts),
             // TODO: zoom
             portal(image(&self.img).fit(ObjectFit::FitWidth)),
         ))
@@ -145,14 +148,17 @@ fn try_save((img, path): &(Image, Arc<Path>)) -> eyre::Result<()> {
     Ok(())
 }
 
-fn draw_teamim(img: &Image, progress_callback: impl Fn(DrawProgress)) -> eyre::Result<Modified> {
+fn draw_teamim(
+    img: &Image,
+    options: PlaceOptions,
+    progress_callback: impl Fn(DrawProgress),
+) -> eyre::Result<Modified> {
     TEAMIM_CTX.with_borrow_mut(|ctx| {
         if ctx.is_none() {
             *ctx = Some(TeamimCtx::new()?);
         }
         let ctx = ctx.as_mut().unwrap();
 
-        let options = PlaceOptions::default();
         let mut data = img.data.data().to_vec();
         let misses = PixBox::from_rgba8_with(
             &mut data,
@@ -179,13 +185,14 @@ fn image_read(path: impl AsRef<Path>) -> eyre::Result<Image> {
 
 enum ChanMsg {
     Select(Arc<Path>),
-    Draw(Image),
+    Draw(Image, PlaceOptions),
     Save(Image, Arc<Path>),
 }
 
 struct TaskList {
     loading: JobState<Option<LoadedImage>, Arc<Path>>,
     sender: Option<UnboundedSender<ChanMsg>>,
+    place_opts: PlaceOptions,
 }
 
 impl TaskList {
@@ -221,7 +228,7 @@ impl TaskList {
                         let Some(sender) = self.sender.as_ref() else {
                             return MessageResult::Stale;
                         };
-                        sender.send(ChanMsg::Draw(loaded.img.clone())).ok();
+                        sender.send(ChanMsg::Draw(loaded.img.clone(), self.place_opts)).ok();
                     }
                     JobState::Running(progress @ Some(_)) => {
                         loaded.drawing = JobState::Running(*progress)
@@ -260,6 +267,7 @@ impl TaskList {
 
                 MessageResult::Action(())
             }
+            Msg::PlaceOpts => MessageResult::Action(()),
         }
     }
 
@@ -297,18 +305,6 @@ impl TaskList {
     fn toolbar<State: Send + Sync + 'static>(&self) -> impl WidgetView<State, Msg> {
         flex_row((
             self.loading.ready_ok().and_then(Option::as_ref).map(|loaded| {
-                let draw_progress_tag = if let JobState::Running(Some(progress)) = &loaded.drawing {
-                    match progress {
-                        DrawProgress::Recognizing => "מזהה...",
-                        DrawProgress::ImageEffects => "עיבוד תמונה...",
-                        DrawProgress::Searching => "מחפש...",
-                        DrawProgress::Diffing => "משווה...",
-                        DrawProgress::Placing => "מניח...",
-                    }
-                } else {
-                    "מצייר..."
-                };
-
                 (
                     loaded.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
                         // save
@@ -317,9 +313,7 @@ impl TaskList {
                         })
                     }),
                     // draw
-                    job_btn(&loaded.drawing, draw_progress_tag, "צייר טעמים", |_| {
-                        Msg::Draw(JobState::Running(None))
-                    }),
+                    drawing_tools(&loaded.drawing),
                 )
             }),
             // select
@@ -330,6 +324,52 @@ impl TaskList {
         .main_axis_alignment(MainAxisAlignment::End)
         .padding(PADDING)
     }
+}
+
+fn place_opts_form(opts: &mut PlaceOptions) -> impl WidgetView<PlaceOptions> + use<> {
+    flex_row((
+        checkbox(
+            "מקף וסוף פסוק",
+            opts.inline_diacs,
+            |opts: &mut PlaceOptions, checked| opts.inline_diacs = checked,
+        ),
+        checkbox("ריבועים", opts.debug_boxes, |opts: &mut PlaceOptions, checked| {
+            opts.debug_boxes = checked
+        }),
+        sized_box(text_input(opts.blur.to_string(), |opts: &mut PlaceOptions, blur| {
+            if let Ok(blur) = blur.parse() {
+                opts.blur = blur
+            }
+        }))
+        .width((FONT_SIZE.get() * 4.0).px()),
+        label("טשטוש: "),
+        sized_box(text_input(opts.contrast.to_string(), |opts: &mut PlaceOptions, contrast| {
+            if let Ok(contrast) = contrast.parse() {
+                opts.contrast = contrast
+            }
+        }))
+        .width((FONT_SIZE.get() * 4.0).px()),
+        label("חדות: "),
+    ))
+}
+
+fn drawing_tools<State: Send + Sync + 'static>(
+    drawing: &DrawingJob,
+) -> impl WidgetView<State, Msg> {
+    let draw_progress_tag = if let JobState::Running(Some(progress)) = &drawing {
+        match progress {
+            DrawProgress::Recognizing => "מזהה...",
+            DrawProgress::ImageEffects => "מעבד תמונה...",
+            DrawProgress::Searching => "מחפש...",
+            DrawProgress::Diffing => "משווה...",
+            DrawProgress::Placing => "מניח...",
+        }
+    } else {
+        "מצייר..."
+    };
+    job_btn(&drawing, draw_progress_tag, "צייר טעמים", |_| {
+        Msg::Draw(JobState::Running(None))
+    })
 }
 
 async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
@@ -343,8 +383,8 @@ async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
                 let loaded = img.map(|img| LoadedImage::new(img, path.into()));
                 proxy.message(Msg::Select(JobState::Ready(loaded))).ok();
             }
-            ChanMsg::Draw(image) => {
-                let result = draw_teamim(&image, |progress| {
+            ChanMsg::Draw(image, options) => {
+                let result = draw_teamim(&image, options, |progress| {
                     proxy.message(Msg::Draw(job::JobState::Running(Some(progress)))).ok();
                 });
                 proxy.message(Msg::Draw(JobState::Ready(result.map(DrawIdle::Modified)))).ok();
@@ -393,7 +433,11 @@ fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
 fn run(event_loop: EventLoopBuilder) -> eyre::Result<()> {
     let _ = tracing_init()?;
 
-    let data = TaskList { loading: JobState::Ready(Ok(None)), sender: None };
+    let data = TaskList {
+        loading: JobState::Ready(Ok(None)),
+        sender: None,
+        place_opts: PlaceOptions::default(),
+    };
 
     let app = Xilem::new_simple(data, TaskList::view, WindowOptions::new("טעמים"));
     app.run_in(event_loop).wrap_err("event loop error")

@@ -158,7 +158,7 @@ impl TeamimCtx {
 
         progress_callback(DrawProgress::ImageEffects);
         if options.blur != 0 {
-            img.blur(options.blur)?;
+            *img = img.blur(options.blur)?;
         }
 
         if options.contrast != 0.0 {
@@ -260,7 +260,7 @@ fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {
     Ok(map)
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct PlaceOptions {
     pub inline_diacs: bool,
     pub debug_boxes: bool,

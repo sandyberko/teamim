@@ -185,6 +185,7 @@ impl PixBox {
         let len = unsafe { buf_size.assume_init() };
         Ok(Buf { ptr, len })
     }
+
     pub fn blur(&mut self, kernel_size: i32) -> eyre::Result<Self> {
         let pixd =
             unsafe { leptonica_sys::pixBlockconv(self.as_mut_ptr(), kernel_size, kernel_size) };

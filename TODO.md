@@ -1,7 +1,7 @@
 # TODO
 
 ## xilem app
-- red teamim in JPEG
+- red teamim in JPEG and wrong blur and contrast. probably mismatch between `image` and `leptonica`s format.
 - select multiple images and folders
 - misses
 - RTL flex
