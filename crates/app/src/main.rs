@@ -14,12 +14,14 @@ use std::{cell::RefCell, path::Path, sync::Arc};
 use eyre::{OptionExt, WrapErr};
 use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
-use teamim::{DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{BoxDiffOp, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use tracing::error;
 use xilem::{
     Affine, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
     WindowOptions, Xilem,
-    core::{MessageProxy, MessageResult, fork, lens},
+    core::{MessageProxy, MessageResult, NoElement, fork, lens, map_state, run_once},
     masonry::properties::types::{AsUnit, Length, UnitPoint},
+    palette::css::{BLUE, GREEN, TRANSPARENT, YELLOW},
     style::{Padding, Style},
     tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
@@ -48,10 +50,11 @@ struct Modified {
     saving: JobState<()>,
     image: Image,
     misses: Vec<DiacMiss>,
+    diff: Vec<BoxDiffOp>,
 }
 impl Modified {
-    fn new(image: Image, misses: Vec<DiacMiss>) -> Self {
-        Self { saving: JobState::Ready(Ok(())), image, misses }
+    fn new(image: Image, misses: Vec<DiacMiss>, diff: Vec<BoxDiffOp>) -> Self {
+        Self { saving: JobState::Ready(Ok(())), image, misses, diff }
     }
 }
 
@@ -82,7 +85,7 @@ type DrawingJob = JobState<DrawIdle, Option<DrawProgress>>;
 #[derive(Debug)]
 enum Msg {
     Select(JobState<LoadedImage>),
-    Draw(DrawingJob),
+    Draw(RecogKind, DrawingJob),
     Save(JobState<()>),
     PlaceOpts,
 }
@@ -98,7 +101,7 @@ struct LoadedImage {
 const DIAC_MISSES: &str = " טעמים חסרים";
 impl LoadedImage {
     fn new(img: Image, path: Arc<Path>) -> Self {
-        Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)), zoom: 1.0 }
+        Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)), zoom: 0.5 }
     }
 
     fn view(&self) -> impl WidgetView<TaskList, Msg> + use<> {
@@ -111,15 +114,21 @@ impl LoadedImage {
                     flex_row((label(DIAC_MISSES), label(modified.misses.len().to_string())))
                 }),
                 // TODO: zoom, scroll
-                self.img_view().map_message(|_, _| MessageResult::Nop),
+                self.img_view()
+                    .map_state(|_| Box::leak(Box::new(())))
+                    .map_message(|_, _| MessageResult::Nop),
             ),
         )
     }
 
-    fn img_view<State: Send + Sync + 'static>(&self) -> impl WidgetView<State> + use<State> {
+    fn img_view(&self) -> impl WidgetView<()> + use<> {
+        let text_size = 92. * self.zoom as f32;
+
         portal(
             sized_box(zstack((
+                // image
                 transformed(image(&self.img).fit(ObjectFit::None)).scale(self.zoom),
+                // misses
                 self.drawing
                     .ready_ok()
                     .and_then(DrawIdle::modified)
@@ -131,7 +140,7 @@ impl LoadedImage {
                             .map(|(i, miss)| {
                                 let translate =
                                     (miss.left as f64 * self.zoom, miss.top as f64 * self.zoom);
-                                transformed::<_, State, ()>(
+                                transformed(
                                     prose(Arc::clone(&miss.missing_text))
                                         .text_alignment(TextAlign::Left)
                                         .text_color(RED)
@@ -143,10 +152,82 @@ impl LoadedImage {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default(),
+                // diff
+                self.drawing
+                    .ready_ok()
+                    .and_then(DrawIdle::modified)
+                    .map(|modified| self.diff_view(text_size, modified))
+                    .unwrap_or_default(),
             )))
             .width(self.img.width.px())
             .height(self.img.height.px()),
         )
+    }
+
+    fn diff_view(
+        &self,
+        text_size: f32,
+        modified: &Modified,
+    ) -> Vec<ZStackItem<impl WidgetView<()> + use<>, (), ()>> {
+        let mut views = Vec::with_capacity(modified.diff.len());
+        let mut x = self.img.width as f64 * self.zoom;
+        let mut y = 0.0;
+        let mut iter = modified.diff.iter().peekable();
+        while let Some(op) = iter.next() {
+            match op {
+                BoxDiffOp::Box(rect) => {
+                    x = rect.left as f64 * self.zoom;
+                    y = rect.top as f64 * self.zoom;
+                    let width = rect.width() as f64 * self.zoom;
+                    let height = rect.height() as f64 * self.zoom;
+                    views.push(
+                        transformed(
+                            // FIXME hack
+                            sized_box(zstack::<(), (), _>(()))
+                                .width(width.px())
+                                .height(height.px())
+                                .border(BLUE.with_alpha(0.2), 1.0)
+                                .boxed(),
+                        )
+                        .translate((x, y))
+                        .alignment(UnitPoint::TOP_LEFT),
+                    );
+                }
+                BoxDiffOp::Miss(text) => {
+                    let last_x = x;
+                    let x = match iter.peek() {
+                        Some(BoxDiffOp::Box(rect)) => {
+                            let x = rect.right as f64 * self.zoom;
+                            // last op in row?
+                            if x < last_x { x } else { 0.0 }
+                        }
+                        Some(BoxDiffOp::Miss(_)) => {
+                            error!("consecutive misses");
+                            0.0
+                        }
+                        // final op
+                        None => 0.0,
+                    };
+
+                    views.push(
+                        transformed(
+                            sized_box(
+                                prose(Arc::clone(text))
+                                    .text_alignment(TextAlign::Center)
+                                    .text_color(YELLOW)
+                                    .text_size(text_size),
+                            )
+                            .width((last_x - x).px())
+                            .background_color(RED.with_alpha(0.2))
+                            .boxed(),
+                        )
+                        .translate((x, y))
+                        .alignment(UnitPoint::TOP_LEFT),
+                    );
+                }
+            }
+        }
+        views
     }
 }
 
@@ -174,6 +255,25 @@ fn try_save((img, path): &(Image, Arc<Path>)) -> eyre::Result<()> {
     Ok(())
 }
 
+fn diff_boxes(img: &Image, progress_callback: impl Fn(DrawProgress)) -> eyre::Result<Modified> {
+    TEAMIM_CTX.with_borrow_mut(|ctx| {
+        if ctx.is_none() {
+            *ctx = Some(TeamimCtx::new()?);
+        }
+        let ctx = ctx.as_mut().unwrap();
+
+        let mut data = img.data.data().to_vec();
+        let diff = PixBox::from_rgba8_with(
+            &mut data,
+            img.width.try_into().unwrap(),
+            img.height.try_into().unwrap(),
+            |img| ctx.diff_boxes(img, progress_callback),
+        )
+        .unwrap_or_else(|err| Err(err.into()))?;
+        let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
+        Ok(Modified::new(image, vec![], diff))
+    })
+}
 fn draw_teamim(
     img: &Image,
     options: PlaceOptions,
@@ -194,7 +294,7 @@ fn draw_teamim(
         )
         .unwrap_or_else(|err| Err(err.into()))?;
         let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
-        Ok(Modified::new(image, misses))
+        Ok(Modified::new(image, misses, vec![]))
     })
 }
 
@@ -209,9 +309,24 @@ fn image_read(path: impl AsRef<Path>) -> eyre::Result<Image> {
     Ok(Image::new(Blob::new(Arc::new(data)), ImageFormat::Rgba8, width, height))
 }
 
+#[derive(Debug, Clone, Copy)]
+enum RecogKind {
+    Draw,
+    Diff,
+}
+
+impl RecogKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Draw => "צייר",
+            Self::Diff => "השווה",
+        }
+    }
+}
+
 enum ChanMsg {
     Select(Arc<Path>),
-    Draw(Image, PlaceOptions),
+    Draw(RecogKind, Image, PlaceOptions),
     Save(Image, Arc<Path>),
 }
 
@@ -245,7 +360,7 @@ impl TaskList {
                 }
                 MessageResult::Action(())
             }
-            Msg::Draw(job_state) => {
+            Msg::Draw(kind, job_state) => {
                 let Some(loaded) = self.loading.ready_ok_mut().and_then(Option::as_mut) else {
                     return MessageResult::Stale;
                 };
@@ -254,7 +369,7 @@ impl TaskList {
                         let Some(sender) = self.sender.as_ref() else {
                             return MessageResult::Stale;
                         };
-                        sender.send(ChanMsg::Draw(loaded.img.clone(), self.place_opts)).ok();
+                        sender.send(ChanMsg::Draw(kind, loaded.img.clone(), self.place_opts)).ok();
                     }
                     JobState::Running(progress @ Some(_)) => {
                         loaded.drawing = JobState::Running(*progress);
@@ -342,8 +457,10 @@ impl TaskList {
                             Msg::Save(JobState::Running(()))
                         })
                     }),
+                    // diff
+                    drawing_tools(&loaded.drawing, RecogKind::Diff),
                     // draw
-                    drawing_tools(&loaded.drawing),
+                    drawing_tools(&loaded.drawing, RecogKind::Draw),
                 )
             }),
             // select
@@ -385,6 +502,7 @@ fn place_opts_form(opts: &mut PlaceOptions) -> impl WidgetView<PlaceOptions> + u
 
 fn drawing_tools<State: Send + Sync + 'static>(
     drawing: &DrawingJob,
+    kind: RecogKind,
 ) -> impl WidgetView<State, Msg> {
     let draw_progress_tag = if let JobState::Running(Some(progress)) = &drawing {
         match progress {
@@ -397,8 +515,8 @@ fn drawing_tools<State: Send + Sync + 'static>(
     } else {
         "מצייר..."
     };
-    job_btn(drawing, draw_progress_tag, "צייר טעמים", |_| {
-        Msg::Draw(JobState::Running(None))
+    job_btn(drawing, draw_progress_tag, kind.title(), move |_| {
+        Msg::Draw(kind, JobState::Running(None))
     })
 }
 
@@ -413,11 +531,17 @@ async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
                 let loaded = img.map(|img| LoadedImage::new(img, path));
                 proxy.message(Msg::Select(JobState::Ready(loaded))).ok();
             }
-            ChanMsg::Draw(image, options) => {
-                let result = draw_teamim(&image, options, |progress| {
-                    proxy.message(Msg::Draw(job::JobState::Running(Some(progress)))).ok();
-                });
-                proxy.message(Msg::Draw(JobState::Ready(result.map(DrawIdle::Modified)))).ok();
+            ChanMsg::Draw(kind, image, options) => {
+                let callback = |progress| {
+                    proxy.message(Msg::Draw(kind, JobState::Running(Some(progress)))).ok();
+                };
+                let result = match kind {
+                    RecogKind::Diff => diff_boxes(&image, callback),
+                    RecogKind::Draw => draw_teamim(&image, options, callback),
+                };
+                proxy
+                    .message(Msg::Draw(kind, JobState::Ready(result.map(DrawIdle::Modified))))
+                    .ok();
             }
             ChanMsg::Save(image, path) => {
                 let result = try_save(&(image, path));

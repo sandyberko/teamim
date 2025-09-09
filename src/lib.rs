@@ -244,6 +244,63 @@ impl TeamimCtx {
         }
         Ok(misses)
     }
+
+    pub fn diff_boxes(
+        &mut self,
+        img: &mut Pix,
+        progress_callback: impl Fn(DrawProgress),
+    ) -> Result<Vec<BoxDiffOp>, PlaceError> {
+        progress_callback(DrawProgress::Recognizing);
+        self.tess.set_image(img);
+        self.tess.recognize()?;
+
+        let snippet = self.tess.get_text()?;
+        let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
+        let boxes = self
+            .tess
+            .results_iter(PageIteratorLevel::Symbol)
+            .map(|bx| eyre::Ok(bx.rect))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        progress_callback(DrawProgress::Searching);
+        let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
+        // diff
+        progress_callback(DrawProgress::Diffing);
+        // (ocr, ground_truth)
+        let (old, new) = (snippet.as_str(), r#match.text);
+        let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
+        let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
+        let ops = diff.ops().iter().peekable();
+
+        progress_callback(DrawProgress::Placing);
+        let mut box_diff = Vec::new();
+        for op in ops {
+            match op.tag() {
+                // Match!
+                DiffTag::Equal => {
+                    box_diff.extend(boxes[op.new_range()].iter().copied().map(BoxDiffOp::Box));
+                }
+                // OCR missed
+                DiffTag::Replace | DiffTag::Insert => box_diff.push(BoxDiffOp::Miss(
+                    remapper
+                        .slice_new(op.new_range())
+                        .ok_or_eyre("invalid range")?
+                        .to_string()
+                        .into(),
+                )),
+                // OCR hallucinated
+                DiffTag::Delete => {}
+            }
+        }
+
+        Ok(box_diff)
+    }
+}
+
+#[derive(Debug)]
+pub enum BoxDiffOp {
+    Box(Rect),
+    Miss(Arc<str>),
 }
 
 fn build_diacrit_map() -> eyre::Result<BTreeMap<usize, (char, char)>> {

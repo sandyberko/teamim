@@ -6,7 +6,7 @@ use xilem::{
     EventLoop, WindowOptions, Xilem, winit::platform::windows::EventLoopBuilderExtWindows,
 };
 
-use crate::{DrawIdle, LoadedImage, Modified, image_read, job::JobState};
+use crate::{DrawIdle, LoadedImage, Modified, image_read, job::JobState, view_ext::ViewExt};
 
 #[test]
 fn zstack_rtl_text_placement() -> eyre::Result<()> {
@@ -30,12 +30,13 @@ fn zstack_rtl_text_placement() -> eyre::Result<()> {
             saving: JobState::Ready(Ok(())),
             image: img,
             misses,
+            diff: vec![],
         }))),
         zoom: 0.5,
     };
     Xilem::new_simple(
         state,
-        |state: &mut LoadedImage| state.img_view(),
+        |state: &mut LoadedImage| state.img_view().map_state(|_| Box::leak(Box::new(()))),
         WindowOptions::new("טעמים"),
     )
     .run_in(event_loop_builder)

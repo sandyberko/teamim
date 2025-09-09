@@ -1,7 +1,10 @@
-use xilem::core::{MapMessage, MessageResult, View, ViewPathTracker, map_action, map_message};
+use xilem::core::{
+    MapMessage, MapState, MessageResult, View, ViewPathTracker, map_action, map_message, map_state,
+};
 
 pub(crate) trait ViewExt<State, Action, Context>: View<State, Action, Context>
 where
+    Self: Sized,
     State: 'static,
     Action: 'static,
     Context: ViewPathTracker + 'static,
@@ -19,7 +22,6 @@ where
         impl Fn(&mut State, MessageResult<Action>) -> MessageResult<ParentAction> + 'static,
     >
     where
-        Self: Sized,
         ParentAction: 'static,
         F: Fn(&mut State, Action) -> ParentAction + 'static,
     {
@@ -31,11 +33,20 @@ where
         map_fn: F,
     ) -> MapMessage<Self, State, ParentAction, Action, Context, F>
     where
-        Self: Sized,
         ParentAction: 'static,
         F: Fn(&mut State, MessageResult<Action>) -> MessageResult<ParentAction> + 'static,
     {
         map_message(self, map_fn)
+    }
+    fn map_state<ParentState, F>(
+        self,
+        map_fn: F,
+    ) -> MapState<Self, F, ParentState, State, Action, Context>
+    where
+        ParentState: 'static,
+        F: Fn(&mut ParentState) -> &mut State + 'static,
+    {
+        map_state(self, map_fn)
     }
 }
 
