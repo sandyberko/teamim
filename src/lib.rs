@@ -46,6 +46,20 @@ pub struct DiacMiss {
     pub missing_text: Arc<str>,
 }
 
+impl DiacMiss {
+    #[must_use]
+    pub fn new(
+        letter: char,
+        diacritic: char,
+        char_idx: usize,
+        top: i32,
+        left: i32,
+        missing_text: impl Into<Arc<str>>,
+    ) -> Self {
+        Self { letter, diacritic, char_idx, top, left, missing_text: missing_text.into() }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum DrawProgress {
     Recognizing,
@@ -205,8 +219,8 @@ impl TeamimCtx {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
-                    last_diacrit_top = last_diacrit_top.min(bx.rect.top);
-                    last_diacrit_left = last_diacrit_left.max(bx.rect.left);
+                    last_diacrit_top = bx.rect.top;
+                    last_diacrit_left = bx.rect.left;
                     place_taam(
                         img,
                         options,
@@ -217,7 +231,7 @@ impl TeamimCtx {
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
-                    let top = img.get_h() - last_diacrit_top;
+                    let top = last_diacrit_top;
                     let left = last_diacrit_left;
                     let missing_text = remapper
                         .slice_old(change.old_range())

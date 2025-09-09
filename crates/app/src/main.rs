@@ -5,6 +5,8 @@
 
 mod box_view;
 mod job;
+#[cfg(test)]
+mod tests;
 mod view_ext;
 
 use std::{cell::RefCell, path::Path, sync::Arc};
@@ -21,8 +23,9 @@ use xilem::{
     style::{Padding, Style},
     tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
-        CrossAxisAlignment, MainAxisAlignment, ObjectFit, ZStackItem, checkbox, flex, flex_row,
-        image, label, portal, prose, sized_box, text_input, worker, zstack, zstack_item,
+        Axis, CrossAxisAlignment, MainAxisAlignment, ObjectFit, ZStackExt, ZStackItem, checkbox,
+        flex, flex_row, image, label, portal, prose, sized_box, text_input, transformed, worker,
+        zstack,
     },
 };
 
@@ -89,46 +92,61 @@ struct LoadedImage {
     path: Arc<Path>,
     img: Image,
     drawing: DrawingJob,
+    zoom: f64,
 }
 
 const DIAC_MISSES: &str = " טעמים חסרים";
 impl LoadedImage {
     fn new(img: Image, path: Arc<Path>) -> Self {
-        Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)) }
+        Self { img, path, drawing: JobState::Ready(Ok(DrawIdle::Unmodified)), zoom: 1.0 }
     }
 
     fn view(&self) -> impl WidgetView<TaskList, Msg> + use<> {
-        flex((
-            lens(place_opts_form, |app: &mut TaskList| &mut app.place_opts)
-                .map_action(|_, _| Msg::PlaceOpts),
-            self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
-                flex_row((label(DIAC_MISSES), label(modified.misses.len().to_string())))
-            }),
-            // TODO: zoom
-            portal(zstack((image(&self.img).fit(ObjectFit::FitWidth), self.misses_view()))),
-        ))
+        flex(
+            Axis::Vertical,
+            (
+                lens(place_opts_form, |app: &mut TaskList| &mut app.place_opts)
+                    .map_action(|_, ()| Msg::PlaceOpts),
+                self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
+                    flex_row((label(DIAC_MISSES), label(modified.misses.len().to_string())))
+                }),
+                // TODO: zoom, scroll
+                self.img_view().map_message(|_, _| MessageResult::Nop),
+            ),
+        )
     }
 
-    fn misses_view(
-        &self,
-    ) -> Vec<ZStackItem<impl WidgetView<TaskList, Msg> + use<>, TaskList, Msg>> {
-        self.drawing
-            .ready_ok()
-            .and_then(DrawIdle::modified)
-            .into_iter()
-            .flat_map(|modified| {
-                modified.misses.iter().enumerate().map(|(i, miss)| {
-                    zstack_item(
-                        prose(Arc::clone(&miss.missing_text))
-                            .text_color(RED)
-                            .text_size(FONT_SIZE.get() as f32 * 2.),
-                        UnitPoint::TOP_LEFT,
-                    )
-                    // .transform(Affine::translate((miss.left as f64, miss.top as f64)))
-                    // .transform(Affine::translate((-20., (FONT_SIZE.get() * 2. * i as f64))))
-                })
-            })
-            .collect()
+    fn img_view<State: Send + Sync + 'static>(&self) -> impl WidgetView<State> + use<State> {
+        portal(
+            sized_box(zstack((
+                transformed(image(&self.img).fit(ObjectFit::None)).scale(self.zoom),
+                self.drawing
+                    .ready_ok()
+                    .and_then(DrawIdle::modified)
+                    .map(|modified| {
+                        modified
+                            .misses
+                            .iter()
+                            .enumerate()
+                            .map(|(i, miss)| {
+                                let translate =
+                                    (miss.left as f64 * self.zoom, miss.top as f64 * self.zoom);
+                                transformed::<_, State, ()>(
+                                    prose(Arc::clone(&miss.missing_text))
+                                        .text_alignment(TextAlign::Left)
+                                        .text_color(RED)
+                                        .text_size(FONT_SIZE.get() as f32 * 2.),
+                                )
+                                .transform(Affine::translate(translate))
+                                .alignment(UnitPoint::TOP_LEFT)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
+            )))
+            .width(self.img.width.px())
+            .height(self.img.height.px()),
+        )
     }
 }
 
@@ -239,7 +257,7 @@ impl TaskList {
                         sender.send(ChanMsg::Draw(loaded.img.clone(), self.place_opts)).ok();
                     }
                     JobState::Running(progress @ Some(_)) => {
-                        loaded.drawing = JobState::Running(*progress)
+                        loaded.drawing = JobState::Running(*progress);
                     }
                     JobState::Ready(Ok(DrawIdle::Modified(modified))) => {
                         loaded.img = modified.image.clone();
@@ -281,23 +299,27 @@ impl TaskList {
 
     fn view(&mut self) -> impl WidgetView<Self> + use<> {
         fork(
-            flex((
-                self.toolbar().boxed(),
-                match &self.loading {
-                    JobState::Running(path) => flex(
-                        prose(path.to_string_lossy())
-                            .text_alignment(TextAlign::Center)
-                            .text_color(GRAY),
-                    )
-                    .boxed(),
-                    JobState::Ready(Ok(Some(loaded))) => loaded.view().boxed(),
-                    JobState::Ready(Ok(None)) => label("לא נבחרה תמונה")
-                        .text_alignment(TextAlign::Center)
-                        .color(GRAY)
+            flex(
+                Axis::Vertical,
+                (
+                    self.toolbar().boxed(),
+                    match &self.loading {
+                        JobState::Running(path) => flex(
+                            Axis::Vertical,
+                            prose(path.to_string_lossy())
+                                .text_alignment(TextAlign::Center)
+                                .text_color(GRAY),
+                        )
                         .boxed(),
-                    JobState::Ready(Err(_)) => prose("🖼️").boxed(),
-                },
-            ))
+                        JobState::Ready(Ok(Some(loaded))) => loaded.view().boxed(),
+                        JobState::Ready(Ok(None)) => label("לא נבחרה תמונה")
+                            .text_alignment(TextAlign::Center)
+                            .color(GRAY)
+                            .boxed(),
+                        JobState::Ready(Err(_)) => prose("🖼️").boxed(),
+                    },
+                ),
+            )
             .cross_axis_alignment(CrossAxisAlignment::Fill),
             worker(
                 work,
@@ -342,18 +364,18 @@ fn place_opts_form(opts: &mut PlaceOptions) -> impl WidgetView<PlaceOptions> + u
             |opts: &mut PlaceOptions, checked| opts.inline_diacs = checked,
         ),
         checkbox("ריבועים", opts.debug_boxes, |opts: &mut PlaceOptions, checked| {
-            opts.debug_boxes = checked
+            opts.debug_boxes = checked;
         }),
         sized_box(text_input(opts.blur.to_string(), |opts: &mut PlaceOptions, blur| {
             if let Ok(blur) = blur.parse() {
-                opts.blur = blur
+                opts.blur = blur;
             }
         }))
         .width((FONT_SIZE.get() * 4.0).px()),
         label("טשטוש: "),
         sized_box(text_input(opts.contrast.to_string(), |opts: &mut PlaceOptions, contrast| {
             if let Ok(contrast) = contrast.parse() {
-                opts.contrast = contrast
+                opts.contrast = contrast;
             }
         }))
         .width((FONT_SIZE.get() * 4.0).px()),
@@ -375,7 +397,7 @@ fn drawing_tools<State: Send + Sync + 'static>(
     } else {
         "מצייר..."
     };
-    job_btn(&drawing, draw_progress_tag, "צייר טעמים", |_| {
+    job_btn(drawing, draw_progress_tag, "צייר טעמים", |_| {
         Msg::Draw(JobState::Running(None))
     })
 }
@@ -388,7 +410,7 @@ async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
                 let img = image_read(&path).inspect_err(|err| {
                     tracing::warn!("Loading image from {} failed: {err:?}", path.display());
                 });
-                let loaded = img.map(|img| LoadedImage::new(img, path.into()));
+                let loaded = img.map(|img| LoadedImage::new(img, path));
                 proxy.message(Msg::Select(JobState::Ready(loaded))).ok();
             }
             ChanMsg::Draw(image, options) => {

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use xilem::{
-    TextAlign, WidgetView,
+    WidgetView,
     masonry::properties::types::AsUnit,
     style::Style,
     view::{Label, MainAxisAlignment, button, flex_row, label, portal, sized_box},
@@ -52,11 +52,9 @@ where
         JobState::Ready(status) => flex_row((
             status.as_ref().err().map(|err| {
                 (
-                    sized_box(portal(
-                        label(err.to_string()).color(RED).text_alignment(TextAlign::Right),
-                    ))
-                    .width((FONT_SIZE.get() * 10.0).px())
-                    .height((FONT_SIZE.get() * 2.0).px()),
+                    sized_box(portal(label(err.to_string()).color(RED)))
+                        .width((FONT_SIZE.get() * 10.0).px())
+                        .height((FONT_SIZE.get() * 2.0).px()),
                     label("⚠️"),
                 )
             }),

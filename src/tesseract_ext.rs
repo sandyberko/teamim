@@ -5,7 +5,7 @@ use std::{
     ffi::{CStr, c_char},
     fmt::{Debug, Display},
     mem::MaybeUninit,
-    ptr::{self, NonNull, addr_of_mut},
+    ptr::{self, NonNull},
 };
 
 use bounding_box::{BoundingBox, Rect};
@@ -201,10 +201,10 @@ impl ResultIter {
             capi::TessPageIteratorBoundingBox(
                 self.raw.as_ptr() as _,
                 self.level as _,
-                addr_of_mut!((*ptr).left),
-                addr_of_mut!((*ptr).top),
-                addr_of_mut!((*ptr).right),
-                addr_of_mut!((*ptr).bottom),
+                &raw mut (*ptr).left,
+                &raw mut (*ptr).top,
+                &raw mut (*ptr).right,
+                &raw mut (*ptr).bottom,
             )
         };
         assert_eq!(succeed, 1);

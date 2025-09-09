@@ -70,13 +70,11 @@ checksum = "2abbfb16144cca5bb2ea6acad5865b7c1e70d4fa171ceba1a52ea8e78a7515f4"
 dependencies = [
  "accesskit",
  "accesskit_atspi_common",
- "async-channel",
- "async-executor",
- "async-task",
  "atspi",
  "futures-lite",
- "futures-util",
  "serde",
+ "tokio",
+ "tokio-stream",
  "zbus",
 ]
 
@@ -2505,7 +2503,7 @@ dependencies = [
 [[package]]
 name = "masonry"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "accesskit",
  "dpi",
@@ -2519,7 +2517,7 @@ dependencies = [
 [[package]]
 name = "masonry_core"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "accesskit",
  "anymap3",
@@ -2541,7 +2539,7 @@ dependencies = [
 [[package]]
 name = "masonry_winit"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "accesskit_winit",
  "copypasta",
@@ -4906,6 +4904,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-stream"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5121,7 +5130,7 @@ dependencies = [
 [[package]]
 name = "tree_arena"
 version = "0.1.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "hashbrown",
 ]
@@ -6386,7 +6395,7 @@ checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
 [[package]]
 name = "xilem"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "masonry",
  "masonry_winit",
@@ -6400,7 +6409,7 @@ dependencies = [
 [[package]]
 name = "xilem_core"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=4823145e1756ff5773f5c2bfc24322e04e06fa93#4823145e1756ff5773f5c2bfc24322e04e06fa93"
+source = "git+https://github.com/linebender/xilem?rev=be62689a2e49426d6508f4f7a4e9ff824a1658a0#be62689a2e49426d6508f4f7a4e9ff824a1658a0"
 dependencies = [
  "anymore",
  "hashbrown",
