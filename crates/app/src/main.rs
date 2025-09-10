@@ -128,43 +128,36 @@ impl LoadedImage {
         let text_size = 92. * self.zoom as f32;
 
         portal(
-            sized_box(zstack((
-                // image
-                transformed(image(&self.img).fit(ObjectFit::None)).scale(self.zoom),
-                // misses
-                self.drawing
-                    .ready_ok()
-                    .and_then(DrawIdle::modified)
-                    .map(|modified| {
-                        modified
-                            .misses
-                            .iter()
-                            .enumerate()
-                            .map(|(i, miss)| {
-                                let translate =
-                                    (miss.left as f64 * self.zoom, miss.top as f64 * self.zoom);
-                                transformed(
-                                    prose(Arc::clone(&miss.missing_text))
-                                        .text_alignment(TextAlign::Left)
-                                        .text_color(RED)
-                                        .text_size(FONT_SIZE.get() as f32 * 2.),
-                                )
-                                .transform(Affine::translate(translate))
-                                .alignment(UnitPoint::TOP_LEFT)
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default(),
-                // diff
-                self.drawing
-                    .ready_ok()
-                    .and_then(DrawIdle::modified)
-                    .map(|modified| self.diff_view(text_size, modified))
-                    .unwrap_or_default(),
-            )))
+            sized_box(
+                flex_row((
+                    // misses
+                    self.drawing.ready_ok().and_then(DrawIdle::modified).map(|modified| {
+                        sized_box(zstack(
+                            modified
+                                .misses
+                                .iter()
+                                .enumerate()
+                                .map(|(i, miss)| self.miss_view(miss))
+                                .collect::<Vec<_>>(),
+                        ))
+                        .width((FONT_SIZE.get() * 14.0).px())
+                    }),
+                    // image
+                    transformed(image(&self.img).fit(ObjectFit::None)).scale(self.zoom),
+                ))
+                .cross_axis_alignment(CrossAxisAlignment::Start),
+            )
             .width(self.img.width.px())
             .height(self.img.height.px()),
         )
+    }
+
+    fn miss_view(&self, miss: &DiacMiss) -> ZStackItem<impl WidgetView<()> + use<>, (), ()> {
+        transformed(
+            label(Arc::clone(&miss.missing_text)).text_size(FONT_SIZE.get() as f32 * 2.).color(RED),
+        )
+        .transform(Affine::translate((0.0, miss.top as f64 * self.zoom)))
+        .alignment(UnitPoint::TOP_LEFT)
     }
 
     fn diff_view(

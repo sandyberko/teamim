@@ -1,13 +1,14 @@
 use std::path::Path;
 
 use eyre::WrapErr;
-use teamim::TeamimCtx;
+use teamim::{PlaceOptions, TeamimCtx};
 use xilem::{
     EventLoop, WindowOptions, Xilem, winit::platform::windows::EventLoopBuilderExtWindows,
 };
 
 use crate::{
-    BoxDiffIter, DrawIdle, LoadedImage, diff_boxes, image_read, job::JobState, view_ext::ViewExt,
+    BoxDiffIter, DrawIdle, LoadedImage, diff_boxes, draw_teamim, image_read, job::JobState,
+    view_ext::ViewExt,
 };
 
 #[test]
@@ -18,7 +19,8 @@ fn zstack_rtl_text_placement() -> eyre::Result<()> {
     let path = Path::new("../../assets/images/N5/007.jpg");
     let img = image_read(path)?;
     let mut ctx = TeamimCtx::new(c"../../assets/tessdata/")?;
-    let modified = diff_boxes(&mut ctx, &img, |_| {})?;
+    let modified =
+        draw_teamim(&mut ctx, &img, PlaceOptions::default(), |progress| eprintln!("{progress:?}"))?;
     let state = LoadedImage {
         path: path.into(),
         img: img.clone(),

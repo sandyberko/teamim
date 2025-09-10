@@ -42,7 +42,6 @@ pub struct DiacMiss {
     pub diacritic: char,
     pub char_idx: usize,
     pub top: i32,
-    pub left: i32,
     pub missing_text: Arc<str>,
 }
 
@@ -53,10 +52,9 @@ impl DiacMiss {
         diacritic: char,
         char_idx: usize,
         top: i32,
-        left: i32,
         missing_text: impl Into<Arc<str>>,
     ) -> Self {
-        Self { letter, diacritic, char_idx, top, left, missing_text: missing_text.into() }
+        Self { letter, diacritic, char_idx, top, missing_text: missing_text.into() }
     }
 }
 
@@ -189,6 +187,7 @@ impl TeamimCtx {
 
         // diff
         progress_callback(DrawProgress::Diffing);
+        // (ocr, ground_truth)
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
@@ -196,7 +195,6 @@ impl TeamimCtx {
 
         progress_callback(DrawProgress::Placing);
         let mut last_diacrit_top = 0;
-        let mut last_diacrit_left = 0;
         let mut misses = Vec::new();
 
         let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
@@ -220,7 +218,6 @@ impl TeamimCtx {
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
                     last_diacrit_top = bx.rect.top;
-                    last_diacrit_left = bx.rect.left;
                     place_taam(
                         img,
                         options,
@@ -231,14 +228,16 @@ impl TeamimCtx {
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
+                    let range = change.new_range();
+                    let pre = remapper
+                        .slice_new(range.start.saturating_sub(6)..range.end)
+                        .ok_or_eyre("invalid range")?;
+                    let post = remapper
+                        .slice_new(range.end..new.len().min(range.end + 6))
+                        .ok_or_eyre("invalid range")?;
+                    let missing_text = format!("{pre}{diacritic}{post}").into();
                     let top = last_diacrit_top;
-                    let left = last_diacrit_left;
-                    let missing_text = remapper
-                        .slice_old(change.old_range())
-                        .ok_or_eyre("invalid range")?
-                        .to_string()
-                        .into();
-                    misses.push(DiacMiss { letter, diacritic, char_idx, top, left, missing_text });
+                    misses.push(DiacMiss { letter, diacritic, char_idx, top, missing_text });
                 }
             }
         }
