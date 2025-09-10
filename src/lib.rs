@@ -304,7 +304,7 @@ impl TeamimCtx {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BoxDiffOp {
     Box(Rect),
     Miss(Arc<str>),

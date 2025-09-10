@@ -9,21 +9,22 @@ mod job;
 mod tests;
 mod view_ext;
 
-use std::{cell::RefCell, path::Path, sync::Arc};
+use std::{cell::RefCell, iter::Peekable, path::Path, sync::Arc};
 
 use eyre::{OptionExt, WrapErr};
 use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
 use teamim::{
     BoxDiffOp, DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox,
+    tesseract_ext::bounding_box::Rect,
 };
 use tracing::error;
 use xilem::{
     Affine, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
     WindowOptions, Xilem,
-    core::{MessageProxy, MessageResult, NoElement, fork, lens, map_state, run_once},
+    core::{MessageProxy, MessageResult, fork, lens},
     masonry::properties::types::{AsUnit, Length, UnitPoint},
-    palette::css::{BLUE, GREEN, TRANSPARENT, YELLOW},
+    palette::css::{BLUE, YELLOW},
     style::{Padding, Style},
     tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender},
     view::{
@@ -171,66 +172,119 @@ impl LoadedImage {
         text_size: f32,
         modified: &Modified,
     ) -> Vec<ZStackItem<impl WidgetView<()> + use<>, (), ()>> {
-        let mut views = Vec::with_capacity(modified.diff.len());
-        let mut x = self.img.width as f64 * self.zoom;
-        let mut y = 0.0;
-        let mut iter = modified.diff.iter().peekable();
-        while let Some(op) = iter.next() {
-            match op {
-                BoxDiffOp::Box(rect) => {
-                    x = rect.left as f64 * self.zoom;
-                    eprint!("{x};");
-                    y = rect.top as f64 * self.zoom;
-                    let width = rect.width() as f64 * self.zoom;
-                    let height = rect.height() as f64 * self.zoom;
-                    views.push(
-                        transformed(
-                            // FIXME hack
-                            sized_box(zstack::<(), (), _>(()))
-                                .width(width.px())
-                                .height(height.px())
-                                .border(BLUE.with_alpha(0.2), 1.0)
-                                .boxed(),
-                        )
-                        .translate((x, y))
-                        .alignment(UnitPoint::TOP_LEFT),
-                    );
-                }
-                BoxDiffOp::Miss(text) => {
-                    let last_x = x;
-                    let x = match iter.peek() {
-                        Some(BoxDiffOp::Box(rect)) => {
-                            let x = rect.right as f64 * self.zoom;
-                            // last op in row?
-                            if x < last_x { x } else { 0.0 }
+        let mut iter =
+            BoxDiffIter::new(self.img.width.try_into().unwrap(), modified.diff.iter().cloned());
+        (&mut iter)
+            .map(|op| {
+                transformed(match &op.kind {
+                    DiffBoxKind::Miss { text } => sized_box(
+                        prose(Arc::clone(text))
+                            .text_alignment(TextAlign::Center)
+                            .text_color(YELLOW)
+                            .text_size(text_size),
+                    )
+                    .width((op.width as f64 * self.zoom).px())
+                    .background_color(RED.with_alpha(0.2))
+                    .boxed(),
+                    DiffBoxKind::Match { height } =>
+                    // FIXME hack
+                    {
+                        sized_box(zstack::<(), (), _>(()))
+                            .width((op.width as f64 * self.zoom).px())
+                            .height((*height as f64 * self.zoom).px())
+                            .border(BLUE.with_alpha(0.2), 1.0)
+                            .boxed()
+                    }
+                })
+                .translate((op.x as f64 * self.zoom, op.y as f64 * self.zoom))
+                .alignment(UnitPoint::TOP_LEFT)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .chain(iter.after_miss.iter().map(|op| {
+                transformed(
+                    sized_box(zstack::<(), (), _>(()))
+                        .width((op.width() as f64 * self.zoom).px())
+                        .height((op.height() as f64 * self.zoom).px())
+                        .border(RED, 3.0)
+                        .boxed(),
+                )
+                .translate((op.left as f64 * self.zoom, op.top as f64 * self.zoom))
+                .alignment(UnitPoint::TOP_LEFT)
+            }))
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+struct DiffBoxContent {
+    x: i32,
+    y: i32,
+    width: i32,
+    kind: DiffBoxKind,
+}
+
+#[derive(Debug)]
+enum DiffBoxKind {
+    Miss { text: Arc<str> },
+    Match { height: i32 },
+}
+
+struct BoxDiffIter<I: Iterator> {
+    x: i32,
+    y: i32,
+    diff: Peekable<I>,
+    after_miss: Vec<Rect>,
+}
+
+impl<I: Iterator> BoxDiffIter<I> {
+    fn new(img_width: i32, diff: impl IntoIterator<IntoIter = I>) -> Self {
+        Self { x: img_width, y: 0, diff: diff.into_iter().peekable(), after_miss: vec![] }
+    }
+}
+
+impl<I> Iterator for BoxDiffIter<I>
+where
+    I: Iterator<Item = BoxDiffOp>,
+{
+    type Item = DiffBoxContent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Self { x, y, diff, after_miss } = self;
+        match diff.next()? {
+            BoxDiffOp::Box(rect) => {
+                *x = rect.left;
+                *y = rect.top;
+                Some(DiffBoxContent {
+                    x: *x,
+                    y: *y,
+                    width: rect.width() as _,
+                    kind: DiffBoxKind::Match { height: rect.width() as _ },
+                })
+            }
+            BoxDiffOp::Miss(text) => {
+                let (last_x, y) = (*x, *y);
+                let x = match diff.peek() {
+                    Some(BoxDiffOp::Box(next_rect)) => {
+                        after_miss.push(next_rect.clone());
+                        let x = next_rect.right;
+                        // last op in row?
+                        if x < last_x && next_rect.top < y + next_rect.height() as i32 {
+                            x
+                        } else {
+                            0
                         }
-                        Some(BoxDiffOp::Miss(_)) => {
-                            error!("consecutive misses");
-                            0.0
-                        }
-                        // final op
-                        None => 0.0,
-                    };
-                    eprintln!("\nMISS: {text:?}, x: {x}, last_x: {last_x}, next: {:?}", iter.peek());
-                    views.push(
-                        transformed(
-                            sized_box(
-                                prose(Arc::clone(text))
-                                    .text_alignment(TextAlign::Center)
-                                    .text_color(YELLOW)
-                                    .text_size(text_size),
-                            )
-                            .width((last_x - x).px())
-                            .background_color(RED.with_alpha(0.2))
-                            .boxed(),
-                        )
-                        .translate((x, y))
-                        .alignment(UnitPoint::TOP_LEFT),
-                    );
-                }
+                    }
+                    Some(BoxDiffOp::Miss(_)) => {
+                        error!("consecutive misses");
+                        0
+                    }
+                    // final op
+                    None => 0,
+                };
+                Some(DiffBoxContent { x, y, width: last_x - x, kind: DiffBoxKind::Miss { text } })
             }
         }
-        views
     }
 }
 

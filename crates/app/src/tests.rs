@@ -6,7 +6,9 @@ use xilem::{
     EventLoop, WindowOptions, Xilem, winit::platform::windows::EventLoopBuilderExtWindows,
 };
 
-use crate::{DrawIdle, LoadedImage, diff_boxes, image_read, job::JobState, view_ext::ViewExt};
+use crate::{
+    BoxDiffIter, DrawIdle, LoadedImage, diff_boxes, image_read, job::JobState, view_ext::ViewExt,
+};
 
 #[test]
 fn zstack_rtl_text_placement() -> eyre::Result<()> {
@@ -30,4 +32,19 @@ fn zstack_rtl_text_placement() -> eyre::Result<()> {
     )
     .run_in(event_loop_builder)
     .wrap_err("event loop error")
+}
+
+#[test]
+fn box_diff_iter() -> eyre::Result<()> {
+    let mut event_loop_builder = EventLoop::with_user_event();
+    event_loop_builder.with_any_thread(true);
+
+    let path = Path::new("../../assets/images/N5/007.jpg");
+    let img = image_read(path)?;
+    let mut ctx = TeamimCtx::new(c"../../assets/tessdata/")?;
+    let modified = diff_boxes(&mut ctx, &img, |progress| println!("{progress:?}"))?;
+    for op in BoxDiffIter::new(img.width.try_into().unwrap(), modified.diff) {
+        println!("{op:?}");
+    }
+    Ok(())
 }
