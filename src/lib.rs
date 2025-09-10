@@ -17,7 +17,7 @@ use eyre::{OptionExt, WrapErr, bail, eyre};
 use glyph::{GLYPHS, Placement};
 use leptonica_ext::{Buf, PixBox as Pix};
 use serde::Serialize;
-use similar::{Algorithm, DiffTag, TextDiff, utils::TextDiffRemapper};
+use similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper};
 use tesseract_ext::{
     PageIteratorLevel, PageSegMode, Tess, Text,
     bounding_box::{BoundingBox, Rect},
@@ -30,7 +30,7 @@ use crate::{
     leptonica_ext::BoxGeometry,
 };
 
-const DATAPATH: &CStr = c"./assets/tessdata";
+pub const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
 
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
@@ -75,8 +75,8 @@ pub struct TeamimCtx {
 }
 
 impl TeamimCtx {
-    pub fn new() -> eyre::Result<Self> {
-        let tess = Tess::new(DATAPATH, LANG)?;
+    pub fn new(datapath: &CStr) -> eyre::Result<Self> {
+        let tess = Tess::new(datapath, LANG)?;
         tess.set_page_seg_mode(PageSegMode::SingleColumn);
         Ok(Self { tess })
     }
@@ -269,6 +269,13 @@ impl TeamimCtx {
         // (ocr, ground_truth)
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
+        {
+            // Debug
+            eprintln!("==========================");
+            let diff = UnifiedDiff::from_text_diff(&diff);
+            eprintln!("{diff}");
+            eprintln!("==========================");
+        }
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
         let ops = diff.ops().iter().peekable();
 
@@ -665,7 +672,7 @@ mod tests {
     fn test_place_teamim() -> eyre::Result<()> {
         color_eyre::install()?;
 
-        let mut ctx = TeamimCtx::new()?;
+        let mut ctx = TeamimCtx::new(DATAPATH)?;
         let img = include_bytes!("../assets/images/N2/012.jpg");
         let options =
             PlaceOptions { debug_boxes: true, inline_diacs: true, ..PlaceOptions::default() };

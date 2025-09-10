@@ -8,11 +8,7 @@ use std::{
 use clap::Parser;
 use eyre::{Context, ContextCompat, OptionExt, bail};
 use teamim::{
-    OriginPos, fuzzy_find,
-    glyph::{GLYPHS, Placement},
-    into_geometry,
-    leptonica_ext::{BoxGeometry, PixBox},
-    tesseract_ext::{PageIteratorLevel, Tess, bounding_box::parse_char_box},
+    fuzzy_find, glyph::{Placement, GLYPHS}, into_geometry, leptonica_ext::{BoxGeometry, PixBox}, tesseract_ext::{bounding_box::parse_char_box, PageIteratorLevel, Tess}, OriginPos, TeamimCtx, DATAPATH
 };
 
 #[derive(Parser)]
@@ -55,6 +51,9 @@ struct RenderArgs {
     /// Render `Placement::After` te'amim like maqaf
     #[clap(long)]
     inline_diacs: bool,
+
+    #[clap(long)]
+    diff_boxes: bool,
 }
 
 fn main() -> eyre::Result<()> {
@@ -65,6 +64,12 @@ fn main() -> eyre::Result<()> {
     let mut pix = PixBox::read(&filename)?;
     pix = pix.into_32()?;
     let img_h: i32 = pix.get_h();
+
+    let mut ctx = TeamimCtx::new(DATAPATH)?;
+    if args.render.diff_boxes {
+        ctx.diff_boxes(&mut pix, |progress| eprintln!("{progress:?}"))?;
+        return Ok(());
+    }
 
     if let Some(corrected) = &args.corrected {
         if corrected.extension() != Some(OsStr::new("box")) {

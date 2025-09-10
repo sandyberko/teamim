@@ -14,7 +14,9 @@ use std::{cell::RefCell, path::Path, sync::Arc};
 use eyre::{OptionExt, WrapErr};
 use image::{ImageBuffer, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::FileDialog;
-use teamim::{BoxDiffOp, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{
+    BoxDiffOp, DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox,
+};
 use tracing::error;
 use xilem::{
     Affine, Blob, Color, EventLoop, EventLoopBuilder, Image, ImageFormat, TextAlign, WidgetView,
@@ -177,6 +179,7 @@ impl LoadedImage {
             match op {
                 BoxDiffOp::Box(rect) => {
                     x = rect.left as f64 * self.zoom;
+                    eprint!("{x};");
                     y = rect.top as f64 * self.zoom;
                     let width = rect.width() as f64 * self.zoom;
                     let height = rect.height() as f64 * self.zoom;
@@ -208,7 +211,7 @@ impl LoadedImage {
                         // final op
                         None => 0.0,
                     };
-
+                    eprintln!("\nMISS: {text:?}, x: {x}, last_x: {last_x}, next: {:?}", iter.peek());
                     views.push(
                         transformed(
                             sized_box(
@@ -255,47 +258,39 @@ fn try_save((img, path): &(Image, Arc<Path>)) -> eyre::Result<()> {
     Ok(())
 }
 
-fn diff_boxes(img: &Image, progress_callback: impl Fn(DrawProgress)) -> eyre::Result<Modified> {
-    TEAMIM_CTX.with_borrow_mut(|ctx| {
-        if ctx.is_none() {
-            *ctx = Some(TeamimCtx::new()?);
-        }
-        let ctx = ctx.as_mut().unwrap();
-
-        let mut data = img.data.data().to_vec();
-        let diff = PixBox::from_rgba8_with(
-            &mut data,
-            img.width.try_into().unwrap(),
-            img.height.try_into().unwrap(),
-            |img| ctx.diff_boxes(img, progress_callback),
-        )
-        .unwrap_or_else(|err| Err(err.into()))?;
-        let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
-        Ok(Modified::new(image, vec![], diff))
-    })
+fn diff_boxes(
+    ctx: &mut TeamimCtx,
+    img: &Image,
+    progress_callback: impl Fn(DrawProgress),
+) -> eyre::Result<Modified> {
+    let mut data = img.data.data().to_vec();
+    let diff = PixBox::from_rgba8_with(
+        &mut data,
+        img.width.try_into().unwrap(),
+        img.height.try_into().unwrap(),
+        |img| ctx.diff_boxes(img, progress_callback),
+    )
+    .unwrap_or_else(|err| Err(err.into()))?;
+    let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
+    Ok(Modified::new(image, vec![], diff))
 }
+
 fn draw_teamim(
+    ctx: &mut TeamimCtx,
     img: &Image,
     options: PlaceOptions,
     progress_callback: impl Fn(DrawProgress),
 ) -> eyre::Result<Modified> {
-    TEAMIM_CTX.with_borrow_mut(|ctx| {
-        if ctx.is_none() {
-            *ctx = Some(TeamimCtx::new()?);
-        }
-        let ctx = ctx.as_mut().unwrap();
-
-        let mut data = img.data.data().to_vec();
-        let misses = PixBox::from_rgba8_with(
-            &mut data,
-            img.width.try_into().unwrap(),
-            img.height.try_into().unwrap(),
-            |img| ctx.place_teamim_pix(img, options, progress_callback),
-        )
-        .unwrap_or_else(|err| Err(err.into()))?;
-        let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
-        Ok(Modified::new(image, misses, vec![]))
-    })
+    let mut data = img.data.data().to_vec();
+    let misses = PixBox::from_rgba8_with(
+        &mut data,
+        img.width.try_into().unwrap(),
+        img.height.try_into().unwrap(),
+        |img| ctx.place_teamim_pix(img, options, progress_callback),
+    )
+    .unwrap_or_else(|err| Err(err.into()))?;
+    let image = Image::new(Blob::new(Arc::new(data)), img.format, img.width, img.height);
+    Ok(Modified::new(image, misses, vec![]))
 }
 
 const GRAY: Color = Color::from_rgb8(128, 128, 128);
@@ -535,10 +530,20 @@ async fn work(proxy: MessageProxy<Msg>, mut recv: UnboundedReceiver<ChanMsg>) {
                 let callback = |progress| {
                     proxy.message(Msg::Draw(kind, JobState::Running(Some(progress)))).ok();
                 };
-                let result = match kind {
-                    RecogKind::Diff => diff_boxes(&image, callback),
-                    RecogKind::Draw => draw_teamim(&image, options, callback),
-                };
+                let result = TEAMIM_CTX.with_borrow_mut(|ctx| {
+                    let ctx = {
+                        if ctx.is_none() {
+                            *ctx = Some(TeamimCtx::new(DATAPATH)?);
+                        }
+
+                        ctx.as_mut().unwrap()
+                    };
+
+                    match kind {
+                        RecogKind::Diff => diff_boxes(ctx, &image, callback),
+                        RecogKind::Draw => draw_teamim(ctx, &image, options, callback),
+                    }
+                });
                 proxy
                     .message(Msg::Draw(kind, JobState::Ready(result.map(DrawIdle::Modified))))
                     .ok();
