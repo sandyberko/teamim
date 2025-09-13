@@ -36,7 +36,7 @@ const LANG: &CStr = c"stam";
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DiacMiss {
     pub letter: char,
     pub diacritic: char,
