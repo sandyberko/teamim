@@ -5,10 +5,13 @@ edition = "2024"
 
 [dependencies]
 eyre.workspace = true
-iced = { version = "0.13.1", features = ["image"] }
-iced_futures = "0.13.2"
-image = "0.25.8"
 rfd = "0.15.4"
+
+[dependencies.libcosmic]
+# git = "https://github.com/pop-os/libcosmic.git"
+path = "../../../libcosmic"
+default-features = false
+features = ["wgpu", "winit"]
 
 [lints]
 workspace = true
