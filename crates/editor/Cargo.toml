@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+derive_setters = "0.1.8"
 eyre.workspace = true
 rfd = "0.15.4"
 teamim = { version = "0.1.0", path = "../.." }
@@ -17,3 +18,9 @@ features = ["wgpu", "winit", "tokio"]
 
 [lints]
 workspace = true
+
+[[test]]
+name = "absolute"
+path = "tests/absolute.rs"
+# winit requires the main thread
+harness = false
