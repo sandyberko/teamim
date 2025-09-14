@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 derive_setters = "0.1.8"
 eyre.workspace = true
+image = { version = "0.25.8", features = ["default-formats"] }
 rfd = "0.15.4"
 teamim = { version = "0.1.0", path = "../.." }
 tokio = { version = "1.47.1", features = ["macros", "rt"] }

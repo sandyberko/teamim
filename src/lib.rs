@@ -534,7 +534,7 @@ pub fn place_teamim(
     Ok(img.copy_to_png()?)
 }
 
-fn place_taam(
+pub fn place_taam(
     img: &mut Pix,
     options: PlaceOptions,
     cur_c: char,

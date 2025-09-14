@@ -11,15 +11,14 @@ use std::{cell::RefCell, ffi::CStr, path::Path, sync::Arc};
 use cosmic::{
     Action, Application, Core, Element, Task,
     app::{self, Settings},
-    iced::{ContentFit, Length, Point},
+    iced::{ContentFit, Length, Point, mouse::Interaction},
     iced_core::image::Bytes,
-    iced_wgpu::graphics::image::image_rs::{
-        ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer,
+    widget::{
+        Column, Image, Row, Space, button, image::Handle, mouse_area, popover, scrollable, text,
     },
-    iced_widget::scrollable::{Direction, Scrollbar},
-    widget::{Column, Image, Row, Space, button, image::Handle, scrollable, text},
 };
 use eyre::{OptionExt as _, WrapErr as _};
+use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::AsyncFileDialog;
 
 use editor::stage::Stage;
@@ -55,6 +54,9 @@ enum Message {
     Drawn(Result<Drawn, Arc<eyre::Report>>),
     Save,
     Saved(Result<(), Arc<eyre::Report>>),
+    Place(Option<usize>),
+    PlaceMove(Point),
+    Placed,
 }
 
 const PADDING: u16 = 5;
@@ -132,29 +134,34 @@ impl Application for App {
                 Task::none()
             }
             Message::Save => {
-                let Some(drawn) = self
-                    .img
-                    .ready_ok_mut()
-                    .and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
-                else {
-                    return Task::none();
-                };
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
                 drawn.saving = JobState::Running(());
                 Task::perform(drawn.clone().save(), |res| {
                     Action::App(Message::Saved(res.map_err(Arc::new)))
                 })
             }
             Message::Saved(saved) => {
-                let Some(drawn) = self
-                    .img
-                    .ready_ok_mut()
-                    .and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
-                else {
-                    return Task::none();
-                };
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
                 drawn.saving = JobState::Ready(saved);
                 Task::none()
             }
+            Message::Place(place) => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                if let Some(place) = place {
+                    let loaded = load_image("../../assets/glyphs/yerah_ben_yomo.tif").unwrap();
+                    drawn.place_diac = Some(Place::new(loaded.img));
+                    Task::none()
+                } else {
+                    Task::perform(drawn.clone().draw_diac_at(), |_| Action::App(Message::Placed))
+                }
+            }
+            Message::PlaceMove(point) => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                let Some(place) = drawn.place_diac.as_mut() else { return Task::none() };
+                place.position = Some(point);
+                Task::none()
+            }
+            Message::Placed => todo!(),
         }
     }
     fn view(&'_ self) -> Element<'_, Message> {
@@ -207,14 +214,17 @@ impl App {
         };
 
         if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
-            Row::with_children([
+            let element = Row::with_children([
                 drawn
                     .misses
                     .iter()
-                    .map(|miss| {
+                    .enumerate()
+                    .map(|(miss_idx, miss)| {
                         #[expect(clippy::cast_precision_loss)]
                         (
-                            text(miss.missing_text.as_ref()).size(48.0).into(),
+                            mouse_area(text(miss.missing_text.as_ref()).size(48.0))
+                                .on_press(Message::Place(Some(miss_idx)))
+                                .into(),
                             Point::new(0.0, miss.top as f32),
                         )
                     })
@@ -222,10 +232,36 @@ impl App {
                     .into(),
                 Image::new(&drawn.img.handle).content_fit(ContentFit::None).into(),
             ])
-            .into()
+            .into();
+
+            if let Some(place) = &drawn.place_diac {
+                let element = if let Some(position) = place.position {
+                    popover(element)
+                        .popup(
+                            mouse_area(Image::new(place.img.handle.clone()))
+                                .on_press(Message::Place(None)),
+                        )
+                        .position(popover::Position::Point(position))
+                        .into()
+                } else {
+                    element
+                };
+
+                mouse_area(element)
+                    .on_move(Message::PlaceMove)
+                    .on_press(Message::Place(None))
+                    .interaction(Interaction::Crosshair)
+                    .into()
+            } else {
+                element
+            }
         } else {
             Image::new(&loaded.img.handle).content_fit(ContentFit::None).into()
         }
+    }
+
+    fn drawn_mut(&mut self) -> Option<&mut Drawn> {
+        self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
     }
 }
 
@@ -247,12 +283,12 @@ async fn select_image() -> eyre::Result<Option<LoadedImage>> {
     Ok(Some(loaded))
 }
 
-fn load_image(path: &Path) -> eyre::Result<LoadedImage> {
-    let image = ImageReader::open(path)?.decode()?.into_rgba8();
+fn load_image(path: impl AsRef<Path>) -> eyre::Result<LoadedImage> {
+    let path = path.as_ref().into();
+    let image = ImageReader::open(&path)?.decode()?.into_rgba8();
     let width = image.width();
     let height = image.height();
     let pixels = Bytes::from(image.into_raw());
-    let path = path.into();
     let img = Img {
         path,
         width,
@@ -308,7 +344,7 @@ impl LoadedImage {
                 let pixels = Bytes::from(data);
                 let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
                 let img = Img { pixels, handle, ..self.img };
-                Ok(Drawn { img, misses, saving: JobState::Ready(Ok(())) })
+                Ok(Drawn { img, misses, saving: JobState::Ready(Ok(())), place_diac: None })
             })
         })
         .await
@@ -317,10 +353,23 @@ impl LoadedImage {
 }
 
 #[derive(Debug, Clone)]
+struct Place {
+    img: Img,
+    position: Option<Point>,
+}
+
+impl Place {
+    fn new(img: Img) -> Self {
+        Self { img, position: None }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Drawn {
     img: Img,
     misses: Vec<DiacMiss>,
     saving: JobState<()>,
+    place_diac: Option<Place>,
 }
 
 impl Drawn {
@@ -347,6 +396,10 @@ impl Drawn {
             img.save_with_format(file.path(), format).wrap_err(strs::SAVE_FAILED)?;
         }
         Ok(())
+    }
+
+    async fn draw_diac_at(self) {
+        todo!()
     }
 }
 

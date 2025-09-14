@@ -2056,6 +2056,7 @@ version = "0.1.0"
 dependencies = [
  "derive_setters",
  "eyre",
+ "image",
  "libcosmic",
  "rfd",
  "teamim",
