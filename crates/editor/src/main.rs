@@ -6,12 +6,21 @@ mod strs;
 #[cfg(test)]
 mod tests;
 
-use std::{cell::RefCell, ffi::CStr, path::Path, sync::Arc};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    ffi::CStr,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use cosmic::{
     Action, Application, Core, Element, Task,
     app::{self, Settings},
-    iced::{ContentFit, Length, Point, mouse::Interaction},
+    iced::{
+        ContentFit, Length, Padding, Point, Subscription, alignment::Vertical, mouse::Interaction,
+    },
     iced_core::image::Bytes,
     widget::{
         Column, Image, Row, Space, button, image::Handle, mouse_area, popover, scrollable, text,
@@ -21,7 +30,7 @@ use eyre::{OptionExt as _, WrapErr as _};
 use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
 use rfd::AsyncFileDialog;
 
-use editor::stage::Stage;
+use editor::{spinner::Spinner, stage::Stage};
 use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 
 #[derive(Debug, Clone)]
@@ -44,10 +53,18 @@ impl<Ready, Running> JobState<Ready, Running> {
     fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
         if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
+    fn running(&self) -> Result<&Ready, Option<&Running>> {
+        match self {
+            JobState::Ready(Ok(ready)) => Ok(ready),
+            JobState::Ready(Err(_)) => Err(None),
+            JobState::Running(running) => Err(Some(running)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    Tick(Instant),
     SelectImage,
     ImageLoaded(Result<Option<LoadedImage>, Arc<eyre::Report>>),
     Draw,
@@ -66,11 +83,27 @@ thread_local! {
     static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
 }
 
-type ImgState = JobState<Option<LoadedImage>>;
+type ImgState = JobState<Option<LoadedImage>, Spinner>;
 
 struct App {
     core: Core,
     img: ImgState,
+}
+
+impl App {
+    fn any_loading(&self) -> Result<(), Option<&Spinner>> {
+        self.img
+            .running()?
+            .as_ref()
+            .ok_or(None)?
+            .drawing
+            .running()?
+            .as_ref()
+            .ok_or(None)?
+            .saving
+            .running()
+            .copied()
+    }
 }
 
 impl Application for App {
@@ -95,14 +128,28 @@ impl Application for App {
         (app, Task::none())
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        if self.any_loading().err().flatten().is_some() {
+            cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick)
+        } else {
+            Subscription::none()
+        }
+    }
+
     fn update(&mut self, msg: Message) -> app::Task<Message> {
         match msg {
+            Message::Tick(now) => {
+                if let JobState::Running(spinner) = &mut self.img {
+                    spinner.tick(now);
+                }
+                app::Task::none()
+            }
             Message::SelectImage => {
-                if let JobState::Running(()) = self.img {
+                if let JobState::Running(_) = self.img {
                     return Task::none();
                 }
 
-                self.img = JobState::Running(());
+                self.img = JobState::Running(Spinner::new());
                 app::Task::perform(select_image(), |res| {
                     Action::App(Message::ImageLoaded(res.map_err(Arc::new)))
                 })
@@ -115,7 +162,7 @@ impl Application for App {
                 let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
                     return Task::none();
                 };
-                loaded.drawing = JobState::Running(());
+                loaded.drawing = JobState::Running(Spinner::new());
                 Task::perform(
                     loaded.clone().draw_teamim(
                         DATAPATH,
@@ -135,7 +182,7 @@ impl Application for App {
             }
             Message::Save => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Running(());
+                drawn.saving = JobState::Running(Spinner::new());
                 Task::perform(drawn.clone().save(), |res| {
                     Action::App(Message::Saved(res.map_err(Arc::new)))
                 })
@@ -180,25 +227,47 @@ impl App {
     fn toolbar(&'_ self) -> Element<'_, Message> {
         Row::with_children([
             // select
-            button::suggested(strs::SELECT_IMG).on_press(Message::SelectImage).into(),
+            self.loading_btn(strs::SELECT_IMG, &self.img).on_press(Message::SelectImage).into(),
             // draw
-            self.img
-                .ready_ok()
-                .and_then(Option::as_ref)
-                .map_or(/* [HACK] */ Space::with_width(0).into(), |_| {
-                    button::text(strs::DRAW_TEAMIM).on_press(Message::Draw).into()
-                }),
+            self.img.ready_ok().and_then(Option::as_ref).map_or(
+                /* [HACK] */ Space::with_width(0).into(),
+                |loaded| {
+                    self.loading_btn(strs::DRAW_TEAMIM, &loaded.drawing)
+                        .on_press(Message::Draw)
+                        .into()
+                },
+            ),
             // save
-            self.img
-                .ready_ok()
-                .and_then(|loaded| loaded.as_ref()?.drawing.ready_ok()?.as_ref())
-                .map_or(/* [HACK] */ Space::with_width(0).into(), |_| {
-                    button::text(strs::SAVE).on_press(Message::Save).into()
-                }),
+            self.drawn().map_or(/* [HACK] */ Space::with_width(0).into(), |drawn| {
+                self.loading_btn(strs::SAVE, &drawn.saving).on_press(Message::Save).into()
+            }),
         ])
         .spacing(PADDING)
         .width(Length::Fill)
         .into()
+    }
+
+    fn loading_btn<'a, Ready>(
+        &'_ self,
+        label: impl Into<Cow<'a, str>> + 'a,
+        state: &JobState<Ready, Spinner>,
+    ) -> button::Button<'a, Message> {
+        let theme = self.core.system_theme().cosmic();
+        button::custom(
+            Row::with_children([
+                text(label).into(),
+                if let JobState::Running(spinner) = state {
+                    Element::from(*spinner)
+                } else {
+                    // [HACK]
+                    Space::with_width(0).into()
+                },
+            ])
+            .padding(Padding::from([0, theme.space_s()]))
+            .spacing(theme.space_xxxs())
+            .align_y(Vertical::Center),
+        )
+        .class(button::ButtonClass::Suggested)
     }
 
     fn img_view(&'_ self) -> Element<'_, Message> {
@@ -260,6 +329,10 @@ impl App {
         }
     }
 
+    fn drawn(&self) -> Option<&Drawn> {
+        self.img.ready_ok().and_then(|loaded| loaded.as_ref()?.drawing.ready_ok()?.as_ref())
+    }
+
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
     }
@@ -311,7 +384,7 @@ struct Img {
 #[derive(Debug, Clone)]
 struct LoadedImage {
     img: Img,
-    drawing: JobState<Option<Drawn>>,
+    drawing: JobState<Option<Drawn>, Spinner>,
 }
 
 impl LoadedImage {
@@ -368,7 +441,7 @@ impl Place {
 struct Drawn {
     img: Img,
     misses: Vec<DiacMiss>,
-    saving: JobState<()>,
+    saving: JobState<(), Spinner>,
     place_diac: Option<Place>,
 }
 
