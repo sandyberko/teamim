@@ -20,7 +20,7 @@ features = ["wgpu", "winit", "tokio"]
 workspace = true
 
 [[test]]
-name = "absolute"
-path = "tests/absolute.rs"
+name = "stage"
+path = "tests/stage.rs"
 # winit requires the main thread
 harness = false

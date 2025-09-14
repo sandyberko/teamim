@@ -1,3 +1,4 @@
+pub const SAVE_FAILED: &str = "שמירה נכשלה";
 pub const ERROR: &str = "שגיאה";
 pub const LOADING: &str = "טוען...";
 pub const SAVE: &str = "שמור";

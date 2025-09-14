@@ -8,15 +8,18 @@ use std::{cell::RefCell, path::Path, sync::Arc};
 use cosmic::{
     Action, Application, Core, Element, Task,
     app::{self, Settings},
-    iced::Length,
+    iced::{ContentFit, Length, Point},
     iced_core::image::Bytes,
     iced_wgpu::graphics::image::image_rs::{
         ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer,
     },
-    widget::{Column, Image, Row, Space, button, image::Handle, text},
+    iced_widget::scrollable::{Direction, Scrollbar},
+    widget::{Column, Image, Row, Space, button, image::Handle, scrollable, text},
 };
 use eyre::{OptionExt as _, WrapErr as _};
 use rfd::AsyncFileDialog;
+
+use editor::stage::Stage;
 use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 
 #[derive(Debug, Clone)]
@@ -141,7 +144,13 @@ impl Application for App {
     }
     fn view(&'_ self) -> Element<'_, Message> {
         let img = self.img_view();
-        Column::with_children([self.toolbar(), img]).spacing(PADDING).padding(PADDING).into()
+        // [TODO] this breaks RTL 😭
+        // let scroll_dir =
+        //     Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
+        Column::with_children([self.toolbar(), scrollable(img).into()])
+            .spacing(PADDING)
+            .padding(PADDING)
+            .into()
     }
 }
 
@@ -183,9 +192,25 @@ impl App {
         };
 
         if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
-            Image::new(&drawn.img.handle).into()
+            Row::with_children([
+                drawn
+                    .misses
+                    .iter()
+                    .map(|miss| {
+                        #[expect(clippy::cast_precision_loss)]
+                        (
+                            text("FOOO" /* miss.missing_text.as_ref() */) /* .size(48.0) */
+                                .into(),
+                            Point::new(0.0, miss.top as f32),
+                        )
+                    })
+                    .collect::<Stage<Message>>()
+                    .into(),
+                Image::new(&drawn.img.handle).content_fit(ContentFit::None).into(),
+            ])
+            .into()
         } else {
-            Image::new(&loaded.img.handle).into()
+            Image::new(&loaded.img.handle).content_fit(ContentFit::None).into()
         }
     }
 }
@@ -290,14 +315,13 @@ impl Drawn {
             ImageBuffer::<Rgba<u8>, _>::from_raw(self.img.width, self.img.height, self.img.pixels)
                 .expect("`data` to be big enough for width * height");
         let format = ImageFormat::from_path(file.path())?;
-        let err_msg = "שמירה נכשלה";
         if format == ImageFormat::Jpeg {
-            // FIXME: red diacs?
+            // [FIXME]: [red] diacs?
             ConvertBuffer::<ImageBuffer<Rgb<u8>, _>>::convert(&img)
                 .save_with_format(file.path(), format)
-                .wrap_err(err_msg)?;
+                .wrap_err(strs::SAVE_FAILED)?;
         } else {
-            img.save_with_format(file.path(), format).wrap_err(err_msg)?;
+            img.save_with_format(file.path(), format).wrap_err(strs::SAVE_FAILED)?;
         }
         Ok(())
     }
