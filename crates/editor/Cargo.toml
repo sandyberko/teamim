@@ -8,7 +8,7 @@ derive_setters = "0.1.8"
 eyre.workspace = true
 rfd = "0.15.4"
 teamim = { version = "0.1.0", path = "../.." }
-tokio = { version = "1.47.1", features = ["rt"] }
+tokio = { version = "1.47.1", features = ["macros", "rt"] }
 
 [dependencies.libcosmic]
 # git = "https://github.com/pop-os/libcosmic.git"
@@ -18,9 +18,3 @@ features = ["wgpu", "winit", "tokio"]
 
 [lints]
 workspace = true
-
-[[test]]
-name = "stage"
-path = "tests/stage.rs"
-# winit requires the main thread
-harness = false

@@ -1,5 +1,6 @@
 use cosmic::{Core, Element, app, executor, iced::Point, widget::text};
 
+#[test]
 fn main() -> eyre::Result<()> {
     struct App {
         core: Core,
@@ -22,13 +23,13 @@ fn main() -> eyre::Result<()> {
         }
 
         fn view(&'_ self) -> Element<'_, Self::Message> {
-            editor::stage::Stage::new()
+        super::Stage::new()
                 .push(text("foo"), Point::ORIGIN)
                 .push(text("bar"), (0., 100.).into())
                 .push(text("baz"), (100., 100.).into())
                 .into()
         }
     }
-    app::run::<App>(app::Settings::default(), ())?;
+    app::run::<App>(app::Settings::default().any_thread(true), ())?;
     Ok(())
 }

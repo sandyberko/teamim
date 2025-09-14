@@ -3,7 +3,10 @@ mod repro;
 
 mod strs;
 
-use std::{cell::RefCell, path::Path, sync::Arc};
+#[cfg(test)]
+mod tests;
+
+use std::{cell::RefCell, ffi::CStr, path::Path, sync::Arc};
 
 use cosmic::{
     Action, Application, Core, Element, Task,
@@ -27,6 +30,12 @@ pub(crate) enum JobState<Ready, Running = ()> {
     /// the has either not yet started or has already finished.
     Ready(Result<Ready, Arc<eyre::Report>>),
     Running(Running),
+}
+
+impl<Ready: Default, Running> Default for JobState<Ready, Running> {
+    fn default() -> Self {
+        JobState::Ready(Ok(Ready::default()))
+    }
 }
 
 impl<Ready, Running> JobState<Ready, Running> {
@@ -55,15 +64,17 @@ thread_local! {
     static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
 }
 
+type ImgState = JobState<Option<LoadedImage>>;
+
 struct App {
     core: Core,
-    img: JobState<Option<LoadedImage>>,
+    img: ImgState,
 }
 
 impl Application for App {
     type Executor = cosmic::executor::multi::Executor;
 
-    type Flags = ();
+    type Flags = ImgState;
 
     type Message = Message;
 
@@ -77,8 +88,8 @@ impl Application for App {
         &mut self.core
     }
 
-    fn init(core: cosmic::Core, _flags: Self::Flags) -> (Self, app::Task<Message>) {
-        let app = App { core, img: JobState::Ready(Ok(None)) };
+    fn init(core: cosmic::Core, img: Self::Flags) -> (Self, app::Task<Message>) {
+        let app = App { core, img };
         (app, Task::none())
     }
 
@@ -104,7 +115,11 @@ impl Application for App {
                 };
                 loaded.drawing = JobState::Running(());
                 Task::perform(
-                    loaded.clone().draw_teamim(PlaceOptions::default(), |_| { /* [TODO] */ }),
+                    loaded.clone().draw_teamim(
+                        DATAPATH,
+                        PlaceOptions::default(),
+                        |_| { /* [TODO] */ },
+                    ),
                     |res| Action::App(Message::Drawn(res.map_err(Arc::new))),
                 )
             }
@@ -199,8 +214,7 @@ impl App {
                     .map(|miss| {
                         #[expect(clippy::cast_precision_loss)]
                         (
-                            text("FOOO" /* miss.missing_text.as_ref() */) /* .size(48.0) */
-                                .into(),
+                            text(miss.missing_text.as_ref()).size(48.0).into(),
                             Point::new(0.0, miss.top as f32),
                         )
                     })
@@ -226,11 +240,19 @@ async fn select_image() -> eyre::Result<Option<LoadedImage>> {
         return Ok(None);
     };
 
-    let image = ImageReader::open(picked_file.path())?.decode()?.into_rgba8();
+    let loaded = tokio::task::spawn_blocking(move || load_image(picked_file.path()))
+        .await
+        .expect("blocking task to finish")?;
+
+    Ok(Some(loaded))
+}
+
+fn load_image(path: &Path) -> eyre::Result<LoadedImage> {
+    let image = ImageReader::open(path)?.decode()?.into_rgba8();
     let width = image.width();
     let height = image.height();
     let pixels = Bytes::from(image.into_raw());
-    let path = picked_file.path().into();
+    let path = path.into();
     let img = Img {
         path,
         width,
@@ -238,7 +260,7 @@ async fn select_image() -> eyre::Result<Option<LoadedImage>> {
         pixels: pixels.clone(),
         handle: Handle::from_rgba(width, height, pixels),
     };
-    Ok(Some(LoadedImage { img, drawing: JobState::Ready(Ok(None)) }))
+    Ok(LoadedImage { img, drawing: JobState::Ready(Ok(None)) })
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +281,7 @@ struct LoadedImage {
 impl LoadedImage {
     async fn draw_teamim(
         self,
+        datapath: &'static CStr,
         options: PlaceOptions,
         progress_callback: impl Fn(DrawProgress) + Send + 'static,
     ) -> eyre::Result<Drawn> {
@@ -266,7 +289,7 @@ impl LoadedImage {
             TEAMIM_CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
                 let ctx = {
                     if ctx.is_none() {
-                        *ctx = Some(TeamimCtx::new(DATAPATH)?);
+                        *ctx = Some(TeamimCtx::new(datapath)?);
                     }
 
                     ctx.as_mut().unwrap()
@@ -328,6 +351,6 @@ impl Drawn {
 }
 
 fn main() -> eyre::Result<()> {
-    cosmic::app::run::<App>(Settings::default(), ())?;
+    cosmic::app::run::<App>(Settings::default(), JobState::default())?;
     Ok(())
 }

@@ -1,6 +1,9 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
+#[cfg(test)]
+mod tests;
+
 use cosmic::iced::Point;
 use cosmic::iced_core;
 
@@ -85,7 +88,7 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
     ) -> layout::Node {
         Node::with_children(
             // [TODO]
-            (100., 500.).into(),
+            (400., 2000.).into(),
             self.children
                 .iter()
                 .zip(&mut tree.children)
