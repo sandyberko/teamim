@@ -26,7 +26,7 @@ use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
 use crate::{
-    glyph::{MAQAF, SOF_PASUQ},
+    glyph::{Glyph, MAQAF, SOF_PASUQ},
     leptonica_ext::BoxGeometry,
 };
 

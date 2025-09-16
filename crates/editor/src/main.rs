@@ -22,8 +22,12 @@ use cosmic::{
         ContentFit, Length, Padding, Point, Subscription, alignment::Vertical, mouse::Interaction,
     },
     iced_core::image::Bytes,
+    task,
     widget::{
-        Column, Image, Row, Space, button, image::Handle, mouse_area, popover, scrollable, text,
+        Column, Image, Row, Space,
+        button::{self, ButtonClass},
+        image::Handle,
+        mouse_area, popover, scrollable, text,
     },
 };
 use eyre::{OptionExt as _, WrapErr as _};
@@ -31,7 +35,10 @@ use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuf
 use rfd::AsyncFileDialog;
 
 use editor::{spinner::Spinner, stage::Stage};
-use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{
+    DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, glyph::YERAH_BEN_YOMO,
+    leptonica_ext::PixBox, place_taam,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) enum JobState<Ready, Running = ()> {
@@ -71,16 +78,33 @@ enum Message {
     Drawn(Result<Drawn, Arc<eyre::Report>>),
     Save,
     Saved(Result<(), Arc<eyre::Report>>),
-    Place(Option<usize>),
+    /// enters placing mode with the given miss' diacritic
+    PlaceMode(usize),
+    /// places discritic at [`Place::position`]
+    Place,
     PlaceMove(Point),
-    Placed,
 }
 
 const PADDING: u16 = 5;
 const IMG_EXTS: &[&str] = &["jpg", "jpeg", "png"];
 
-thread_local! {
-    static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
+fn with_tctx<T, F>(datapath: &CStr, f: F) -> eyre::Result<T>
+where
+    F: FnOnce(&mut TeamimCtx) -> T,
+{
+    thread_local! {
+        static TEAMIM_CTX: RefCell<Option<TeamimCtx>> = const { RefCell::new(None) };
+    }
+    TEAMIM_CTX.with_borrow_mut(|ctx| {
+        let ctx = {
+            if ctx.is_none() {
+                *ctx = Some(TeamimCtx::new(datapath)?);
+            }
+
+            ctx.as_mut().unwrap()
+        };
+        Ok(f(ctx))
+    })
 }
 
 type ImgState = JobState<Option<LoadedImage>, Spinner>;
@@ -192,23 +216,39 @@ impl Application for App {
                 drawn.saving = JobState::Ready(saved);
                 Task::none()
             }
-            Message::Place(place) => {
+            Message::PlaceMode(miss_idx) => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                if let Some(place) = place {
-                    let loaded = load_image("../../assets/glyphs/yerah_ben_yomo.tif").unwrap();
-                    drawn.place_diac = Some(Place::new(loaded.img));
-                    Task::none()
-                } else {
-                    Task::perform(drawn.clone().draw_diac_at(), |_| Action::App(Message::Placed))
-                }
+
+                let diac = load_image("../../assets/glyphs/yerah_ben_yomo.tif").unwrap().img;
+                drawn.place_diac =
+                    JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
+                Task::none()
+            }
+            Message::Place => {
+                let Some(drawn) = self.drawn() else { return Task::none() };
+                let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) else {
+                    return task::none();
+                };
+                let Some(&position) = place.position.as_ref() else { return task::none() };
+                let drawn = drawn.clone();
+                let place = place.clone();
+                task::future(async move {
+                    let res = tokio::task::spawn_blocking(move || {
+                        place_diac(place, position, drawn).map_err(Arc::new)
+                    })
+                    .await
+                    .expect("blocking task to finish");
+                    Message::Drawn(res)
+                })
             }
             Message::PlaceMove(point) => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let Some(place) = drawn.place_diac.as_mut() else { return Task::none() };
+                let Some(place) = drawn.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
                 place.position = Some(point);
                 Task::none()
             }
-            Message::Placed => todo!(),
         }
     }
     fn view(&'_ self) -> Element<'_, Message> {
@@ -221,6 +261,31 @@ impl Application for App {
             .padding(PADDING)
             .into()
     }
+}
+
+fn place_diac(place: Place, position: Point, drawn: Drawn) -> eyre::Result<Drawn> {
+    let mut data = drawn.img.pixels.to_vec();
+    PixBox::from_rgba8_with(&mut data, drawn.img.width as _, drawn.img.height as _, move |pix| {
+        YERAH_BEN_YOMO
+            .pix
+            .with(move |diac| pix.render_img(PixBox::clone(diac), position.x as _, position.y as _))
+    })??;
+    let misses = drawn
+        .misses
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, miss)| (i != place.miss_idx).then_some(miss))
+        .collect();
+    let pixels = Bytes::from(data);
+    let handle = Handle::from_rgba(drawn.img.width, drawn.img.height, pixels.clone());
+    let img = Img { pixels, handle, ..drawn.img };
+
+    Ok(Drawn {
+        img,
+        misses,
+        saving: JobState::Ready(Ok(())),
+        place_diac: JobState::Ready(Ok(None)),
+    })
 }
 
 impl App {
@@ -267,7 +332,7 @@ impl App {
             .spacing(theme.space_xxxs())
             .align_y(Vertical::Center),
         )
-        .class(button::ButtonClass::Suggested)
+        .class(ButtonClass::Suggested)
     }
 
     fn img_view(&'_ self) -> Element<'_, Message> {
@@ -291,8 +356,9 @@ impl App {
                     .map(|(miss_idx, miss)| {
                         #[expect(clippy::cast_precision_loss)]
                         (
-                            mouse_area(text(miss.missing_text.as_ref()).size(48.0))
-                                .on_press(Message::Place(Some(miss_idx)))
+                            button::text(miss.missing_text.as_ref())
+                                .font_size(48)
+                                .on_press(Message::PlaceMode(miss_idx))
                                 .into(),
                             Point::new(0.0, miss.top as f32),
                         )
@@ -303,12 +369,14 @@ impl App {
             ])
             .into();
 
-            if let Some(place) = &drawn.place_diac {
+            if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) {
                 let element = if let Some(position) = place.position {
                     popover(element)
                         .popup(
-                            mouse_area(Image::new(place.img.handle.clone()))
-                                .on_press(Message::Place(None)),
+                            mouse_area(Image::new(place.diac.handle.clone()))
+                                .interaction(Interaction::Crosshair)
+                                .on_move(Message::PlaceMove)
+                                .on_press(Message::Place),
                         )
                         .position(popover::Position::Point(position))
                         .into()
@@ -318,7 +386,7 @@ impl App {
 
                 mouse_area(element)
                     .on_move(Message::PlaceMove)
-                    .on_press(Message::Place(None))
+                    .on_press(Message::Place)
                     .interaction(Interaction::Crosshair)
                     .into()
             } else {
@@ -395,29 +463,26 @@ impl LoadedImage {
         progress_callback: impl Fn(DrawProgress) + Send + 'static,
     ) -> eyre::Result<Drawn> {
         tokio::task::spawn_blocking(move || {
-            TEAMIM_CTX.with_borrow_mut(|ctx| -> eyre::Result<_> {
-                let ctx = {
-                    if ctx.is_none() {
-                        *ctx = Some(TeamimCtx::new(datapath)?);
-                    }
+            let mut data = self.img.pixels.to_vec();
 
-                    ctx.as_mut().unwrap()
-                };
+            let misses = PixBox::from_rgba8_with(
+                &mut data,
+                self.img.width.try_into()?,
+                self.img.height.try_into()?,
+                |img| {
+                    with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, options, progress_callback))
+                },
+            )?
+            .unwrap_or_else(|err| Err(err.into()))?;
 
-                let mut data = self.img.pixels.to_vec();
-
-                let misses = PixBox::from_rgba8_with(
-                    &mut data,
-                    self.img.width.try_into()?,
-                    self.img.height.try_into()?,
-                    |img| ctx.place_teamim_pix(img, options, progress_callback),
-                )
-                .unwrap_or_else(|err| Err(err.into()))?;
-
-                let pixels = Bytes::from(data);
-                let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
-                let img = Img { pixels, handle, ..self.img };
-                Ok(Drawn { img, misses, saving: JobState::Ready(Ok(())), place_diac: None })
+            let pixels = Bytes::from(data);
+            let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
+            let img = Img { pixels, handle, ..self.img };
+            Ok(Drawn {
+                img,
+                misses,
+                saving: JobState::Ready(Ok(())),
+                place_diac: JobState::Ready(Ok(None)),
             })
         })
         .await
@@ -427,14 +492,9 @@ impl LoadedImage {
 
 #[derive(Debug, Clone)]
 struct Place {
-    img: Img,
+    miss_idx: usize,
+    diac: Img,
     position: Option<Point>,
-}
-
-impl Place {
-    fn new(img: Img) -> Self {
-        Self { img, position: None }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -442,7 +502,7 @@ struct Drawn {
     img: Img,
     misses: Vec<DiacMiss>,
     saving: JobState<(), Spinner>,
-    place_diac: Option<Place>,
+    place_diac: JobState<Option<Place>, Spinner>,
 }
 
 impl Drawn {
@@ -469,10 +529,6 @@ impl Drawn {
             img.save_with_format(file.path(), format).wrap_err(strs::SAVE_FAILED)?;
         }
         Ok(())
-    }
-
-    async fn draw_diac_at(self) {
-        todo!()
     }
 }
 
