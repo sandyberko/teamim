@@ -174,8 +174,9 @@ impl Application for App {
                 }
 
                 self.img = JobState::Running(Spinner::new());
-                app::Task::perform(select_image(), |res| {
-                    Action::App(Message::ImageLoaded(res.map_err(Arc::new)))
+                task::future(async move {
+                    let loaded = select_image().await.map_err(Arc::new);
+                    Message::ImageLoaded(loaded)
                 })
             }
             Message::ImageLoaded(res) => {
@@ -187,14 +188,14 @@ impl Application for App {
                     return Task::none();
                 };
                 loaded.drawing = JobState::Running(Spinner::new());
-                Task::perform(
-                    loaded.clone().draw_teamim(
-                        DATAPATH,
-                        PlaceOptions::default(),
-                        |_| { /* [TODO] */ },
-                    ),
-                    |res| Action::App(Message::Drawn(res.map_err(Arc::new))),
-                )
+                let loaded = loaded.clone();
+                task::future(async move {
+                    let result = loaded
+                        .draw_teamim(DATAPATH, PlaceOptions::default(), |_| { /* [TODO] */ })
+                        .await
+                        .map_err(Arc::new);
+                    Message::Drawn(result)
+                })
             }
             Message::Drawn(drawn) => {
                 let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
@@ -207,8 +208,10 @@ impl Application for App {
             Message::Save => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
                 drawn.saving = JobState::Running(Spinner::new());
-                Task::perform(drawn.clone().save(), |res| {
-                    Action::App(Message::Saved(res.map_err(Arc::new)))
+                let drawn = drawn.clone();
+                task::future(async move {
+                    let result = drawn.save().await.map_err(Arc::new);
+                    Message::Saved(result)
                 })
             }
             Message::Saved(saved) => {
