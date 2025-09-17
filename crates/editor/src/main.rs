@@ -11,7 +11,7 @@ use std::{
     cell::RefCell,
     ffi::CStr,
     path::Path,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -22,22 +22,23 @@ use cosmic::{
         ContentFit, Length, Padding, Point, Subscription, alignment::Vertical, mouse::Interaction,
     },
     iced_core::image::Bytes,
-    task,
+    iced_futures, task,
     widget::{
         Column, Image, Row, Space,
-        button::{self, ButtonClass},
+        button::{self},
         image::Handle,
         mouse_area, popover, scrollable, text,
     },
 };
 use eyre::{OptionExt as _, WrapErr as _};
 use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
+use num_traits::ToPrimitive as _;
 use rfd::AsyncFileDialog;
 
 use editor::{spinner::Spinner, stage::Stage};
 use teamim::{
     DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, glyph::YERAH_BEN_YOMO,
-    leptonica_ext::PixBox, place_taam,
+    leptonica_ext::PixBox,
 };
 
 #[derive(Debug, Clone)]
@@ -60,13 +61,6 @@ impl<Ready, Running> JobState<Ready, Running> {
     fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
         if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
-    fn running(&self) -> Result<&Ready, Option<&Running>> {
-        match self {
-            JobState::Ready(Ok(ready)) => Ok(ready),
-            JobState::Ready(Err(_)) => Err(None),
-            JobState::Running(running) => Err(Some(running)),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -74,8 +68,7 @@ enum Message {
     Tick(Instant),
     SelectImage,
     ImageLoaded(Result<Option<LoadedImage>, Arc<eyre::Report>>),
-    Draw,
-    Drawn(Result<Drawn, Arc<eyre::Report>>),
+    Draw(JobState<Drawn, DrawProgress>),
     Save,
     Saved(Result<(), Arc<eyre::Report>>),
     /// enters placing mode with the given miss' diacritic
@@ -114,22 +107,6 @@ struct App {
     img: ImgState,
 }
 
-impl App {
-    fn any_loading(&self) -> Result<(), Option<&Spinner>> {
-        self.img
-            .running()?
-            .as_ref()
-            .ok_or(None)?
-            .drawing
-            .running()?
-            .as_ref()
-            .ok_or(None)?
-            .saving
-            .running()
-            .copied()
-    }
-}
-
 impl Application for App {
     type Executor = cosmic::executor::multi::Executor;
 
@@ -153,13 +130,24 @@ impl Application for App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        if self.any_loading().err().flatten().is_some() {
-            cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick)
-        } else {
-            Subscription::none()
-        }
+        let ticker = cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick);
+        let loaded = match &self.img {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(Ok(Some(loaded))) => loaded,
+            JobState::Ready(_) => return Subscription::none(),
+        };
+        let drawn = match &loaded.drawing {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(Ok(Some(drawn))) => drawn,
+            JobState::Ready(_) => return Subscription::none(),
+        };
+        let () = match &drawn.saving {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(_) => return Subscription::none(),
+        };
     }
 
+    #[expect(clippy::too_many_lines)]
     fn update(&mut self, msg: Message) -> app::Task<Message> {
         match msg {
             Message::Tick(now) => {
@@ -183,26 +171,49 @@ impl Application for App {
                 self.img = JobState::Ready(res);
                 Task::none()
             }
-            Message::Draw => {
+            Message::Draw(JobState::Running(DrawProgress::Pending)) => {
                 let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
                     return Task::none();
                 };
-                loaded.drawing = JobState::Running(Spinner::new());
+                loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
                 let loaded = loaded.clone();
-                task::future(async move {
-                    let result = loaded
-                        .draw_teamim(DATAPATH, PlaceOptions::default(), |_| { /* [TODO] */ })
-                        .await
-                        .map_err(Arc::new);
-                    Message::Drawn(result)
-                })
+                task::stream(iced_futures::stream::channel(0, |mut tx| async move {
+                    let result = tokio::task::spawn_blocking({
+                        let tx = Mutex::new(tx.clone());
+                        move || {
+                            loaded
+                                .draw_teamim(DATAPATH, PlaceOptions::default(), {
+                                    move |progress| {
+                                        _ = tx
+                                            .lock()
+                                            .unwrap()
+                                            .try_send(JobState::Running(progress));
+                                    }
+                                })
+                                .map_err(Arc::new)
+                        }
+                    })
+                    .await
+                    .expect("blocking task to finish");
+                    _ = tx.try_send(JobState::Ready(result));
+                }))
+                .map(Message::Draw)
+                .map(Action::App)
             }
-            Message::Drawn(drawn) => {
+            Message::Draw(JobState::Running(progress)) => {
                 let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
                     return Task::none();
                 };
 
-                loaded.drawing = JobState::Ready(drawn.map(Some));
+                loaded.drawing = JobState::Running((Spinner::new(), progress));
+                Task::none()
+            }
+            Message::Draw(JobState::Ready(drawn_res)) => {
+                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
+
+                loaded.drawing = JobState::Ready(drawn_res.map(Some));
                 Task::none()
             }
             Message::Save => {
@@ -237,11 +248,11 @@ impl Application for App {
                 let place = place.clone();
                 task::future(async move {
                     let res = tokio::task::spawn_blocking(move || {
-                        place_diac(place, position, drawn).map_err(Arc::new)
+                        place_diac(&place, position, drawn).map_err(Arc::new)
                     })
                     .await
                     .expect("blocking task to finish");
-                    Message::Drawn(res)
+                    Message::Draw(JobState::Ready(res))
                 })
             }
             Message::PlaceMove(point) => {
@@ -266,13 +277,22 @@ impl Application for App {
     }
 }
 
-fn place_diac(place: Place, position: Point, drawn: Drawn) -> eyre::Result<Drawn> {
+fn place_diac(place: &Place, position: Point, drawn: Drawn) -> eyre::Result<Drawn> {
     let mut data = drawn.img.pixels.to_vec();
-    PixBox::from_rgba8_with(&mut data, drawn.img.width as _, drawn.img.height as _, move |pix| {
-        YERAH_BEN_YOMO
-            .pix
-            .with(move |diac| pix.render_img(PixBox::clone(diac), position.x as _, position.y as _))
-    })??;
+    PixBox::from_rgba8_with(
+        &mut data,
+        drawn.img.width.try_into()?,
+        drawn.img.height.try_into()?,
+        move |pix| {
+            YERAH_BEN_YOMO.pix.with(move |diac| {
+                pix.render_img(
+                    PixBox::clone(diac),
+                    position.x.to_i32().ok_or_eyre("Failed to convert x coordinate to i32")?,
+                    position.y.to_i32().ok_or_eyre("Failed to convert y coordinate to i32")?,
+                )
+            })
+        },
+    )??;
     let misses = drawn
         .misses
         .into_iter()
@@ -300,8 +320,15 @@ impl App {
             self.img.ready_ok().and_then(Option::as_ref).map_or(
                 /* [HACK] */ Space::with_width(0).into(),
                 |loaded| {
-                    self.loading_btn(strs::DRAW_TEAMIM, &loaded.drawing)
-                        .on_press(Message::Draw)
+                    let (label, state) = match loaded.drawing.clone() {
+                        JobState::Running((spinner, progress)) => {
+                            (strs::draw_progress(progress), JobState::Running(spinner))
+                        }
+                        JobState::Ready(ready) => (strs::DRAW_TEAMIM, JobState::Ready(ready)),
+                    };
+
+                    self.loading_btn(label, &state)
+                        .on_press(Message::Draw(JobState::Running(DrawProgress::Pending)))
                         .into()
                 },
             ),
@@ -335,7 +362,7 @@ impl App {
             .spacing(theme.space_xxxs())
             .align_y(Vertical::Center),
         )
-        .class(ButtonClass::Suggested)
+        .class(button::ButtonClass::Suggested)
     }
 
     fn img_view(&'_ self) -> Element<'_, Message> {
@@ -455,41 +482,35 @@ struct Img {
 #[derive(Debug, Clone)]
 struct LoadedImage {
     img: Img,
-    drawing: JobState<Option<Drawn>, Spinner>,
+    drawing: JobState<Option<Drawn>, (Spinner, DrawProgress)>,
 }
 
 impl LoadedImage {
-    async fn draw_teamim(
+    fn draw_teamim(
         self,
         datapath: &'static CStr,
         options: PlaceOptions,
         progress_callback: impl Fn(DrawProgress) + Send + 'static,
     ) -> eyre::Result<Drawn> {
-        tokio::task::spawn_blocking(move || {
-            let mut data = self.img.pixels.to_vec();
+        let mut data = self.img.pixels.to_vec();
 
-            let misses = PixBox::from_rgba8_with(
-                &mut data,
-                self.img.width.try_into()?,
-                self.img.height.try_into()?,
-                |img| {
-                    with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, options, progress_callback))
-                },
-            )?
-            .unwrap_or_else(|err| Err(err.into()))?;
+        let misses = PixBox::from_rgba8_with(
+            &mut data,
+            self.img.width.try_into()?,
+            self.img.height.try_into()?,
+            |img| with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, options, progress_callback)),
+        )?
+        .unwrap_or_else(|err| Err(err.into()))?;
 
-            let pixels = Bytes::from(data);
-            let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
-            let img = Img { pixels, handle, ..self.img };
-            Ok(Drawn {
-                img,
-                misses,
-                saving: JobState::Ready(Ok(())),
-                place_diac: JobState::Ready(Ok(None)),
-            })
+        let pixels = Bytes::from(data);
+        let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
+        let img = Img { pixels, handle, ..self.img };
+        Ok(Drawn {
+            img,
+            misses,
+            saving: JobState::Ready(Ok(())),
+            place_diac: JobState::Ready(Ok(None)),
         })
-        .await
-        .expect("blocking task to finish")
     }
 }
 

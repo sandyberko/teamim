@@ -26,7 +26,7 @@ use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
 use crate::{
-    glyph::{Glyph, MAQAF, SOF_PASUQ},
+    glyph::{MAQAF, SOF_PASUQ},
     leptonica_ext::BoxGeometry,
 };
 
@@ -58,8 +58,10 @@ impl DiacMiss {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum DrawProgress {
+    #[default]
+    Pending,
     Recognizing,
     ImageEffects,
     Searching,

@@ -1,3 +1,15 @@
+use teamim::DrawProgress;
+
+pub const fn draw_progress(progress: DrawProgress) -> &'static str {
+    match progress {
+        DrawProgress::Pending => "מצייר...",
+        DrawProgress::Recognizing => "מזהה...",
+        DrawProgress::ImageEffects => "עורך תמונה...",
+        DrawProgress::Searching => "מחפש...",
+        DrawProgress::Diffing => "משווה...",
+        DrawProgress::Placing => "ממקם...",
+    }
+}
 pub const SAVE_FAILED: &str = "שמירה נכשלה";
 pub const ERROR: &str = "שגיאה";
 pub const LOADING: &str = "טוען...";

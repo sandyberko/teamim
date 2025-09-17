@@ -5,18 +5,17 @@ use teamim::PlaceOptions;
 
 use crate::JobState;
 
-#[tokio::test]
-async fn drawn_test() -> eyre::Result<()> {
+#[test]
+fn drawn_test() -> eyre::Result<()> {
     let path = Path::new("../../assets/images/N5/007.jpg");
     let mut loaded = super::load_image(path)?;
-    loaded.drawing = JobState::Ready(Ok(Some(
-        loaded
-            .clone()
-            .draw_teamim(c"../../assets/tessdata/", PlaceOptions::default(), |progress| {
-                eprintln!("{progress:?}");
-            })
-            .await?,
-    )));
+    loaded.drawing = JobState::Ready(Ok(Some(loaded.clone().draw_teamim(
+        c"../../assets/tessdata/",
+        PlaceOptions::default(),
+        |progress| {
+            eprintln!("{progress:?}");
+        },
+    )?)));
 
     app::run::<super::App>(
         app::Settings::default().any_thread(true),

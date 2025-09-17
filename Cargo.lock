@@ -2058,6 +2058,7 @@ dependencies = [
  "eyre",
  "image",
  "libcosmic",
+ "num-traits",
  "rfd",
  "teamim",
  "tokio",
