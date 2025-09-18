@@ -37,6 +37,8 @@ impl<Message> Default for Stage<'_, Message> {
     }
 }
 
+type StageItem<'a, Message> = (Element<'a, Message>, Point);
+
 impl<'a, Message> Stage<'a, Message> {
     pub const fn new() -> Self {
         Self {
@@ -45,6 +47,11 @@ impl<'a, Message> Stage<'a, Message> {
             width: Length::Shrink,
             height: Length::Shrink,
         }
+    }
+
+    pub fn with_children(children: impl IntoIterator<Item = StageItem<'a, Message>>) -> Self {
+        let (children, positions): (Vec<_>, Vec<_>) = children.into_iter().unzip();
+        Self { children, positions, ..Self::new() }
     }
 
     /// Attach a new element with custom properties
@@ -60,10 +67,9 @@ impl<'a, Message> Stage<'a, Message> {
     }
 }
 
-impl<'a, Message> FromIterator<(Element<'a, Message>, Point)> for Stage<'a, Message> {
-    fn from_iter<T: IntoIterator<Item = (Element<'a, Message>, Point)>>(iter: T) -> Self {
-        let (children, positions): (Vec<_>, Vec<_>) = iter.into_iter().unzip();
-        Self { children, positions, ..Self::new() }
+impl<'a, Message> FromIterator<StageItem<'a, Message>> for Stage<'a, Message> {
+    fn from_iter<T: IntoIterator<Item = StageItem<'a, Message>>>(iter: T) -> Self {
+        Self::with_children(iter)
     }
 }
 

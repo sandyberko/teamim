@@ -21,7 +21,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use teamim::{
-    MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, place_teamim,
+    DATAPATH, MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, place_teamim,
     tesseract_ext::bounding_box::parse_char_box, training_diff::Div,
 };
 use teamim_markup::render_div;
@@ -57,7 +57,7 @@ async fn serve() -> eyre::Result<()> {
         bail!("boxedit dir does not exist: {boxedit_dir:?}");
     }
 
-    let state = AppState { ctx: Arc::new(Mutex::new(teamim::TeamimCtx::new()?)) };
+    let state = AppState { ctx: Arc::new(Mutex::new(teamim::TeamimCtx::new(DATAPATH)?)) };
 
     // build our application with a single route
     let app = Router::new()

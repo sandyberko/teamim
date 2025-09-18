@@ -22,7 +22,9 @@ use cosmic::{
         ContentFit, Length, Padding, Point, Subscription, alignment::Vertical, mouse::Interaction,
     },
     iced_core::image::Bytes,
-    iced_futures, task,
+    iced_futures,
+    iced_widget::scrollable::{Direction, Scrollbar},
+    task,
     widget::{
         Column, Image, Row, Space,
         button::{self},
@@ -268,9 +270,9 @@ impl Application for App {
     fn view(&'_ self) -> Element<'_, Message> {
         let img = self.img_view();
         // [TODO] this breaks RTL 😭
-        // let scroll_dir =
-        //     Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
-        Column::with_children([self.toolbar(), scrollable(img).into()])
+        let scroll_dir =
+            Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
+        Column::with_children([self.toolbar(), scrollable(img).direction(scroll_dir).into()])
             .spacing(PADDING)
             .padding(PADDING)
             .into()

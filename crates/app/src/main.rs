@@ -125,7 +125,7 @@ impl LoadedImage {
     }
 
     fn img_view(&self) -> impl WidgetView<()> + use<> {
-        let text_size = 92. * self.zoom as f32;
+        let ntext_size = 92. * self.zoom as f32;
 
         portal(
             sized_box(
@@ -548,6 +548,7 @@ fn drawing_tools<State: Send + Sync + 'static>(
 ) -> impl WidgetView<State, Msg> {
     let draw_progress_tag = if let JobState::Running(Some(progress)) = &drawing {
         match progress {
+            DrawProgress::Pending => "צייר תמונה...",
             DrawProgress::Recognizing => "מזהה...",
             DrawProgress::ImageEffects => "מעבד תמונה...",
             DrawProgress::Searching => "מחפש...",

@@ -18,9 +18,7 @@ use std::{
     time::Duration,
 };
 use teamim::{
-    TRAINING_TEXT, TeamimCtx,
-    tesseract_ext::bounding_box::BoundingBox,
-    training_diff::{self, Div},
+    tesseract_ext::bounding_box::BoundingBox, training_diff::{self, Div}, TeamimCtx, DATAPATH, TRAINING_TEXT
 };
 use teamim_markup::render_div;
 
@@ -132,7 +130,7 @@ fn write_distances(out_dir: &Path, distances: &mut [(f32, PathBuf)]) -> eyre::Re
 
 thread_local! {
     static CTX: RefCell<eyre::Result<TeamimCtx>> = {
-        RefCell::new((|| TeamimCtx::new()?.with_debug_file(Path::new("assets/tesseract.log")))())
+        RefCell::new((|| TeamimCtx::new(DATAPATH)?.with_debug_file(Path::new("assets/tesseract.log")))())
     };
 }
 
