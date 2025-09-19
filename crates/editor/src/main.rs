@@ -19,11 +19,14 @@ use cosmic::{
     Action, Application, Core, Element, Task,
     app::{self, Settings},
     iced::{
-        ContentFit, Length, Padding, Point, Subscription, alignment::Vertical, mouse::Interaction,
+        Length, Padding, Point, Subscription, Vector,
+        alignment::Vertical,
+        keyboard::{Key, key::Named, on_key_press},
+        mouse::Interaction,
     },
     iced_core::image::Bytes,
     iced_futures,
-    iced_widget::scrollable::{Direction, Scrollbar},
+    iced_widget::scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
     task,
     widget::{
         Column, Image, Row, Space,
@@ -34,7 +37,7 @@ use cosmic::{
 };
 use eyre::{OptionExt as _, WrapErr as _};
 use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
-use num_traits::ToPrimitive as _;
+use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 
 use editor::{spinner::Spinner, stage::Stage};
@@ -73,11 +76,15 @@ enum Message {
     Draw(JobState<Drawn, DrawProgress>),
     Save,
     Saved(Result<(), Arc<eyre::Report>>),
+    // <place>
     /// enters placing mode with the given miss' diacritic
     PlaceMode(usize),
     /// places discritic at [`Place::position`]
     Place,
     PlaceMove(Point),
+    PlaceCancel,
+    // </place>
+    Scroll(Viewport),
 }
 
 const PADDING: u16 = 5;
@@ -107,6 +114,7 @@ type ImgState = JobState<Option<LoadedImage>, Spinner>;
 struct App {
     core: Core,
     img: ImgState,
+    scroll_offset: AbsoluteOffset,
 }
 
 impl Application for App {
@@ -127,26 +135,22 @@ impl Application for App {
     }
 
     fn init(core: cosmic::Core, img: Self::Flags) -> (Self, app::Task<Message>) {
-        let app = App { core, img };
+        let app = App { core, img, scroll_offset: AbsoluteOffset::default() };
         (app, Task::none())
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let ticker = cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick);
-        let loaded = match &self.img {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(Ok(Some(loaded))) => loaded,
-            JobState::Ready(_) => return Subscription::none(),
-        };
-        let drawn = match &loaded.drawing {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(Ok(Some(drawn))) => drawn,
-            JobState::Ready(_) => return Subscription::none(),
-        };
-        let () = match &drawn.saving {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(_) => return Subscription::none(),
-        };
+        Subscription::batch([
+            self.ticker_sub(),
+            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()).map_or(
+                Subscription::none(),
+                |_| {
+                    on_key_press(|key, _| {
+                        (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel)
+                    })
+                },
+            ),
+        ])
     }
 
     #[expect(clippy::too_many_lines)]
@@ -240,17 +244,25 @@ impl Application for App {
                     JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
                 Task::none()
             }
+            // <place>
             Message::Place => {
-                let Some(drawn) = self.drawn() else { return Task::none() };
+                let Some(loaded) = self.img.ready_ok().and_then(Option::as_ref) else {
+                    return Task::none();
+                };
+                let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) else {
+                    return Task::none();
+                };
                 let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) else {
                     return task::none();
                 };
                 let Some(&position) = place.position.as_ref() else { return task::none() };
                 let drawn = drawn.clone();
                 let place = place.clone();
+                let scroll_offset = self.scroll_offset;
+                let zoom = loaded.zoom;
                 task::future(async move {
                     let res = tokio::task::spawn_blocking(move || {
-                        place_diac(&place, position, drawn).map_err(Arc::new)
+                        place_diac(&place, position, drawn, scroll_offset, zoom).map_err(Arc::new)
                     })
                     .await
                     .expect("blocking task to finish");
@@ -265,35 +277,54 @@ impl Application for App {
                 place.position = Some(point);
                 Task::none()
             }
+            Message::PlaceCancel => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                drawn.place_diac = JobState::Ready(Ok(None));
+                Task::none()
+            }
+            // </place>
+            Message::Scroll(viewport) => {
+                self.scroll_offset = viewport.absolute_offset();
+                task::none()
+            }
         }
     }
     fn view(&'_ self) -> Element<'_, Message> {
-        let img = self.img_view();
-        // [TODO] this breaks RTL 😭
+        let img = self.content_view();
         let scroll_dir =
             Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
-        Column::with_children([self.toolbar(), scrollable(img).direction(scroll_dir).into()])
-            .spacing(PADDING)
-            .padding(PADDING)
-            .into()
+        Column::with_children([
+            self.toolbar(),
+            scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
+        ])
+        .spacing(PADDING)
+        .padding(PADDING)
+        .into()
     }
 }
 
-fn place_diac(place: &Place, position: Point, drawn: Drawn) -> eyre::Result<Drawn> {
-    let mut data = drawn.img.pixels.to_vec();
+fn place_diac(
+    place: &Place,
+    position: Point,
+    drawn: Drawn,
+    scroll_offset: AbsoluteOffset,
+    zoom: f32,
+) -> eyre::Result<Drawn> {
+    // let mut data = drawn.img.pixels.to_vec();
+    // [DEBUG]
+    let mut data = vec![0xFF; drawn.img.pixels.len()];
+    let x = ((position.x + scroll_offset.x) * zoom)
+        .to_i32()
+        .ok_or_eyre("Failed to convert x coordinate to i32")?;
+    let y = ((position.y + scroll_offset.y) * zoom)
+        .to_i32()
+        .ok_or_eyre("Failed to convert y coordinate to i32")?;
+
     PixBox::from_rgba8_with(
         &mut data,
         drawn.img.width.try_into()?,
         drawn.img.height.try_into()?,
-        move |pix| {
-            YERAH_BEN_YOMO.pix.with(move |diac| {
-                pix.render_img(
-                    PixBox::clone(diac),
-                    position.x.to_i32().ok_or_eyre("Failed to convert x coordinate to i32")?,
-                    position.y.to_i32().ok_or_eyre("Failed to convert y coordinate to i32")?,
-                )
-            })
-        },
+        move |pix| YERAH_BEN_YOMO.pix.with(move |diac| pix.render_img(PixBox::clone(diac), x, y)),
     )??;
     let misses = drawn
         .misses
@@ -314,6 +345,23 @@ fn place_diac(place: &Place, position: Point, drawn: Drawn) -> eyre::Result<Draw
 }
 
 impl App {
+    fn ticker_sub(&self) -> Subscription<Message> {
+        let ticker = cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick);
+        let loaded = match &self.img {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(Ok(Some(loaded))) => loaded,
+            JobState::Ready(_) => return Subscription::none(),
+        };
+        let drawn = match &loaded.drawing {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(Ok(Some(drawn))) => drawn,
+            JobState::Ready(_) => return Subscription::none(),
+        };
+        let () = match &drawn.saving {
+            JobState::Running(_) => return ticker,
+            JobState::Ready(_) => return Subscription::none(),
+        };
+    }
     fn toolbar(&'_ self) -> Element<'_, Message> {
         Row::with_children([
             // select
@@ -338,6 +386,11 @@ impl App {
             self.drawn().map_or(/* [HACK] */ Space::with_width(0).into(), |drawn| {
                 self.loading_btn(strs::SAVE, &drawn.saving).on_press(Message::Save).into()
             }),
+            // [DEBUG]
+            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position).map_or(
+                /* [HACK] */ Space::with_width(0).into(),
+                |pos| text(format!("{pos}")).into(),
+            ),
         ])
         .spacing(PADDING)
         .width(Length::Fill)
@@ -367,7 +420,7 @@ impl App {
         .class(button::ButtonClass::Suggested)
     }
 
-    fn img_view(&'_ self) -> Element<'_, Message> {
+    fn content_view(&'_ self) -> Element<'_, Message> {
         let JobState::Ready(ready) = &self.img else {
             return text(strs::LOADING).into();
         };
@@ -380,52 +433,9 @@ impl App {
         };
 
         if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
-            let element = Row::with_children([
-                drawn
-                    .misses
-                    .iter()
-                    .enumerate()
-                    .map(|(miss_idx, miss)| {
-                        #[expect(clippy::cast_precision_loss)]
-                        (
-                            button::text(miss.missing_text.as_ref())
-                                .font_size(48)
-                                .on_press(Message::PlaceMode(miss_idx))
-                                .into(),
-                            Point::new(0.0, miss.top as f32),
-                        )
-                    })
-                    .collect::<Stage<Message>>()
-                    .into(),
-                Image::new(&drawn.img.handle).content_fit(ContentFit::None).into(),
-            ])
-            .into();
-
-            if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) {
-                let element = if let Some(position) = place.position {
-                    popover(element)
-                        .popup(
-                            mouse_area(Image::new(place.diac.handle.clone()))
-                                .interaction(Interaction::Crosshair)
-                                .on_move(Message::PlaceMove)
-                                .on_press(Message::Place),
-                        )
-                        .position(popover::Position::Point(position))
-                        .into()
-                } else {
-                    element
-                };
-
-                mouse_area(element)
-                    .on_move(Message::PlaceMove)
-                    .on_press(Message::Place)
-                    .interaction(Interaction::Crosshair)
-                    .into()
-            } else {
-                element
-            }
+            drawn_content_view(drawn, loaded.zoom)
         } else {
-            Image::new(&loaded.img.handle).content_fit(ContentFit::None).into()
+            loaded.img.view(loaded.zoom)
         }
     }
 
@@ -436,6 +446,64 @@ impl App {
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
     }
+}
+
+fn drawn_content_view(drawn: &'_ Drawn, zoom: f32) -> Element<'_, Message> {
+    let misses_view = drawn
+        .misses
+        .iter()
+        .enumerate()
+        .map(|(miss_idx, miss)| {
+            (
+                button::text(miss.missing_text.as_ref())
+                    .font_size((48.0 * zoom).round().as_())
+                    .on_press(Message::PlaceMode(miss_idx))
+                    .class(
+                        if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref)
+                            && place.miss_idx == miss_idx
+                        {
+                            button::ButtonClass::Suggested
+                        } else {
+                            button::ButtonClass::Text
+                        },
+                    )
+                    .into(),
+                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
+            )
+        })
+        .collect::<Stage<Message>>()
+        .into();
+
+    let img_view = drawn.img.view(zoom);
+    let img_view = if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) {
+        let img_view = if let Some(position) = place.position {
+            popover(img_view)
+                .popup(
+                    mouse_area(place.diac.view(zoom))
+                        .interaction(Interaction::Crosshair)
+                        .on_move(|Point { x, y }| {
+                            Message::PlaceMove(
+                                place.position.unwrap_or_default() + Vector::new(x, y),
+                            )
+                        })
+                        .on_press(Message::Place),
+                )
+                .position(popover::Position::Point(position))
+                .into()
+        } else {
+            img_view
+        };
+
+        mouse_area(img_view)
+            .on_move(Message::PlaceMove)
+            .on_press(Message::Place)
+            .interaction(Interaction::Crosshair)
+            .into()
+    } else {
+        img_view
+    };
+
+    Row::with_children([misses_view, img_view]).into()
 }
 
 async fn select_image() -> eyre::Result<Option<LoadedImage>> {
@@ -469,7 +537,7 @@ fn load_image(path: impl AsRef<Path>) -> eyre::Result<LoadedImage> {
         pixels: pixels.clone(),
         handle: Handle::from_rgba(width, height, pixels),
     };
-    Ok(LoadedImage { img, drawing: JobState::Ready(Ok(None)) })
+    Ok(LoadedImage { img, zoom: /* [TODO] */ 0.4, drawing: JobState::Ready(Ok(None)) })
 }
 
 #[derive(Debug, Clone)]
@@ -481,9 +549,19 @@ struct Img {
     handle: Handle,
 }
 
+impl Img {
+    fn view(&'_ self, zoom: f32) -> Element<'_, Message> {
+        Image::new(&self.handle)
+            .height(AsPrimitive::<f32>::as_(self.height) * zoom)
+            .width(AsPrimitive::<f32>::as_(self.width) * zoom)
+            .into()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct LoadedImage {
     img: Img,
+    zoom: f32,
     drawing: JobState<Option<Drawn>, (Spinner, DrawProgress)>,
 }
 
