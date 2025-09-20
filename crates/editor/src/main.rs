@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 #[allow(unused)]
 mod repro;
 
@@ -20,7 +22,7 @@ use cosmic::{
     Action, Application, Core, Element, Task,
     app::{self, Settings},
     iced::{
-        Length, Padding, Point, Subscription, Vector,
+        Color, Length, Padding, Point, Subscription, Vector,
         alignment::Vertical,
         keyboard::{Key, key::Named, on_key_press},
         mouse::Interaction,
@@ -28,7 +30,7 @@ use cosmic::{
     iced_core::image::Bytes,
     iced_futures,
     iced_widget::scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-    task,
+    style, task,
     widget::{
         Column, Image, Row, Space,
         button::{self},
@@ -108,10 +110,12 @@ where
 }
 
 type ImgState = JobState<Option<LoadedImage>, Spinner>;
+const FONT_SIZE: f32 = 72.0;
 
 struct App {
     core: Core,
     img: ImgState,
+    opts: PlaceOptions,
     scroll_offset: AbsoluteOffset,
 }
 
@@ -133,7 +137,12 @@ impl Application for App {
     }
 
     fn init(core: cosmic::Core, img: Self::Flags) -> (Self, app::Task<Message>) {
-        let app = App { core, img, scroll_offset: AbsoluteOffset::default() };
+        let app = App {
+            core,
+            img,
+            opts: PlaceOptions::default(),
+            scroll_offset: AbsoluteOffset::default(),
+        };
         (app, Task::none())
     }
 
@@ -181,12 +190,13 @@ impl Application for App {
                 };
                 loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
                 let loaded = loaded.clone();
-                task::stream(iced_futures::stream::channel(0, |mut tx| async move {
+                let options = self.opts;
+                task::stream(iced_futures::stream::channel(0, move |mut tx| async move {
                     let result = tokio::task::spawn_blocking({
                         let tx = Mutex::new(tx.clone());
                         move || {
                             loaded
-                                .draw_teamim(DATAPATH, PlaceOptions::default(), {
+                                .draw_teamim(DATAPATH, options, {
                                     move |progress| {
                                         _ = tx
                                             .lock()
@@ -236,8 +246,7 @@ impl Application for App {
             }
             Message::PlaceMode(miss_idx) => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-
-                let diac = load_image("../../assets/glyphs/yerah_ben_yomo.tif").unwrap().img;
+                let diac = drawn.misses[miss_idx].diacritic.to_string().into();
                 drawn.place_diac =
                     JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
                 Task::none()
@@ -308,21 +317,12 @@ fn place_diac(
     scroll_offset: AbsoluteOffset,
     zoom: f32,
 ) -> eyre::Result<Drawn> {
-    // let mut data = drawn.img.pixels.to_vec();
-    // [DEBUG]
-    let x = ((position.x + scroll_offset.x) * zoom)
+    let x = ((position.x + scroll_offset.x) / zoom)
         .to_i32()
         .ok_or_eyre("Failed to convert x coordinate to i32")?;
-    let y = ((position.y + scroll_offset.y) * zoom)
+    let y = ((position.y + scroll_offset.y) / zoom)
         .to_i32()
         .ok_or_eyre("Failed to convert y coordinate to i32")?;
-
-    // PixBox::from_rgba8_with(
-    //     &mut data,
-    //     drawn.img.width.try_into()?,
-    //     drawn.img.height.try_into()?,
-    //     move |pix| YERAH_BEN_YOMO.pix.with(move |diac| pix.render_img(PixBox::clone(diac), x, y)),
-    // )??;
 
     let Img { width, height, pixels, .. } = drawn.img;
 
@@ -331,7 +331,10 @@ fn place_diac(
 
     let mut img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels.as_mut())
         .ok_or_eyre("failed to convert to image")?;
-    diac_renderer::draw_text(&mut img);
+
+    let mut buf = [0; 4];
+    let text = drawn.misses[place.miss_idx].diacritic.encode_utf8(&mut buf);
+    diac_renderer::draw_text(&mut img, [x, y], text, FONT_SIZE);
 
     let misses = drawn
         .misses
@@ -486,14 +489,16 @@ fn drawn_content_view(drawn: &'_ Drawn, zoom: f32) -> Element<'_, Message> {
         let img_view = if let Some(position) = place.position {
             popover(img_view)
                 .popup(
-                    mouse_area(place.diac.view(zoom))
-                        .interaction(Interaction::Crosshair)
-                        .on_move(|Point { x, y }| {
-                            Message::PlaceMove(
-                                place.position.unwrap_or_default() + Vector::new(x, y),
-                            )
-                        })
-                        .on_press(Message::Place),
+                    mouse_area(
+                        text(place.diac.as_ref())
+                            .size(FONT_SIZE)
+                            .class(style::iced::Text::Color(Color::BLACK)),
+                    )
+                    .interaction(Interaction::Crosshair)
+                    .on_move(|Point { x, y }| {
+                        Message::PlaceMove(place.position.unwrap_or_default() + Vector::new(x, y))
+                    })
+                    .on_press(Message::Place),
                 )
                 .position(popover::Position::Point(position))
                 .into()
@@ -604,7 +609,7 @@ impl LoadedImage {
 #[derive(Debug, Clone)]
 struct Place {
     miss_idx: usize,
-    diac: Img,
+    diac: Arc<str>,
     position: Option<Point>,
 }
 
