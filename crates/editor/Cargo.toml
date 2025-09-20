@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cosmic-text = "0.14.2"
 derive_setters = "0.1.8"
 eyre.workspace = true
 image = { version = "0.25.8", features = ["default-formats"] }

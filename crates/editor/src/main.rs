@@ -1,6 +1,7 @@
 #[allow(unused)]
 mod repro;
 
+mod diac_renderer;
 mod strs;
 
 #[cfg(test)]
@@ -41,10 +42,7 @@ use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 
 use editor::{spinner::Spinner, stage::Stage};
-use teamim::{
-    DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, glyph::YERAH_BEN_YOMO,
-    leptonica_ext::PixBox,
-};
+use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 
 #[derive(Debug, Clone)]
 pub(crate) enum JobState<Ready, Running = ()> {
@@ -312,7 +310,6 @@ fn place_diac(
 ) -> eyre::Result<Drawn> {
     // let mut data = drawn.img.pixels.to_vec();
     // [DEBUG]
-    let mut data = vec![0xFF; drawn.img.pixels.len()];
     let x = ((position.x + scroll_offset.x) * zoom)
         .to_i32()
         .ok_or_eyre("Failed to convert x coordinate to i32")?;
@@ -320,19 +317,29 @@ fn place_diac(
         .to_i32()
         .ok_or_eyre("Failed to convert y coordinate to i32")?;
 
-    PixBox::from_rgba8_with(
-        &mut data,
-        drawn.img.width.try_into()?,
-        drawn.img.height.try_into()?,
-        move |pix| YERAH_BEN_YOMO.pix.with(move |diac| pix.render_img(PixBox::clone(diac), x, y)),
-    )??;
+    // PixBox::from_rgba8_with(
+    //     &mut data,
+    //     drawn.img.width.try_into()?,
+    //     drawn.img.height.try_into()?,
+    //     move |pix| YERAH_BEN_YOMO.pix.with(move |diac| pix.render_img(PixBox::clone(diac), x, y)),
+    // )??;
+
+    let Img { width, height, pixels, .. } = drawn.img;
+
+    // [TODO]
+    let mut pixels = pixels.to_vec();
+
+    let mut img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels.as_mut())
+        .ok_or_eyre("failed to convert to image")?;
+    diac_renderer::draw_text(&mut img);
+
     let misses = drawn
         .misses
         .into_iter()
         .enumerate()
         .filter_map(|(i, miss)| (i != place.miss_idx).then_some(miss))
         .collect();
-    let pixels = Bytes::from(data);
+    let pixels = Bytes::from(pixels);
     let handle = Handle::from_rgba(drawn.img.width, drawn.img.height, pixels.clone());
     let img = Img { pixels, handle, ..drawn.img };
 
