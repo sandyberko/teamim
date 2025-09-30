@@ -481,7 +481,7 @@ fn drawn_content_view(drawn: &'_ Drawn, zoom: f32) -> Element<'_, Message> {
                 Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
             )
         })
-        .collect::<Stage<Message>>()
+        .collect::<Stage<Message, cosmic::Theme, cosmic::Renderer>>()
         .into();
 
     let img_view = drawn.img.view(zoom);

@@ -4,24 +4,25 @@
 #[cfg(test)]
 mod tests;
 
-use cosmic::iced::Point;
-use cosmic::iced_core;
-
-use cosmic::iced_core::layout::Node;
-use cosmic::{Element, Renderer};
 use derive_setters::Setters;
-use iced_core::event::{self, Event};
-use iced_core::widget::{Operation, Tree};
-use iced_core::{
-    Clipboard, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay, renderer,
+use iced::{
+    advanced::overlay,
+    core::{
+        Clipboard, Element, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget,
+        clipboard,
+        event::{self, Event},
+        layout::{self, Node},
+        mouse, renderer,
+        widget::{Operation, Tree},
+    },
 };
 
 /// Responsively generates rows and columns of widgets based on its dimmensions.
 #[must_use]
 #[derive(Setters)]
-pub struct Stage<'a, Message> {
+pub struct Stage<'a, Message, Theme, Renderer> {
     #[setters(skip)]
-    children: Vec<Element<'a, Message>>,
+    children: Vec<Element<'a, Message, Theme, Renderer>>,
     /// Where children shall be positioned.
     #[setters(skip)]
     positions: Vec<Point>,
@@ -31,15 +32,15 @@ pub struct Stage<'a, Message> {
     height: Length,
 }
 
-impl<Message> Default for Stage<'_, Message> {
+impl<Message, Theme, Renderer> Default for Stage<'_, Message, Theme, Renderer> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-type StageItem<'a, Message> = (Element<'a, Message>, Point);
+type StageItem<'a, Message, Theme, Renderer> = (Element<'a, Message, Theme, Renderer>, Point);
 
-impl<'a, Message> Stage<'a, Message> {
+impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
     pub const fn new() -> Self {
         Self {
             children: Vec::new(),
@@ -49,7 +50,9 @@ impl<'a, Message> Stage<'a, Message> {
         }
     }
 
-    pub fn with_children(children: impl IntoIterator<Item = StageItem<'a, Message>>) -> Self {
+    pub fn with_children(
+        children: impl IntoIterator<Item = StageItem<'a, Message, Theme, Renderer>>,
+    ) -> Self {
         let (children, positions): (Vec<_>, Vec<_>) = children.into_iter().unzip();
         Self { children, positions, ..Self::new() }
     }
@@ -57,7 +60,7 @@ impl<'a, Message> Stage<'a, Message> {
     /// Attach a new element with custom properties
     pub fn push<W>(mut self, widget: W, position: Point) -> Self
     where
-        W: Into<Element<'a, Message>>,
+        W: Into<Element<'a, Message, Theme, Renderer>>,
     {
         self.children.push(widget.into());
 
@@ -67,13 +70,19 @@ impl<'a, Message> Stage<'a, Message> {
     }
 }
 
-impl<'a, Message> FromIterator<StageItem<'a, Message>> for Stage<'a, Message> {
-    fn from_iter<T: IntoIterator<Item = StageItem<'a, Message>>>(iter: T) -> Self {
+impl<'a, Message, Theme, Renderer> FromIterator<StageItem<'a, Message, Theme, Renderer>>
+    for Stage<'a, Message, Theme, Renderer>
+{
+    fn from_iter<T: IntoIterator<Item = StageItem<'a, Message, Theme, Renderer>>>(iter: T) -> Self {
         Self::with_children(iter)
     }
 }
 
-impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stage<'_, Message> {
+impl<Message: 'static + Clone, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Stage<'_, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
     fn children(&self) -> Vec<Tree> {
         self.children.iter().map(Tree::new).collect()
     }
@@ -82,8 +91,8 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
         tree.diff_children(self.children.as_mut_slice());
     }
 
-    fn size(&self) -> iced_core::Size<Length> {
-        iced_core::Size::new(self.width, self.height)
+    fn size(&self) -> Size<Length> {
+        Size::new(self.width, self.height)
     }
 
     fn layout(
@@ -186,7 +195,7 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        theme: &cosmic::Theme,
+        theme: &Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -213,7 +222,7 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
         layout: Layout<'_>,
         renderer: &Renderer,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, cosmic::Theme, Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         overlay::from_children(&mut self.children, tree, layout, renderer, translation)
     }
 
@@ -222,7 +231,7 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
         state: &Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
-        dnd_rectangles: &mut iced_core::clipboard::DndDestinationRectangles,
+        dnd_rectangles: &mut clipboard::DndDestinationRectangles,
     ) {
         for ((e, c_layout), state) in
             self.children.iter().zip(layout.children()).zip(state.children.iter())
@@ -237,8 +246,14 @@ impl<Message: 'static + Clone> Widget<Message, cosmic::Theme, Renderer> for Stag
     }
 }
 
-impl<'a, Message: 'static + Clone> From<Stage<'a, Message>> for Element<'a, Message> {
-    fn from(flex_row: Stage<'a, Message>) -> Self {
+impl<'a, Message, Theme, Renderer> From<Stage<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: Clone + 'static,
+    Theme: 'a,
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    fn from(flex_row: Stage<'a, Message, Theme, Renderer>) -> Self {
         Self::new(flex_row)
     }
 }
