@@ -417,7 +417,7 @@ impl App {
             Row::with_children([
                 text(label).into(),
                 if let JobState::Running(spinner) = state {
-                    Element::from(*spinner)
+                    spinner.view()
                 } else {
                     // [HACK]
                     Space::with_width(0).into()

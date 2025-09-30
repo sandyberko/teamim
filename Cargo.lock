@@ -1846,6 +1846,8 @@ dependencies = [
  "cosmic-text 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_setters",
  "eyre",
+ "iced",
+ "iced_renderer",
  "image",
  "libcosmic",
  "num-traits",

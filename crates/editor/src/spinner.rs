@@ -3,15 +3,13 @@
 // Works with `iced` or `libcosmic` (which re-exports iced types).
 use std::time::Instant;
 
-use cosmic::{
-    Element,
-    iced::{
-        Color, Length, Point, Rectangle, mouse,
-        widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke},
-    },
-    iced_renderer::geometry,
-    widget::canvas::path::Arc,
+use iced::{
+    Color, Length, Point, Rectangle,
+    core::Element,
+    mouse,
+    widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc},
 };
+use iced_renderer::geometry;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Spinner {
@@ -57,12 +55,14 @@ impl Spinner {
     pub fn tick(&mut self, now: Instant) {
         self.last_tick = now;
     }
-}
 
-impl<'a, Message: 'a> From<Spinner> for Element<'a, Message> {
-    fn from(val: Spinner) -> Self {
-        // clone self into the Canvas program (cheap enough for this small widget)
-        Canvas::new(val).width(Length::Fixed(val.size)).height(Length::Fixed(val.size)).into()
+    pub fn view<'a, Message, Theme, Renderer>(self) -> Element<'a, Message, Theme, Renderer>
+    where
+        Message: 'a,
+        Theme: 'a,
+        Renderer: iced_renderer::geometry::Renderer + 'a,
+    {
+        Canvas::new(self).width(Length::Fixed(self.size)).height(Length::Fixed(self.size)).into()
     }
 }
 
