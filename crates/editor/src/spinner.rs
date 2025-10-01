@@ -4,9 +4,7 @@
 use std::time::Instant;
 
 use iced::{
-    Color, Length, Point, Rectangle,
-    core::Element,
-    mouse,
+    Color, Element, Length, Point, Rectangle, mouse,
     widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc},
 };
 use iced_renderer::geometry;

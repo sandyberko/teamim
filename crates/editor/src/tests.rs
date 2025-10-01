@@ -1,26 +1,31 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
-use iced::{Settings, Task};
+use crate::LoadedImage;
 
 use super::{App, JobState, view};
 use teamim::PlaceOptions;
 
 #[test]
 fn drawn_test() -> eyre::Result<()> {
-    let path = Path::new("../../assets/images/N5/007.jpg");
-    let mut loaded = super::load_image(path)?;
-    loaded.drawing = JobState::Ready(Ok(Some(loaded.clone().draw_teamim(
-        c"../../assets/tessdata/",
-        PlaceOptions::default(),
-        |progress| {
-            eprintln!("{progress:?}");
-        },
-    )?)));
-    let app = App { img: JobState::Ready(Ok(Some(loaded))), ..App::default() };
-    iced::application("drawn_test", App::update, view)
-        .subscription(App::subscription)
-        .settings(Settings { any_thread: true, ..Default::default() })
-        .run_with(|| (app, Task::none()))?;
+    fn load() -> eyre::Result<LoadedImage> {
+        let path = Path::new("../../assets/images/N5/007.jpg");
+        let mut loaded = super::load_image(path)?;
+        loaded.drawing = JobState::Ready(Ok(Some(loaded.clone().draw_teamim(
+            c"../../assets/tessdata/",
+            PlaceOptions::default(),
+            |progress| {
+                eprintln!("{progress:?}");
+            },
+        )?)));
+        Ok(loaded)
+    }
+    iced::application(
+        || App { img: JobState::Ready(load().map(Some).map_err(Arc::new)), ..App::default() },
+        App::update,
+        view,
+    )
+    .subscription(App::subscription)
+    .run()?;
 
     Ok(())
 }

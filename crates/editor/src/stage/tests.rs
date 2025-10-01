@@ -1,4 +1,4 @@
-use iced::{Point, Settings, application, widget::text};
+use iced::{Point, widget::text};
 
 #[test]
 fn main() -> eyre::Result<()> {
@@ -12,7 +12,6 @@ fn main() -> eyre::Result<()> {
             .push(text("baz"), (100., 100.).into())
             .into()
     }
-    let settings = Settings { any_thread: true, ..Settings::default() };
-    application("stage test", update, view).settings(settings).run()?;
+    iced::run(update, view)?;
     Ok(())
 }

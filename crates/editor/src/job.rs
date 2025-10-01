@@ -1,11 +1,10 @@
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use editor::spinner::Spinner;
 use iced::{
-    Padding, advanced,
+    advanced,
     alignment::Vertical,
-    core::text::IntoFragment,
-    widget::{Button, Space, button, row, text},
+    widget::{Button, Space, button, row, text, text::IntoFragment},
 };
 
 #[derive(Debug, Clone)]
@@ -48,7 +47,7 @@ impl<Ready> JobState<Ready, Spinner> {
                     spinner.view()
                 } else {
                     // [HACK]
-                    Space::with_width(0).into()
+                    Space::new().into()
                 },
             ])
             .spacing(6)

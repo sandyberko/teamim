@@ -6,15 +6,14 @@ mod tests;
 
 use derive_setters::Setters;
 use iced::{
-    advanced::overlay,
-    core::{
-        Clipboard, Element, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget,
-        clipboard,
-        event::{self, Event},
+    Element, Length, Point, Rectangle, Size, Vector,
+    advanced::{
+        Layout, Widget,
         layout::{self, Node},
-        mouse, renderer,
+        overlay, renderer,
         widget::{Operation, Tree},
     },
+    mouse,
 };
 
 /// Responsively generates rows and columns of widgets based on its dimmensions.
@@ -87,8 +86,8 @@ where
         self.children.iter().map(Tree::new).collect()
     }
 
-    fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(self.children.as_mut_slice());
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(&self.children);
     }
 
     fn size(&self) -> Size<Length> {
@@ -96,7 +95,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -105,65 +104,31 @@ where
             // [TODO]
             (400., 2000.).into(),
             self.children
-                .iter()
+                .iter_mut()
                 .zip(&mut tree.children)
                 .zip(&self.positions)
                 .map(|((child, tree), pos)| {
-                    child.as_widget().layout(tree, renderer, limits).move_to(*pos)
+                    child.as_widget_mut().layout(tree, renderer, limits).move_to(*pos)
                 })
                 .collect(),
         )
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
         operation: &mut dyn Operation<()>,
     ) {
-        operation.container(None, layout.bounds(), &mut |operation| {
-            self.children.iter().zip(&mut tree.children).zip(layout.children()).for_each(
-                |((child, state), c_layout)| {
-                    child.as_widget().operate(
-                        state,
-                        c_layout.with_virtual_offset(layout.virtual_offset()),
-                        renderer,
-                        operation,
-                    );
+        operation.container(None, layout.bounds());
+        operation.traverse(&mut |operation| {
+            self.children.iter_mut().zip(&mut tree.children).zip(layout.children()).for_each(
+                |((child, state), layout)| {
+                    child.as_widget_mut().operate(state, layout, renderer, operation);
                 },
             );
         });
-    }
-
-    fn on_event(
-        &mut self,
-        tree: &mut Tree,
-        event: Event,
-        layout: Layout<'_>,
-        cursor: mouse::Cursor,
-        renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
-        shell: &mut Shell<'_, Message>,
-        viewport: &Rectangle,
-    ) -> event::Status {
-        self.children
-            .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
-            .map(|((child, state), c_layout)| {
-                child.as_widget_mut().on_event(
-                    state,
-                    event.clone(),
-                    c_layout.with_virtual_offset(layout.virtual_offset()),
-                    cursor,
-                    renderer,
-                    clipboard,
-                    shell,
-                    viewport,
-                )
-            })
-            .fold(event::Status::Ignored, event::Status::merge)
     }
 
     fn mouse_interaction(
@@ -178,14 +143,8 @@ where
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
-            .map(|((child, state), c_layout)| {
-                child.as_widget().mouse_interaction(
-                    state,
-                    c_layout.with_virtual_offset(layout.virtual_offset()),
-                    cursor,
-                    viewport,
-                    renderer,
-                )
+            .map(|((child, state), layout)| {
+                child.as_widget().mouse_interaction(state, layout, cursor, viewport, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -201,48 +160,27 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        for ((child, state), c_layout) in
-            self.children.iter().zip(&tree.children).zip(layout.children())
+        let Some(viewport) = layout.bounds().intersection(viewport) else { return };
+        for ((child, state), layout) in self
+            .children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .filter(|(_, layout)| layout.bounds().intersects(&viewport))
         {
-            child.as_widget().draw(
-                state,
-                renderer,
-                theme,
-                style,
-                c_layout.with_virtual_offset(layout.virtual_offset()),
-                cursor,
-                viewport,
-            );
+            child.as_widget().draw(state, renderer, theme, style, layout, cursor, &viewport);
         }
     }
 
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        overlay::from_children(&mut self.children, tree, layout, renderer, translation)
-    }
-
-    fn drag_destinations(
-        &self,
-        state: &Tree,
-        layout: Layout<'_>,
-        renderer: &Renderer,
-        dnd_rectangles: &mut clipboard::DndDestinationRectangles,
-    ) {
-        for ((e, c_layout), state) in
-            self.children.iter().zip(layout.children()).zip(state.children.iter())
-        {
-            e.as_widget().drag_destinations(
-                state,
-                c_layout.with_virtual_offset(layout.virtual_offset()),
-                renderer,
-                dnd_rectangles,
-            );
-        }
+        overlay::from_children(&mut self.children, tree, layout, renderer, viewport, translation)
     }
 }
 

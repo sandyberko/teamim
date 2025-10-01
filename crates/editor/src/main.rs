@@ -9,8 +9,8 @@ mod tests;
 
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Element, Length, Point, Subscription, Task, Vector, advanced,
-    core::image::Bytes,
+    Element, Length, Point, Subscription, Task, Vector,
+    advanced::{self, image::Bytes},
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     widget::{
@@ -162,7 +162,7 @@ impl App {
             self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into(),
             // draw
             self.img.ready_ok().and_then(Option::as_ref).map_or(
-                /* [HACK] */ Space::with_width(0).into(),
+                /* [HACK] */ Space::new().into(),
                 |loaded| {
                     let (label, state) = match loaded.drawing.clone() {
                         JobState::Running((spinner, progress)) => {
@@ -178,16 +178,16 @@ impl App {
                 },
             ),
             // save
-            self.drawn().map_or(/* [HACK] */ Space::with_width(0).into(), |drawn| {
+            self.drawn().map_or(/* [HACK] */ Space::new().into(), |drawn| {
                 drawn.saving.loading_btn(strs::SAVE).on_press(Message::Save).into()
             }),
             // [DEBUG]
             self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position).map_or(
-                /* [HACK] */ Space::with_width(0).into(),
+                /* [HACK] */ Space::new().into(),
                 |pos| widget::text(format!("{pos}")).into(),
             ),
         ])
-        .spacing(PADDING)
+        .spacing(PADDING as u32)
         .width(Length::Fill)
         .into()
     }
@@ -243,7 +243,7 @@ impl App {
             self.toolbar(),
             widget::scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
         ])
-        .spacing(PADDING)
+        .spacing(PADDING as u32)
         .padding(PADDING)
         .into()
     }
@@ -278,7 +278,7 @@ impl App {
                 loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
                 let loaded = loaded.clone();
                 let options = self.opts;
-                Task::stream(iced_futures::stream::channel(0, move |mut tx| async move {
+                Task::stream(iced_futures::stream::channel(0, async move |mut tx| {
                     let result = tokio::task::spawn_blocking({
                         let tx = Mutex::new(tx.clone());
                         move || {
@@ -612,6 +612,6 @@ fn view(state: &'_ App) -> Element<'_, Message> {
     App::view(state)
 }
 fn main() -> eyre::Result<()> {
-    iced::application(strs::TITLE, App::update, view).subscription(App::subscription).run()?;
+    iced::application(App::default, App::update, view).subscription(App::subscription).run()?;
     Ok(())
 }
