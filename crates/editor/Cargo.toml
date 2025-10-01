@@ -7,7 +7,7 @@ edition = "2024"
 cosmic-text = "0.14.2"
 derive_setters = "0.1.8"
 eyre.workspace = true
-iced = { version = "0.14.0-dev", path = "../../../libcosmic/iced", features = ["image"] }
+iced = { version = "0.14.0-dev", path = "../../../libcosmic/iced", features = ["advanced", "canvas", "image", "tokio", "wgpu", "winit"] }
 iced_futures = { version = "0.14.0-dev", path = "../../../libcosmic/iced/futures" }
 iced_renderer = { version = "0.14.0-dev", path = "../../../libcosmic/iced/renderer", features = ["geometry"] }
 image = { version = "0.25.8", features = ["default-formats"] }
@@ -15,12 +15,6 @@ num-traits = "0.2.19"
 rfd = "0.15.4"
 teamim = { version = "0.1.0", path = "../.." }
 tokio = { version = "1.47.1", features = ["macros", "rt"] }
-
-[dependencies.libcosmic]
-# git = "https://github.com/pop-os/libcosmic.git"
-path = "../../../libcosmic"
-default-features = false
-features = ["wgpu", "winit", "tokio"]
 
 [lints]
 workspace = true

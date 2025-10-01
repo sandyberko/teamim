@@ -135,7 +135,7 @@ fn place_diac(
 
 impl App {
     fn ticker_sub(&self) -> Subscription<Message> {
-        let ticker = cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick);
+        let ticker = iced::time::every(Duration::from_millis(16)).map(Message::Tick);
         let loaded = match &self.img {
             JobState::Running(_) => return ticker,
             JobState::Ready(Ok(Some(loaded))) => loaded,
