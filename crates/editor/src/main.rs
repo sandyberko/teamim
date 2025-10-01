@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod diac_renderer;
+mod job;
 mod strs;
 
 #[cfg(test)]
@@ -18,8 +19,7 @@ use cosmic::{
 };
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Color, Length, Padding, Point, Subscription, Vector,
-    alignment::Vertical,
+    Color, Length, Point, Subscription, Vector,
     core::image::Bytes,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
@@ -32,7 +32,6 @@ use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuf
 use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 use std::{
-    borrow::Cow,
     cell::RefCell,
     ffi::CStr,
     path::Path,
@@ -43,27 +42,7 @@ use std::{
 use editor::{spinner::Spinner, stage::Stage};
 use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 
-#[derive(Debug, Clone)]
-pub(crate) enum JobState<Ready, Running = ()> {
-    /// the has either not yet started or has already finished.
-    Ready(Result<Ready, Arc<eyre::Report>>),
-    Running(Running),
-}
-
-impl<Ready: Default, Running> Default for JobState<Ready, Running> {
-    fn default() -> Self {
-        JobState::Ready(Ok(Ready::default()))
-    }
-}
-
-impl<Ready, Running> JobState<Ready, Running> {
-    fn ready_ok(&self) -> Option<&Ready> {
-        if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
-    }
-    fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
-        if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
-    }
-}
+use crate::job::JobState;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -372,7 +351,7 @@ impl App {
     fn toolbar(&'_ self) -> Element<'_, Message> {
         Row::with_children([
             // select
-            self.loading_btn(strs::SELECT_IMG, &self.img).on_press(Message::SelectImage).into(),
+            self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into(),
             // draw
             self.img.ready_ok().and_then(Option::as_ref).map_or(
                 /* [HACK] */ Space::with_width(0).into(),
@@ -384,14 +363,15 @@ impl App {
                         JobState::Ready(ready) => (strs::DRAW_TEAMIM, JobState::Ready(ready)),
                     };
 
-                    self.loading_btn(label, &state)
+                    state
+                        .loading_btn(label)
                         .on_press(Message::Draw(JobState::Running(DrawProgress::Pending)))
                         .into()
                 },
             ),
             // save
             self.drawn().map_or(/* [HACK] */ Space::with_width(0).into(), |drawn| {
-                self.loading_btn(strs::SAVE, &drawn.saving).on_press(Message::Save).into()
+                drawn.saving.loading_btn(strs::SAVE).on_press(Message::Save).into()
             }),
             // [DEBUG]
             self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position).map_or(
@@ -402,29 +382,6 @@ impl App {
         .spacing(PADDING)
         .width(Length::Fill)
         .into()
-    }
-
-    fn loading_btn<'a, Ready>(
-        &'_ self,
-        label: impl Into<Cow<'a, str>> + 'a,
-        state: &JobState<Ready, Spinner>,
-    ) -> button::Button<'a, Message> {
-        let theme = self.core.system_theme().cosmic();
-        button::custom(
-            Row::with_children([
-                text(label).into(),
-                if let JobState::Running(spinner) = state {
-                    spinner.view()
-                } else {
-                    // [HACK]
-                    Space::with_width(0).into()
-                },
-            ])
-            .padding(Padding::from([0, theme.space_s()]))
-            .spacing(theme.space_xxxs())
-            .align_y(Vertical::Center),
-        )
-        .class(button::ButtonClass::Suggested)
     }
 
     fn content_view(&'_ self) -> Element<'_, Message> {
