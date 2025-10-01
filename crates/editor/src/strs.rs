@@ -10,6 +10,7 @@ pub const fn draw_progress(progress: DrawProgress) -> &'static str {
         DrawProgress::Placing => "ממקם...",
     }
 }
+pub const TITLE: &str = "טעמים";
 pub const SAVE_FAILED: &str = "שמירה נכשלה";
 pub const ERROR: &str = "שגיאה";
 pub const LOADING: &str = "טוען...";

@@ -8,6 +8,7 @@ cosmic-text = "0.14.2"
 derive_setters = "0.1.8"
 eyre.workspace = true
 iced = { version = "0.14.0-dev", path = "../../../libcosmic/iced", features = ["image"] }
+iced_futures = { version = "0.14.0-dev", path = "../../../libcosmic/iced/futures" }
 iced_renderer = { version = "0.14.0-dev", path = "../../../libcosmic/iced/renderer", features = ["geometry"] }
 image = { version = "0.25.8", features = ["default-formats"] }
 num-traits = "0.2.19"

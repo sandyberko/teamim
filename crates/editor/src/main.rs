@@ -7,25 +7,19 @@ mod strs;
 #[cfg(test)]
 mod tests;
 
-use cosmic::{
-    Action, Application, Core, Element, Task,
-    app::{self, Settings},
-    iced_futures, style, task,
-    widget::{
-        Column, Image, Row, Space,
-        button::{self},
-        mouse_area, popover, scrollable, text,
-    },
-};
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Color, Length, Point, Subscription, Vector,
+    Element, Length, Point, Subscription, Task, Vector, advanced,
     core::image::Bytes,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     widget::{
+        self, Button, Column, Space,
+        button::{self},
         image::Handle,
-        scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
+        mouse_area,
+        scrollable::{self, AbsoluteOffset, Direction, Scrollbar, Viewport},
+        text,
     },
 };
 use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
@@ -88,202 +82,11 @@ where
 type ImgState = JobState<Option<LoadedImage>, Spinner>;
 const FONT_SIZE: f32 = 72.0;
 
+#[derive(Default)]
 struct App {
-    core: Core,
     img: ImgState,
     opts: PlaceOptions,
     scroll_offset: AbsoluteOffset,
-}
-
-impl Application for App {
-    type Executor = cosmic::executor::multi::Executor;
-
-    type Flags = ImgState;
-
-    type Message = Message;
-
-    const APP_ID: &'static str = "org.teamim.editor";
-
-    fn core(&self) -> &cosmic::Core {
-        &self.core
-    }
-
-    fn core_mut(&mut self) -> &mut cosmic::Core {
-        &mut self.core
-    }
-
-    fn init(core: cosmic::Core, img: Self::Flags) -> (Self, app::Task<Message>) {
-        let app = App {
-            core,
-            img,
-            opts: PlaceOptions::default(),
-            scroll_offset: AbsoluteOffset::default(),
-        };
-        (app, Task::none())
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
-            self.ticker_sub(),
-            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()).map_or(
-                Subscription::none(),
-                |_| {
-                    on_key_press(|key, _| {
-                        (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel)
-                    })
-                },
-            ),
-        ])
-    }
-
-    #[expect(clippy::too_many_lines)]
-    fn update(&mut self, msg: Message) -> app::Task<Message> {
-        match msg {
-            Message::Tick(now) => {
-                if let JobState::Running(spinner) = &mut self.img {
-                    spinner.tick(now);
-                }
-                app::Task::none()
-            }
-            Message::SelectImage => {
-                if let JobState::Running(_) = self.img {
-                    return Task::none();
-                }
-
-                self.img = JobState::Running(Spinner::new());
-                task::future(async move {
-                    let loaded = select_image().await.map_err(Arc::new);
-                    Message::ImageLoaded(loaded)
-                })
-            }
-            Message::ImageLoaded(res) => {
-                self.img = JobState::Ready(res);
-                Task::none()
-            }
-            Message::Draw(JobState::Running(DrawProgress::Pending)) => {
-                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-                loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
-                let loaded = loaded.clone();
-                let options = self.opts;
-                task::stream(iced_futures::stream::channel(0, move |mut tx| async move {
-                    let result = tokio::task::spawn_blocking({
-                        let tx = Mutex::new(tx.clone());
-                        move || {
-                            loaded
-                                .draw_teamim(DATAPATH, options, {
-                                    move |progress| {
-                                        _ = tx
-                                            .lock()
-                                            .unwrap()
-                                            .try_send(JobState::Running(progress));
-                                    }
-                                })
-                                .map_err(Arc::new)
-                        }
-                    })
-                    .await
-                    .expect("blocking task to finish");
-                    _ = tx.try_send(JobState::Ready(result));
-                }))
-                .map(Message::Draw)
-                .map(Action::App)
-            }
-            Message::Draw(JobState::Running(progress)) => {
-                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-
-                loaded.drawing = JobState::Running((Spinner::new(), progress));
-                Task::none()
-            }
-            Message::Draw(JobState::Ready(drawn_res)) => {
-                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-
-                loaded.drawing = JobState::Ready(drawn_res.map(Some));
-                Task::none()
-            }
-            Message::Save => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Running(Spinner::new());
-                let drawn = drawn.clone();
-                task::future(async move {
-                    let result = drawn.save().await.map_err(Arc::new);
-                    Message::Saved(result)
-                })
-            }
-            Message::Saved(saved) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Ready(saved);
-                Task::none()
-            }
-            Message::PlaceMode(miss_idx) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let diac = drawn.misses[miss_idx].diacritic.to_string().into();
-                drawn.place_diac =
-                    JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
-                Task::none()
-            }
-            // <place>
-            Message::Place => {
-                let Some(loaded) = self.img.ready_ok().and_then(Option::as_ref) else {
-                    return Task::none();
-                };
-                let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) else {
-                    return Task::none();
-                };
-                let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) else {
-                    return task::none();
-                };
-                let Some(&position) = place.position.as_ref() else { return task::none() };
-                let drawn = drawn.clone();
-                let place = place.clone();
-                let scroll_offset = self.scroll_offset;
-                let zoom = loaded.zoom;
-                task::future(async move {
-                    let res = tokio::task::spawn_blocking(move || {
-                        place_diac(&place, position, drawn, scroll_offset, zoom).map_err(Arc::new)
-                    })
-                    .await
-                    .expect("blocking task to finish");
-                    Message::Draw(JobState::Ready(res))
-                })
-            }
-            Message::PlaceMove(point) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let Some(place) = drawn.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-                place.position = Some(point);
-                Task::none()
-            }
-            Message::PlaceCancel => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.place_diac = JobState::Ready(Ok(None));
-                Task::none()
-            }
-            // </place>
-            Message::Scroll(viewport) => {
-                self.scroll_offset = viewport.absolute_offset();
-                task::none()
-            }
-        }
-    }
-    fn view(&'_ self) -> Element<'_, Message> {
-        let img = self.content_view();
-        let scroll_dir =
-            Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
-        Column::with_children([
-            self.toolbar(),
-            scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
-        ])
-        .spacing(PADDING)
-        .padding(PADDING)
-        .into()
-    }
 }
 
 fn place_diac(
@@ -348,8 +151,13 @@ impl App {
             JobState::Ready(_) => return Subscription::none(),
         };
     }
-    fn toolbar(&'_ self) -> Element<'_, Message> {
-        Row::with_children([
+    fn toolbar<'a, Theme, Renderer>(&'_ self) -> Element<'a, Message, Theme, Renderer>
+    where
+        Renderer:
+            advanced::Renderer + advanced::text::Renderer + iced_renderer::geometry::Renderer + 'a,
+        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
+    {
+        widget::row([
             // select
             self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into(),
             // draw
@@ -376,7 +184,7 @@ impl App {
             // [DEBUG]
             self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position).map_or(
                 /* [HACK] */ Space::with_width(0).into(),
-                |pos| text(format!("{pos}")).into(),
+                |pos| widget::text(format!("{pos}")).into(),
             ),
         ])
         .spacing(PADDING)
@@ -384,16 +192,24 @@ impl App {
         .into()
     }
 
-    fn content_view(&'_ self) -> Element<'_, Message> {
+    fn content_view<'a, Theme, Renderer>(&'a self) -> Element<'a, Message, Theme, Renderer>
+    where
+        Renderer: advanced::Renderer
+            + advanced::text::Renderer
+            + iced_renderer::geometry::Renderer
+            + advanced::image::Renderer<Handle = Handle>
+            + 'a,
+        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
+    {
         let JobState::Ready(ready) = &self.img else {
-            return text(strs::LOADING).into();
+            return widget::text(strs::LOADING).into();
         };
         let Ok(ready) = ready else {
             // [TODO]
-            return text(strs::ERROR).into();
+            return widget::text(strs::ERROR).into();
         };
         let Some(loaded) = ready else {
-            return text(strs::NO_IMG_SELECTED).into();
+            return widget::text(strs::NO_IMG_SELECTED).into();
         };
 
         if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
@@ -410,66 +226,252 @@ impl App {
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
     }
+
+    fn view<'a, Theme, Renderer>(&'a self) -> Element<'a, Message, Theme, Renderer>
+    where
+        Theme: button::Catalog + text::Catalog + scrollable::Catalog + 'a,
+        Renderer: advanced::Renderer
+            + advanced::text::Renderer
+            + advanced::image::Renderer<Handle = Handle>
+            + iced_renderer::geometry::Renderer
+            + 'a,
+    {
+        let img = self.content_view();
+        let scroll_dir =
+            Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
+        Column::with_children([
+            self.toolbar(),
+            widget::scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
+        ])
+        .spacing(PADDING)
+        .padding(PADDING)
+        .into()
+    }
+
+    fn update(&mut self, msg: Message) -> Task<Message> {
+        match msg {
+            Message::Tick(now) => {
+                if let JobState::Running(spinner) = &mut self.img {
+                    spinner.tick(now);
+                }
+                Task::none()
+            }
+            Message::SelectImage => {
+                if let JobState::Running(_) = self.img {
+                    return Task::none();
+                }
+
+                self.img = JobState::Running(Spinner::new());
+                Task::future(async move {
+                    let loaded = select_image().await.map_err(Arc::new);
+                    Message::ImageLoaded(loaded)
+                })
+            }
+            Message::ImageLoaded(res) => {
+                self.img = JobState::Ready(res);
+                Task::none()
+            }
+            Message::Draw(JobState::Running(DrawProgress::Pending)) => {
+                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
+                loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
+                let loaded = loaded.clone();
+                let options = self.opts;
+                Task::stream(iced_futures::stream::channel(0, move |mut tx| async move {
+                    let result = tokio::task::spawn_blocking({
+                        let tx = Mutex::new(tx.clone());
+                        move || {
+                            loaded
+                                .draw_teamim(DATAPATH, options, {
+                                    move |progress| {
+                                        _ = tx
+                                            .lock()
+                                            .unwrap()
+                                            .try_send(JobState::Running(progress));
+                                    }
+                                })
+                                .map_err(Arc::new)
+                        }
+                    })
+                    .await
+                    .expect("blocking task to finish");
+                    _ = tx.try_send(JobState::Ready(result));
+                }))
+                .map(Message::Draw)
+            }
+            Message::Draw(JobState::Running(progress)) => {
+                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
+
+                loaded.drawing = JobState::Running((Spinner::new(), progress));
+                Task::none()
+            }
+            Message::Draw(JobState::Ready(drawn_res)) => {
+                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
+
+                loaded.drawing = JobState::Ready(drawn_res.map(Some));
+                Task::none()
+            }
+            Message::Save => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                drawn.saving = JobState::Running(Spinner::new());
+                let drawn = drawn.clone();
+                Task::future(async move {
+                    let result = drawn.save().await.map_err(Arc::new);
+                    Message::Saved(result)
+                })
+            }
+            Message::Saved(saved) => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                drawn.saving = JobState::Ready(saved);
+                Task::none()
+            }
+            Message::PlaceMode(miss_idx) => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                let diac = drawn.misses[miss_idx].diacritic.to_string().into();
+                drawn.place_diac =
+                    JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
+                Task::none()
+            }
+            // <place>
+            Message::Place => {
+                let Some(loaded) = self.img.ready_ok().and_then(Option::as_ref) else {
+                    return Task::none();
+                };
+                let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) else {
+                    return Task::none();
+                };
+                let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) else {
+                    return Task::none();
+                };
+                let Some(&position) = place.position.as_ref() else { return Task::none() };
+                let drawn = drawn.clone();
+                let place = place.clone();
+                let scroll_offset = self.scroll_offset;
+                let zoom = loaded.zoom;
+                Task::future(async move {
+                    let res = tokio::task::spawn_blocking(move || {
+                        place_diac(&place, position, drawn, scroll_offset, zoom).map_err(Arc::new)
+                    })
+                    .await
+                    .expect("blocking task to finish");
+                    Message::Draw(JobState::Ready(res))
+                })
+            }
+            Message::PlaceMove(point) => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                let Some(place) = drawn.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
+                    return Task::none();
+                };
+                place.position = Some(point);
+                Task::none()
+            }
+            Message::PlaceCancel => {
+                let Some(drawn) = self.drawn_mut() else { return Task::none() };
+                drawn.place_diac = JobState::Ready(Ok(None));
+                Task::none()
+            }
+            // </place>
+            Message::Scroll(viewport) => {
+                self.scroll_offset = viewport.absolute_offset();
+                Task::none()
+            }
+        }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        Subscription::batch([
+            self.ticker_sub(),
+            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()).map_or(
+                Subscription::none(),
+                |_| {
+                    on_key_press(|key, _| {
+                        (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel)
+                    })
+                },
+            ),
+        ])
+    }
 }
 
-fn drawn_content_view(drawn: &'_ Drawn, zoom: f32) -> Element<'_, Message> {
-    let misses_view = drawn
-        .misses
-        .iter()
-        .enumerate()
-        .map(|(miss_idx, miss)| {
-            (
-                button::text(miss.missing_text.as_ref())
-                    .font_size((48.0 * zoom).round().as_())
-                    .on_press(Message::PlaceMode(miss_idx))
-                    .class(
-                        if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref)
-                            && place.miss_idx == miss_idx
-                        {
-                            button::ButtonClass::Suggested
-                        } else {
-                            button::ButtonClass::Text
-                        },
-                    )
-                    .into(),
-                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
-            )
-        })
-        .collect::<Stage<Message, cosmic::Theme, cosmic::Renderer>>()
-        .into();
+fn drawn_content_view<'a, Theme, Renderer>(
+    drawn: &'a Drawn,
+    zoom: f32,
+) -> Element<'a, Message, Theme, Renderer>
+where
+    Renderer: advanced::Renderer
+        + advanced::text::Renderer
+        + advanced::image::Renderer<Handle = Handle>
+        + 'a,
+    Theme: button::Catalog + text::Catalog + 'a,
+{
+    let misses_view: Element<Message, Theme, Renderer> = Element::new(
+        drawn
+            .misses
+            .iter()
+            .enumerate()
+            .map(|(miss_idx, miss)| {
+                (
+                    Button::new(text(miss.missing_text.as_ref()).size(48.0 * zoom))
+                        .on_press_maybe(
+                            if let Some(place) =
+                                drawn.place_diac.ready_ok().and_then(Option::as_ref)
+                                && place.miss_idx == miss_idx
+                            {
+                                None
+                            } else {
+                                Some(Message::PlaceMode(miss_idx))
+                            },
+                        )
+                        .into(),
+                    Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
+                )
+            })
+            .collect::<Stage<Message, Theme, Renderer>>(),
+    );
 
     let img_view = drawn.img.view(zoom);
-    let img_view = if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) {
-        let img_view = if let Some(position) = place.position {
-            popover(img_view)
-                .popup(
+    let img_view: Element<Message, Theme, Renderer> = if let Some(place) =
+        drawn.place_diac.ready_ok().and_then(Option::as_ref)
+    {
+        let img_view: Element<Message, Theme, Renderer> = if let Some(position) = place.position {
+            [
+                (img_view, Point::ORIGIN),
+                (
                     mouse_area(
-                        text(place.diac.as_ref())
-                            .size(FONT_SIZE)
-                            .class(style::iced::Text::Color(Color::BLACK)),
+                        text(place.diac.as_ref()).size(FONT_SIZE), /* [TODO] .color(Color::BLACK) */
                     )
                     .interaction(Interaction::Crosshair)
                     .on_move(|Point { x, y }| {
                         Message::PlaceMove(place.position.unwrap_or_default() + Vector::new(x, y))
                     })
-                    .on_press(Message::Place),
-                )
-                .position(popover::Position::Point(position))
-                .into()
+                    .on_press(Message::Place)
+                    .into(),
+                    position,
+                ),
+            ]
+            .into_iter()
+            .collect::<Stage<Message, Theme, Renderer>>()
+            .into()
         } else {
             img_view
         };
 
-        mouse_area(img_view)
-            .on_move(Message::PlaceMove)
-            .on_press(Message::Place)
-            .interaction(Interaction::Crosshair)
-            .into()
+        Element::<Message, Theme, Renderer>::new(
+            mouse_area(img_view)
+                .on_move(Message::PlaceMove)
+                .on_press(Message::Place)
+                .interaction(Interaction::Crosshair),
+        )
     } else {
         img_view
     };
 
-    Row::with_children([misses_view, img_view]).into()
+    widget::row::<Message, Theme, Renderer>([misses_view, img_view]).into()
 }
 
 async fn select_image() -> eyre::Result<Option<LoadedImage>> {
@@ -516,8 +518,12 @@ struct Img {
 }
 
 impl Img {
-    fn view(&'_ self, zoom: f32) -> Element<'_, Message> {
-        Image::new(&self.handle)
+    fn view<'a, Theme, Renderer>(&'_ self, zoom: f32) -> Element<'a, Message, Theme, Renderer>
+    where
+        Renderer: advanced::image::Renderer<Handle = Handle> + 'a,
+        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
+    {
+        widget::Image::new(&self.handle)
             .height(AsPrimitive::<f32>::as_(self.height) * zoom)
             .width(AsPrimitive::<f32>::as_(self.width) * zoom)
             .into()
@@ -602,7 +608,10 @@ impl Drawn {
     }
 }
 
+fn view(state: &'_ App) -> Element<'_, Message> {
+    App::view(state)
+}
 fn main() -> eyre::Result<()> {
-    cosmic::app::run::<App>(Settings::default(), JobState::default())?;
+    iced::application(strs::TITLE, App::update, view).subscription(App::subscription).run()?;
     Ok(())
 }

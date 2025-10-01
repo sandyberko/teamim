@@ -1847,6 +1847,7 @@ dependencies = [
  "derive_setters",
  "eyre",
  "iced",
+ "iced_futures",
  "iced_renderer",
  "image",
  "libcosmic",
