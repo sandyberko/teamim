@@ -6,6 +6,31 @@ mod strs;
 #[cfg(test)]
 mod tests;
 
+use cosmic::{
+    Action, Application, Core, Element, Task,
+    app::{self, Settings},
+    iced_futures, style, task,
+    widget::{
+        Column, Image, Row, Space,
+        button::{self},
+        mouse_area, popover, scrollable, text,
+    },
+};
+use eyre::{OptionExt as _, WrapErr as _};
+use iced::{
+    Color, Length, Padding, Point, Subscription, Vector,
+    alignment::Vertical,
+    core::image::Bytes,
+    keyboard::{Key, key::Named, on_key_press},
+    mouse::Interaction,
+    widget::{
+        image::Handle,
+        scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
+    },
+};
+use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
+use num_traits::{AsPrimitive, ToPrimitive as _};
+use rfd::AsyncFileDialog;
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -14,31 +39,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-use cosmic::{
-    Action, Application, Core, Element, Task,
-    app::{self, Settings},
-    iced::{
-        Color, Length, Padding, Point, Subscription, Vector,
-        alignment::Vertical,
-        keyboard::{Key, key::Named, on_key_press},
-        mouse::Interaction,
-    },
-    iced_core::image::Bytes,
-    iced_futures,
-    iced_widget::scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-    style, task,
-    widget::{
-        Column, Image, Row, Space,
-        button::{self},
-        image::Handle,
-        mouse_area, popover, scrollable, text,
-    },
-};
-use eyre::{OptionExt as _, WrapErr as _};
-use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
-use num_traits::{AsPrimitive, ToPrimitive as _};
-use rfd::AsyncFileDialog;
 
 use editor::{spinner::Spinner, stage::Stage};
 use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
