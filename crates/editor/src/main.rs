@@ -2,6 +2,7 @@
 
 mod diac_renderer;
 mod job;
+mod loaded;
 mod strs;
 
 #[cfg(test)]
@@ -18,10 +19,13 @@ use iced::{
         image::Handle,
         mouse_area,
         scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-        text,
+        slider, text,
     },
 };
-use image::{ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, buffer::ConvertBuffer};
+use image::{
+    ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer,
+    imageops::fast_blur,
+};
 use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 use std::{
@@ -34,7 +38,7 @@ use std::{
 };
 
 use editor::{spinner::Spinner, stage};
-use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx};
 
 use crate::job::JobState;
 
@@ -42,19 +46,16 @@ use crate::job::JobState;
 enum Message {
     Tick(Instant),
     SelectImage,
-    ImageLoaded(Result<Option<LoadedImage>, Arc<eyre::Report>>),
-    Draw(JobState<Drawn, DrawProgress>),
-    Save,
-    Saved(Result<(), Arc<eyre::Report>>),
-    // <place>
-    /// enters placing mode with the given miss' diacritic
-    PlaceMode(usize),
-    /// places discritic at [`Place::position`]
-    Place,
-    PlaceMove(Point),
-    PlaceCancel,
-    // </place>
+    ImageLoaded(Result<Option<loaded::LoadedImage>, Arc<eyre::Report>>),
+    Loaded(loaded::Message),
     Scroll(Viewport),
+    Blur(i32),
+}
+
+impl From<loaded::Message> for Message {
+    fn from(value: loaded::Message) -> Self {
+        Message::Loaded(value)
+    }
 }
 
 const PADDING: u16 = 5;
@@ -79,58 +80,13 @@ where
     })
 }
 
-type ImgState = JobState<Option<LoadedImage>, Spinner>;
+type ImgState = JobState<Option<loaded::LoadedImage>, Spinner>;
 const FONT_SIZE: f32 = 72.0;
 
 #[derive(Default)]
 struct App {
     img: ImgState,
-    opts: PlaceOptions,
     scroll_offset: AbsoluteOffset,
-}
-
-fn place_diac(
-    place: &Place,
-    position: Point,
-    drawn: Drawn,
-    scroll_offset: AbsoluteOffset,
-    zoom: f32,
-) -> eyre::Result<Drawn> {
-    let x = ((position.x + scroll_offset.x) / zoom)
-        .to_i32()
-        .ok_or_eyre("Failed to convert x coordinate to i32")?;
-    let y = ((position.y + scroll_offset.y) / zoom)
-        .to_i32()
-        .ok_or_eyre("Failed to convert y coordinate to i32")?;
-
-    let Img { width, height, pixels, .. } = drawn.img;
-
-    // [TODO]
-    let mut pixels = pixels.to_vec();
-
-    let mut img = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels.as_mut())
-        .ok_or_eyre("failed to convert to image")?;
-
-    let mut buf = [0; 4];
-    let text = drawn.misses[place.miss_idx].diacritic.encode_utf8(&mut buf);
-    diac_renderer::draw_text(&mut img, [x, y], text, FONT_SIZE);
-
-    let misses = drawn
-        .misses
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, miss)| (i != place.miss_idx).then_some(miss))
-        .collect();
-    let pixels = Bytes::from(pixels);
-    let handle = Handle::from_rgba(drawn.img.width, drawn.img.height, pixels.clone());
-    let img = Img { pixels, handle, ..drawn.img };
-
-    Ok(Drawn {
-        img,
-        misses,
-        saving: JobState::Ready(Ok(())),
-        place_diac: JobState::Ready(Ok(None)),
-    })
 }
 
 impl App {
@@ -166,16 +122,22 @@ impl App {
 
                 state
                     .loading_btn(label)
-                    .on_press(Message::Draw(JobState::Running(DrawProgress::Pending)))
+                    .on_press(Message::Loaded(loaded::Message::Draw(JobState::Running(
+                        DrawProgress::Pending,
+                    ))))
                     .into()
             }),
             // save
-            self.drawn()
-                .map(|drawn| drawn.saving.loading_btn(strs::SAVE).on_press(Message::Save).into()),
+            self.drawn().map(|drawn| {
+                drawn.saving.loading_btn(strs::SAVE).on_press(loaded::Message::Save.into()).into()
+            }),
             // [DEBUG]
             self.drawn()
                 .and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position)
                 .map(|pos| widget::text(format!("{pos}")).into()),
+            // blur
+            // Some(slider(0..=100, self.opts.blur, Message::Blur).width(FONT_SIZE * 10.0).into()),
+            Some(button(strs::BLUR).on_press(Message::Loaded(loaded::Message::DoBlur)).into()),
         ];
 
         widget::row(children.into_iter().filter_map(identity))
@@ -197,7 +159,7 @@ impl App {
         };
 
         if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
-            drawn_content_view(drawn, loaded.zoom)
+            drawn_content_view(drawn, loaded.zoom, self.scroll_offset)
         } else {
             loaded.img.view(loaded.zoom)
         }
@@ -247,113 +209,18 @@ impl App {
                 self.img = JobState::Ready(res);
                 Task::none()
             }
-            Message::Draw(JobState::Running(DrawProgress::Pending)) => {
+            Message::Loaded(msg) => {
                 let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
                     return Task::none();
                 };
-                loaded.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
-                let loaded = loaded.clone();
-                let options = self.opts;
-                Task::stream(iced_futures::stream::channel(0, async move |mut tx| {
-                    let result = tokio::task::spawn_blocking({
-                        let tx = Mutex::new(tx.clone());
-                        move || {
-                            loaded
-                                .draw_teamim(DATAPATH, options, {
-                                    move |progress| {
-                                        _ = tx
-                                            .lock()
-                                            .unwrap()
-                                            .try_send(JobState::Running(progress));
-                                    }
-                                })
-                                .map_err(Arc::new)
-                        }
-                    })
-                    .await
-                    .expect("blocking task to finish");
-                    _ = tx.try_send(JobState::Ready(result));
-                }))
-                .map(Message::Draw)
+                loaded.update(msg).map(Message::Loaded)
             }
-            Message::Draw(JobState::Running(progress)) => {
-                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-
-                loaded.drawing = JobState::Running((Spinner::new(), progress));
-                Task::none()
-            }
-            Message::Draw(JobState::Ready(drawn_res)) => {
-                let Some(loaded) = self.img.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-
-                loaded.drawing = JobState::Ready(drawn_res.map(Some));
-                Task::none()
-            }
-            Message::Save => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Running(Spinner::new());
-                let drawn = drawn.clone();
-                Task::future(async move {
-                    let result = drawn.save().await.map_err(Arc::new);
-                    Message::Saved(result)
-                })
-            }
-            Message::Saved(saved) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Ready(saved);
-                Task::none()
-            }
-            Message::PlaceMode(miss_idx) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let diac = drawn.misses[miss_idx].diacritic.to_string().into();
-                drawn.place_diac =
-                    JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
-                Task::none()
-            }
-            // <place>
-            Message::Place => {
-                let Some(loaded) = self.img.ready_ok().and_then(Option::as_ref) else {
-                    return Task::none();
-                };
-                let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) else {
-                    return Task::none();
-                };
-                let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref) else {
-                    return Task::none();
-                };
-                let Some(&position) = place.position.as_ref() else { return Task::none() };
-                let drawn = drawn.clone();
-                let place = place.clone();
-                let scroll_offset = self.scroll_offset;
-                let zoom = loaded.zoom;
-                Task::future(async move {
-                    let res = tokio::task::spawn_blocking(move || {
-                        place_diac(&place, position, drawn, scroll_offset, zoom).map_err(Arc::new)
-                    })
-                    .await
-                    .expect("blocking task to finish");
-                    Message::Draw(JobState::Ready(res))
-                })
-            }
-            Message::PlaceMove(point) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let Some(place) = drawn.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-                place.position = Some(point);
-                Task::none()
-            }
-            Message::PlaceCancel => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.place_diac = JobState::Ready(Ok(None));
-                Task::none()
-            }
-            // </place>
             Message::Scroll(viewport) => {
                 self.scroll_offset = viewport.absolute_offset();
+                Task::none()
+            }
+            Message::Blur(blur) => {
+                // self.opts.blur = blur;
                 Task::none()
             }
         }
@@ -366,7 +233,8 @@ impl App {
                 Subscription::none(),
                 |_| {
                     on_key_press(|key, _| {
-                        (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel)
+                        (key == Key::Named(Named::Escape))
+                            .then_some(loaded::Message::PlaceCancel.into())
                     })
                 },
             ),
@@ -374,7 +242,11 @@ impl App {
     }
 }
 
-fn drawn_content_view<'a>(drawn: &'a Drawn, zoom: f32) -> Element<'a, Message> {
+fn drawn_content_view<'a>(
+    drawn: &'a Drawn,
+    zoom: f32,
+    scroll_offset: AbsoluteOffset,
+) -> Element<'a, Message> {
     let place = drawn.place_diac.ready_ok().and_then(Option::as_ref);
     widget::row([
         // misses
@@ -387,7 +259,7 @@ fn drawn_content_view<'a>(drawn: &'a Drawn, zoom: f32) -> Element<'a, Message> {
                         {
                             None
                         } else {
-                            Some(Message::PlaceMode(miss_idx))
+                            Some(loaded::Message::PlaceMode(miss_idx).into())
                         },
                     )
                     .into(),
@@ -406,9 +278,12 @@ fn drawn_content_view<'a>(drawn: &'a Drawn, zoom: f32) -> Element<'a, Message> {
                         mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
                             .interaction(Interaction::Crosshair)
                             .on_move(move |offset| {
-                                Message::PlaceMove(position + Vector::new(offset.x, offset.y))
+                                loaded::Message::PlaceMove(
+                                    position + Vector::new(offset.x, offset.y),
+                                )
+                                .into()
                             })
-                            .on_press(Message::Place)
+                            .on_press(loaded::Message::Place { scroll_offset }.into())
                             .into(),
                         position,
                     ))
@@ -417,15 +292,15 @@ fn drawn_content_view<'a>(drawn: &'a Drawn, zoom: f32) -> Element<'a, Message> {
             .into_iter()
             .filter_map(identity),
         ))
-        .on_move(Message::PlaceMove)
-        .on_press(Message::Place)
+        .on_move(|pos| loaded::Message::PlaceMove(pos).into())
+        .on_press(loaded::Message::Place { scroll_offset }.into())
         .interaction(if place.is_some() { Interaction::Crosshair } else { Interaction::default() })
         .into(),
     ])
     .into()
 }
 
-async fn select_image() -> eyre::Result<Option<LoadedImage>> {
+async fn select_image() -> eyre::Result<Option<loaded::LoadedImage>> {
     // [TODO]
     let Some(picked_file) = AsyncFileDialog::new()
         .set_title(strs::SELECT_IMG)
@@ -443,7 +318,7 @@ async fn select_image() -> eyre::Result<Option<LoadedImage>> {
     Ok(Some(loaded))
 }
 
-fn load_image(path: impl AsRef<Path>) -> eyre::Result<LoadedImage> {
+fn load_image(path: impl AsRef<Path>) -> eyre::Result<loaded::LoadedImage> {
     let path = path.as_ref().into();
     let image = ImageReader::open(&path)?.decode()?.into_rgba8();
     let width = image.width();
@@ -456,7 +331,7 @@ fn load_image(path: impl AsRef<Path>) -> eyre::Result<LoadedImage> {
         pixels: pixels.clone(),
         handle: Handle::from_rgba(width, height, pixels),
     };
-    Ok(LoadedImage { img, zoom: /* [TODO] */ 0.4, drawing: JobState::Ready(Ok(None)) })
+    Ok(loaded::LoadedImage::new(img))
 }
 
 #[derive(Debug, Clone)]
@@ -475,41 +350,13 @@ impl Img {
             .width(AsPrimitive::<f32>::as_(self.width) * zoom)
             .into()
     }
-}
 
-#[derive(Debug, Clone)]
-struct LoadedImage {
-    img: Img,
-    zoom: f32,
-    drawing: JobState<Option<Drawn>, (Spinner, DrawProgress)>,
-}
-
-impl LoadedImage {
-    fn draw_teamim(
-        self,
-        datapath: &'static CStr,
-        options: PlaceOptions,
-        progress_callback: impl Fn(DrawProgress) + Send + 'static,
-    ) -> eyre::Result<Drawn> {
-        let mut data = self.img.pixels.to_vec();
-
-        let misses = PixBox::from_rgba8_with(
-            &mut data,
-            self.img.width.try_into()?,
-            self.img.height.try_into()?,
-            |img| with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, options, progress_callback)),
-        )?
-        .unwrap_or_else(|err| Err(err.into()))?;
-
-        let pixels = Bytes::from(data);
-        let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
-        let img = Img { pixels, handle, ..self.img };
-        Ok(Drawn {
-            img,
-            misses,
-            saving: JobState::Ready(Ok(())),
-            place_diac: JobState::Ready(Ok(None)),
-        })
+    fn blur(&self) -> eyre::Result<Self> {
+        // [TODO] reduce clones
+        let buf =
+            RgbaImage::from_raw(self.width, self.height, self.pixels.to_vec()).expect("valid Img");
+        let blurred = fast_blur(&buf, 17.0).into_raw();
+        Ok(Img { pixels: Bytes::from_owner(blurred), ..self.clone() })
     }
 }
 

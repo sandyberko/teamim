@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use crate::LoadedImage;
+use crate::loaded::LoadedImage;
 
 use super::{App, JobState, view};
 use teamim::PlaceOptions;
