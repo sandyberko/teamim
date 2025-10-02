@@ -2,7 +2,7 @@ use std::{convert::identity, sync::Arc};
 
 use editor::spinner::Spinner;
 use iced::{
-    Element, advanced,
+    advanced,
     alignment::Vertical,
     widget::{Button, button, row, text, text::IntoFragment},
 };

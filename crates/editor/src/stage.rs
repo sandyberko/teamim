@@ -6,9 +6,9 @@ mod tests;
 
 use derive_setters::Setters;
 use iced::{
-    Element, Length, Point, Rectangle, Size, Vector,
+    Element, Event, Length, Point, Rectangle, Size, Vector,
     advanced::{
-        Layout, Widget,
+        Clipboard, Layout, Shell, Widget,
         layout::{self, Node},
         overlay, renderer,
         widget::{Operation, Tree},
@@ -57,13 +57,13 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
     }
 
     /// Attach a new element with custom properties
-    pub fn push<W>(mut self, widget: W, position: Point) -> Self
+    pub fn push<W>(mut self, widget: W, position: impl Into<Point>) -> Self
     where
         W: Into<Element<'a, Message, Theme, Renderer>>,
     {
         self.children.push(widget.into());
 
-        self.positions.push(position);
+        self.positions.push(position.into());
 
         self
     }
@@ -129,6 +129,26 @@ where
                 },
             );
         });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        for ((child, state), layout) in
+            self.children.iter_mut().zip(&mut tree.children).zip(layout.children())
+        {
+            child
+                .as_widget_mut()
+                .update(state, event, layout, cursor, renderer, clipboard, shell, viewport);
+        }
     }
 
     fn mouse_interaction(

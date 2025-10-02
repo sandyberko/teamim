@@ -3,8 +3,6 @@ use std::ops::{Deref, DerefMut};
 use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache};
 use image::{ImageBuffer, Rgba};
 
-use crate::FONT_SIZE;
-
 pub fn draw_text<Container>(
     img: &mut ImageBuffer<Rgba<u8>, Container>,
     position: [i32; 2],

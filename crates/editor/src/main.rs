@@ -14,8 +14,7 @@ use iced::{
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     widget::{
-        self, Button, Column, Space,
-        button::{self},
+        self, Column, button,
         image::Handle,
         mouse_area,
         scrollable::{self, AbsoluteOffset, Direction, Scrollbar, Viewport},
@@ -34,7 +33,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use editor::{spinner::Spinner, stage::Stage};
+use editor::{spinner::Spinner, stage};
 use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx, leptonica_ext::PixBox};
 
 use crate::job::JobState;
@@ -407,69 +406,54 @@ where
         + 'a,
     Theme: button::Catalog + text::Catalog + 'a,
 {
-    let misses_view: Element<Message, Theme, Renderer> = Element::new(
-        drawn
-            .misses
-            .iter()
-            .enumerate()
-            .map(|(miss_idx, miss)| {
-                (
-                    Button::new(text(miss.missing_text.as_ref()).size(48.0 * zoom))
-                        .on_press_maybe(
-                            if let Some(place) =
-                                drawn.place_diac.ready_ok().and_then(Option::as_ref)
-                                && place.miss_idx == miss_idx
-                            {
-                                None
-                            } else {
-                                Some(Message::PlaceMode(miss_idx))
-                            },
-                        )
-                        .into(),
-                    Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
-                )
-            })
-            .collect::<Stage<Message, Theme, Renderer>>(),
-    );
-
-    let img_view = drawn.img.view(zoom);
-    let img_view: Element<Message, Theme, Renderer> = if let Some(place) =
-        drawn.place_diac.ready_ok().and_then(Option::as_ref)
-    {
-        let img_view: Element<Message, Theme, Renderer> = if let Some(position) = place.position {
-            [
-                (img_view, Point::ORIGIN),
-                (
-                    mouse_area(
-                        text(place.diac.as_ref()).size(FONT_SIZE), /* [TODO] .color(Color::BLACK) */
+    let place = drawn.place_diac.ready_ok().and_then(Option::as_ref);
+    widget::row([
+        // misses
+        stage(drawn.misses.iter().enumerate().map(|(miss_idx, miss)| {
+            (
+                button(text(miss.missing_text.as_ref()).size(48.0 * zoom))
+                    .on_press_maybe(
+                        if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref)
+                            && place.miss_idx == miss_idx
+                        {
+                            None
+                        } else {
+                            Some(Message::PlaceMode(miss_idx))
+                        },
                     )
-                    .interaction(Interaction::Crosshair)
-                    .on_move(|Point { x, y }| {
-                        Message::PlaceMove(place.position.unwrap_or_default() + Vector::new(x, y))
-                    })
-                    .on_press(Message::Place)
                     .into(),
-                    position,
-                ),
+                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
+            )
+        }))
+        .into(),
+        // image
+        mouse_area(stage(
+            [
+                Some((drawn.img.view(zoom), Point::ORIGIN)),
+                drawn.place_diac.ready_ok().and_then(Option::as_ref).and_then(|place| {
+                    let position = place.position?;
+                    Some((
+                        // [TODO] color(black)
+                        mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
+                            .interaction(Interaction::Crosshair)
+                            .on_move(move |offset| {
+                                Message::PlaceMove(position + Vector::new(offset.x, offset.y))
+                            })
+                            .on_press(Message::Place)
+                            .into(),
+                        position,
+                    ))
+                }),
             ]
             .into_iter()
-            .collect::<Stage<Message, Theme, Renderer>>()
-            .into()
-        } else {
-            img_view
-        };
-
-        Element::<Message, Theme, Renderer>::new(
-            mouse_area(img_view)
-                .on_move(Message::PlaceMove)
-                .on_press(Message::Place)
-                .interaction(Interaction::Crosshair),
-        )
-    } else {
-        img_view
-    };
-
-    widget::row::<Message, Theme, Renderer>([misses_view, img_view]).into()
+            .filter_map(identity),
+        ))
+        .on_move(Message::PlaceMove)
+        .on_press(Message::Place)
+        .interaction(if place.is_some() { Interaction::Crosshair } else { Interaction::default() })
+        .into(),
+    ])
+    .into()
 }
 
 async fn select_image() -> eyre::Result<Option<LoadedImage>> {
@@ -610,6 +594,9 @@ fn view(state: &'_ App) -> Element<'_, Message> {
     App::view(state)
 }
 fn main() -> eyre::Result<()> {
-    iced::application(App::default, App::update, view).subscription(App::subscription).run()?;
+    iced::application(App::default, App::update, view)
+        .subscription(App::subscription)
+        .title(strs::TITLE)
+        .run()?;
     Ok(())
 }
