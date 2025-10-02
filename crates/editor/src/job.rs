@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{convert::identity, sync::Arc};
 
 use editor::spinner::Spinner;
 use iced::{
-    advanced,
+    Element, advanced,
     alignment::Vertical,
-    widget::{Button, Space, button, row, text, text::IntoFragment},
+    widget::{Button, button, row, text, text::IntoFragment},
 };
 
 #[derive(Debug, Clone)]
@@ -42,14 +42,11 @@ impl<Ready> JobState<Ready, Spinner> {
     {
         button(
             row([
-                text(label).into(),
-                if let JobState::Running(spinner) = self {
-                    spinner.view()
-                } else {
-                    // [HACK]
-                    Space::new().into()
-                },
-            ])
+                Some(text(label).into()),
+                if let JobState::Running(spinner) = self { Some(spinner.view()) } else { None },
+            ]
+            .into_iter()
+            .filter_map(identity))
             .spacing(6)
             .align_y(Vertical::Center),
         )

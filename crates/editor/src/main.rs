@@ -27,6 +27,7 @@ use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 use std::{
     cell::RefCell,
+    convert::identity,
     ffi::CStr,
     path::Path,
     sync::{Arc, Mutex},
@@ -157,39 +158,36 @@ impl App {
             advanced::Renderer + advanced::text::Renderer + iced_renderer::geometry::Renderer + 'a,
         Theme: widget::button::Catalog + widget::text::Catalog + 'a,
     {
-        widget::row([
+        let children = [
             // select
-            self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into(),
+            Some(self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into()),
             // draw
-            self.img.ready_ok().and_then(Option::as_ref).map_or(
-                /* [HACK] */ Space::new().into(),
-                |loaded| {
-                    let (label, state) = match loaded.drawing.clone() {
-                        JobState::Running((spinner, progress)) => {
-                            (strs::draw_progress(progress), JobState::Running(spinner))
-                        }
-                        JobState::Ready(ready) => (strs::DRAW_TEAMIM, JobState::Ready(ready)),
-                    };
+            self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
+                let (label, state) = match loaded.drawing.clone() {
+                    JobState::Running((spinner, progress)) => {
+                        (strs::draw_progress(progress), JobState::Running(spinner))
+                    }
+                    JobState::Ready(ready) => (strs::DRAW_TEAMIM, JobState::Ready(ready)),
+                };
 
-                    state
-                        .loading_btn(label)
-                        .on_press(Message::Draw(JobState::Running(DrawProgress::Pending)))
-                        .into()
-                },
-            ),
-            // save
-            self.drawn().map_or(/* [HACK] */ Space::new().into(), |drawn| {
-                drawn.saving.loading_btn(strs::SAVE).on_press(Message::Save).into()
+                state
+                    .loading_btn(label)
+                    .on_press(Message::Draw(JobState::Running(DrawProgress::Pending)))
+                    .into()
             }),
+            // save
+            self.drawn()
+                .map(|drawn| drawn.saving.loading_btn(strs::SAVE).on_press(Message::Save).into()),
             // [DEBUG]
-            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position).map_or(
-                /* [HACK] */ Space::new().into(),
-                |pos| widget::text(format!("{pos}")).into(),
-            ),
-        ])
-        .spacing(PADDING as u32)
-        .width(Length::Fill)
-        .into()
+            self.drawn()
+                .and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position)
+                .map(|pos| widget::text(format!("{pos}")).into()),
+        ];
+
+        widget::row(children.into_iter().filter_map(identity))
+            .spacing(PADDING as u32)
+            .width(Length::Fill)
+            .into()
     }
 
     fn content_view<'a, Theme, Renderer>(&'a self) -> Element<'a, Message, Theme, Renderer>
