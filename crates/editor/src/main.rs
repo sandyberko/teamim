@@ -137,7 +137,9 @@ impl App {
                 .map(|pos| widget::text(format!("{pos}")).into()),
             // blur
             // Some(slider(0..=100, self.opts.blur, Message::Blur).width(FONT_SIZE * 10.0).into()),
-            Some(button(strs::BLUR).on_press(Message::Loaded(loaded::Message::DoBlur)).into()),
+            self.img.ready_ok().and_then(Option::as_ref).map(|_| {
+                button(strs::BLUR).on_press(Message::Loaded(loaded::Message::Blur)).into()
+            }),
         ];
 
         widget::row(children.into_iter().filter_map(identity))
@@ -351,12 +353,13 @@ impl Img {
             .into()
     }
 
-    fn blur(&self) -> eyre::Result<Self> {
+    fn blur(&self) -> Self {
         // [TODO] reduce clones
         let buf =
             RgbaImage::from_raw(self.width, self.height, self.pixels.to_vec()).expect("valid Img");
-        let blurred = fast_blur(&buf, 17.0).into_raw();
-        Ok(Img { pixels: Bytes::from_owner(blurred), ..self.clone() })
+        let pixels = Bytes::from_owner(fast_blur(&buf, 17.0).into_raw());
+        let handle = Handle::from_rgba(self.width, self.height, pixels.clone());
+        Img { pixels, handle, ..self.clone() }
     }
 }
 
@@ -376,6 +379,9 @@ struct Drawn {
 }
 
 impl Drawn {
+    fn new(img: Img, misses: Vec<DiacMiss>) -> Self {
+        Self { img, misses, saving: JobState::Ready(Ok(())), place_diac: JobState::Ready(Ok(None)) }
+    }
     async fn save(self) -> eyre::Result<()> {
         // [TODO]
         let mut dialog = AsyncFileDialog::new().set_title(strs::SAVE).add_filter("image", IMG_EXTS);

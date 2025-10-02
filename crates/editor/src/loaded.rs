@@ -13,6 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use teamim::{DATAPATH, DrawProgress, PlaceOptions, leptonica_ext::PixBox};
+use tokio::task::spawn_blocking;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
@@ -29,7 +30,7 @@ pub(crate) enum Message {
     PlaceMove(Point),
     PlaceCancel,
     // </place>
-    DoBlur,
+    Blur,
 }
 
 #[derive(Debug, Clone)]
@@ -139,7 +140,19 @@ impl LoadedImage {
                 drawn.place_diac = JobState::Ready(Ok(None));
                 Task::none()
             }
-            Message::DoBlur => todo!(),
+            Message::Blur => Task::chain(
+                Task::done(Message::Draw(JobState::Running(DrawProgress::ImageEffects))),
+                Task::future({
+                    let img = self.img.clone();
+                    async move {
+                        spawn_blocking(move || {
+                            Message::Draw(JobState::Ready(Ok(Drawn::new(img.blur(), vec![]))))
+                        })
+                        .await
+                        .expect("blocking task to finish")
+                    }
+                }),
+            ),
         }
     }
 
@@ -162,14 +175,10 @@ impl LoadedImage {
         let pixels = Bytes::from(data);
         let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
         let img = Img { pixels, handle, ..self.img };
-        Ok(Drawn {
-            img,
-            misses,
-            saving: JobState::Ready(Ok(())),
-            place_diac: JobState::Ready(Ok(None)),
-        })
+        Ok(Drawn::new(img, misses))
     }
 }
+
 fn place_diac(
     place: &Place,
     position: Point,
