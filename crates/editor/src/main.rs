@@ -10,14 +10,14 @@ mod tests;
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
     Element, Length, Point, Subscription, Task, Vector,
-    advanced::{self, image::Bytes},
+    advanced::image::Bytes,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     widget::{
         self, Column, button,
         image::Handle,
         mouse_area,
-        scrollable::{self, AbsoluteOffset, Direction, Scrollbar, Viewport},
+        scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
         text,
     },
 };
@@ -151,12 +151,7 @@ impl App {
             JobState::Ready(_) => return Subscription::none(),
         };
     }
-    fn toolbar<'a, Theme, Renderer>(&'_ self) -> Element<'a, Message, Theme, Renderer>
-    where
-        Renderer:
-            advanced::Renderer + advanced::text::Renderer + iced_renderer::geometry::Renderer + 'a,
-        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
-    {
+    fn toolbar<'a>(&'_ self) -> Element<'a, Message> {
         let children = [
             // select
             Some(self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into()),
@@ -189,15 +184,7 @@ impl App {
             .into()
     }
 
-    fn content_view<'a, Theme, Renderer>(&'a self) -> Element<'a, Message, Theme, Renderer>
-    where
-        Renderer: advanced::Renderer
-            + advanced::text::Renderer
-            + iced_renderer::geometry::Renderer
-            + advanced::image::Renderer<Handle = Handle>
-            + 'a,
-        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
-    {
+    fn content_view<'a>(&'a self) -> Element<'a, Message> {
         let JobState::Ready(ready) = &self.img else {
             return widget::text(strs::LOADING).into();
         };
@@ -224,15 +211,7 @@ impl App {
         self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
     }
 
-    fn view<'a, Theme, Renderer>(&'a self) -> Element<'a, Message, Theme, Renderer>
-    where
-        Theme: button::Catalog + text::Catalog + scrollable::Catalog + 'a,
-        Renderer: advanced::Renderer
-            + advanced::text::Renderer
-            + advanced::image::Renderer<Handle = Handle>
-            + iced_renderer::geometry::Renderer
-            + 'a,
-    {
+    fn view<'a>(&'a self) -> Element<'a, Message> {
         let img = self.content_view();
         let scroll_dir =
             Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
@@ -395,17 +374,7 @@ impl App {
     }
 }
 
-fn drawn_content_view<'a, Theme, Renderer>(
-    drawn: &'a Drawn,
-    zoom: f32,
-) -> Element<'a, Message, Theme, Renderer>
-where
-    Renderer: advanced::Renderer
-        + advanced::text::Renderer
-        + advanced::image::Renderer<Handle = Handle>
-        + 'a,
-    Theme: button::Catalog + text::Catalog + 'a,
-{
+fn drawn_content_view<'a>(drawn: &'a Drawn, zoom: f32) -> Element<'a, Message> {
     let place = drawn.place_diac.ready_ok().and_then(Option::as_ref);
     widget::row([
         // misses
@@ -500,11 +469,7 @@ struct Img {
 }
 
 impl Img {
-    fn view<'a, Theme, Renderer>(&'_ self, zoom: f32) -> Element<'a, Message, Theme, Renderer>
-    where
-        Renderer: advanced::image::Renderer<Handle = Handle> + 'a,
-        Theme: widget::button::Catalog + widget::text::Catalog + 'a,
-    {
+    fn view<'a>(&'_ self, zoom: f32) -> Element<'a, Message> {
         widget::Image::new(&self.handle)
             .height(AsPrimitive::<f32>::as_(self.height) * zoom)
             .width(AsPrimitive::<f32>::as_(self.width) * zoom)
