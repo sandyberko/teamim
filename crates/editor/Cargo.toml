@@ -16,5 +16,8 @@ rfd = "0.15.4"
 teamim = { version = "0.1.0", path = "../.." }
 tokio = { version = "1.47.1", features = ["macros", "rt"] }
 
+[dev-dependencies]
+iced = { version = "0.14.0-dev", path = "../../../iced", features = ["debug"] }
+
 [lints]
 workspace = true

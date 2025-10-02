@@ -25,6 +25,7 @@ fn drawn_test() -> eyre::Result<()> {
         view,
     )
     .subscription(App::subscription)
+    .title("drawn test")
     .run()?;
 
     Ok(())
