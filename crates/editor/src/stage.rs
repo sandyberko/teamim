@@ -100,18 +100,19 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        Node::with_children(
-            // [TODO]
-            (400., 2000.).into(),
-            self.children
-                .iter_mut()
-                .zip(&mut tree.children)
-                .zip(&self.positions)
-                .map(|((child, tree), pos)| {
-                    child.as_widget_mut().layout(tree, renderer, limits).move_to(*pos)
-                })
-                .collect(),
-        )
+        let mut bounds = Rectangle::with_size(Size::ZERO);
+        let children = self
+            .children
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(&self.positions)
+            .map(|((child, tree), pos)| {
+                let c_layout = child.as_widget_mut().layout(tree, renderer, limits).move_to(*pos);
+                bounds = bounds.union(&c_layout.bounds());
+                c_layout
+            })
+            .collect();
+        Node::with_children(bounds.size(), children)
     }
 
     fn operate(
