@@ -4,6 +4,7 @@ use editor::spinner::Spinner;
 use iced::{
     advanced,
     alignment::Vertical,
+    theme::Base,
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
@@ -37,7 +38,7 @@ impl<Ready> Poll<Ready, Spinner> {
         Message: Clone + 'a,
         Renderer:
             advanced::Renderer + advanced::text::Renderer + iced_renderer::geometry::Renderer + 'a,
-        Theme: button::Catalog + text::Catalog + 'a,
+        Theme: Base + button::Catalog + text::Catalog + 'a,
     {
         button(
             row([

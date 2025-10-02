@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use iced::{
     Color, Element, Length, Point, Rectangle, mouse,
+    theme::Base,
     widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc},
 };
 use iced_renderer::geometry;
@@ -14,7 +15,7 @@ pub struct Spinner {
     start: Instant,
     last_tick: Instant,
     size: f32,
-    color: Color,
+    color: Option<Color>,
     stroke_width: f32,
     // how many radians the arc spans (e.g. 90° = FRAC_PI_2)
     arc_len: f32,
@@ -30,7 +31,7 @@ impl Spinner {
             start: now,
             last_tick: now,
             size: 22.0,
-            color: Color::from_rgb(0.2, 0.6, 1.0),
+            color: None,
             stroke_width: 3.0,
             arc_len: std::f32::consts::FRAC_PI_2 * 1.5, // ~270°
             speed_rps: 1.5,
@@ -45,7 +46,7 @@ impl Spinner {
 
     #[must_use]
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 
@@ -57,7 +58,7 @@ impl Spinner {
     pub fn view<'a, Message, Theme, Renderer>(self) -> Element<'a, Message, Theme, Renderer>
     where
         Message: 'a,
-        Theme: 'a,
+        Theme: Base + 'a,
         Renderer: iced_renderer::geometry::Renderer + 'a,
     {
         Canvas::new(self).width(Length::Fixed(self.size)).height(Length::Fixed(self.size)).into()
@@ -72,6 +73,7 @@ impl Default for Spinner {
 
 impl<Message, Theme, Renderer> canvas::Program<Message, Theme, Renderer> for Spinner
 where
+    Theme: Base,
     Renderer: geometry::Renderer,
 {
     type State = ();
@@ -80,10 +82,11 @@ where
         &self,
         _state: &Self::State,
         renderer: &Renderer,
-        _theme: &Theme,
+        theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry<Renderer>> {
+        let style = theme.base();
         // build a Frame every draw (spinner is tiny — this is fine)
         let mut frame = Frame::new(renderer, bounds.size());
 
@@ -109,7 +112,7 @@ where
                 .with_width(self.stroke_width)
                 .with_line_cap(canvas::LineCap::Round)
                 .with_line_join(canvas::LineJoin::Round)
-                .with_color(self.color),
+                .with_color(self.color.unwrap_or(style.text_color)),
         );
 
         vec![frame.into_geometry()]
