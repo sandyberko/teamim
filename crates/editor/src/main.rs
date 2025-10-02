@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod diac_renderer;
-mod job;
 mod loaded;
 mod strs;
+mod task;
 
 #[cfg(test)]
 mod tests;
@@ -19,28 +19,28 @@ use iced::{
         image::Handle,
         mouse_area,
         scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-        slider, text,
+        text,
     },
 };
 use image::{
     ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer,
     imageops::fast_blur,
 };
-use num_traits::{AsPrimitive, ToPrimitive as _};
+use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
 use std::{
     cell::RefCell,
     convert::identity,
     ffi::CStr,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use editor::{spinner::Spinner, stage};
-use teamim::{DATAPATH, DiacMiss, DrawProgress, PlaceOptions, TeamimCtx};
+use teamim::{DiacMiss, DrawProgress, TeamimCtx};
 
-use crate::job::JobState;
+use crate::task::Poll;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -49,7 +49,6 @@ enum Message {
     ImageLoaded(Result<Option<loaded::LoadedImage>, Arc<eyre::Report>>),
     Loaded(loaded::Message),
     Scroll(Viewport),
-    Blur(i32),
 }
 
 impl From<loaded::Message> for Message {
@@ -80,7 +79,7 @@ where
     })
 }
 
-type ImgState = JobState<Option<loaded::LoadedImage>, Spinner>;
+type ImgState = Poll<Option<loaded::LoadedImage>, Spinner>;
 const FONT_SIZE: f32 = 72.0;
 
 #[derive(Default)]
@@ -93,18 +92,18 @@ impl App {
     fn ticker_sub(&self) -> Subscription<Message> {
         let ticker = iced::time::every(Duration::from_millis(16)).map(Message::Tick);
         let loaded = match &self.img {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(Ok(Some(loaded))) => loaded,
-            JobState::Ready(_) => return Subscription::none(),
+            Poll::Pending(_) => return ticker,
+            Poll::Ready(Ok(Some(loaded))) => loaded,
+            Poll::Ready(_) => return Subscription::none(),
         };
         let drawn = match &loaded.drawing {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(Ok(Some(drawn))) => drawn,
-            JobState::Ready(_) => return Subscription::none(),
+            Poll::Pending(_) => return ticker,
+            Poll::Ready(Ok(Some(drawn))) => drawn,
+            Poll::Ready(_) => return Subscription::none(),
         };
         let () = match &drawn.saving {
-            JobState::Running(_) => return ticker,
-            JobState::Ready(_) => return Subscription::none(),
+            Poll::Pending(_) => return ticker,
+            Poll::Ready(_) => return Subscription::none(),
         };
     }
     fn toolbar<'a>(&'_ self) -> Element<'a, Message> {
@@ -114,15 +113,15 @@ impl App {
             // draw
             self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
                 let (label, state) = match loaded.drawing.clone() {
-                    JobState::Running((spinner, progress)) => {
-                        (strs::draw_progress(progress), JobState::Running(spinner))
+                    Poll::Pending((spinner, progress)) => {
+                        (strs::draw_progress(progress), Poll::Pending(spinner))
                     }
-                    JobState::Ready(ready) => (strs::DRAW_TEAMIM, JobState::Ready(ready)),
+                    Poll::Ready(ready) => (strs::DRAW_TEAMIM, Poll::Ready(ready)),
                 };
 
                 state
                     .loading_btn(label)
-                    .on_press(Message::Loaded(loaded::Message::Draw(JobState::Running(
+                    .on_press(Message::Loaded(loaded::Message::Draw(Poll::Pending(
                         DrawProgress::Pending,
                     ))))
                     .into()
@@ -149,7 +148,7 @@ impl App {
     }
 
     fn content_view<'a>(&'a self) -> Element<'a, Message> {
-        let JobState::Ready(ready) = &self.img else {
+        let Poll::Ready(ready) = &self.img else {
             return widget::text(strs::LOADING).into();
         };
         let Ok(ready) = ready else {
@@ -171,10 +170,6 @@ impl App {
         self.img.ready_ok().and_then(|loaded| loaded.as_ref()?.drawing.ready_ok()?.as_ref())
     }
 
-    fn drawn_mut(&mut self) -> Option<&mut Drawn> {
-        self.img.ready_ok_mut().and_then(|loaded| loaded.as_mut()?.drawing.ready_ok_mut()?.as_mut())
-    }
-
     fn view<'a>(&'a self) -> Element<'a, Message> {
         let img = self.content_view();
         let scroll_dir =
@@ -191,24 +186,24 @@ impl App {
     fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Tick(now) => {
-                if let JobState::Running(spinner) = &mut self.img {
+                if let Poll::Pending(spinner) = &mut self.img {
                     spinner.tick(now);
                 }
                 Task::none()
             }
             Message::SelectImage => {
-                if let JobState::Running(_) = self.img {
+                if let Poll::Pending(_) = self.img {
                     return Task::none();
                 }
 
-                self.img = JobState::Running(Spinner::new());
+                self.img = Poll::Pending(Spinner::new());
                 Task::future(async move {
                     let loaded = select_image().await.map_err(Arc::new);
                     Message::ImageLoaded(loaded)
                 })
             }
             Message::ImageLoaded(res) => {
-                self.img = JobState::Ready(res);
+                self.img = Poll::Ready(res);
                 Task::none()
             }
             Message::Loaded(msg) => {
@@ -219,10 +214,6 @@ impl App {
             }
             Message::Scroll(viewport) => {
                 self.scroll_offset = viewport.absolute_offset();
-                Task::none()
-            }
-            Message::Blur(blur) => {
-                // self.opts.blur = blur;
                 Task::none()
             }
         }
@@ -374,13 +365,13 @@ struct Place {
 struct Drawn {
     img: Img,
     misses: Vec<DiacMiss>,
-    saving: JobState<(), Spinner>,
-    place_diac: JobState<Option<Place>, Spinner>,
+    saving: Poll<(), Spinner>,
+    place_diac: Poll<Option<Place>, Spinner>,
 }
 
 impl Drawn {
     fn new(img: Img, misses: Vec<DiacMiss>) -> Self {
-        Self { img, misses, saving: JobState::Ready(Ok(())), place_diac: JobState::Ready(Ok(None)) }
+        Self { img, misses, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) }
     }
     async fn save(self) -> eyre::Result<()> {
         // [TODO]

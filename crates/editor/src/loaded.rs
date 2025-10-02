@@ -1,5 +1,5 @@
 use super::{Drawn, Img, with_tctx};
-use crate::{FONT_SIZE, Place, Spinner, diac_renderer, job::JobState};
+use crate::{FONT_SIZE, Place, Spinner, diac_renderer, task::Poll};
 use eyre::OptionExt as _;
 use iced::{
     Point, Task,
@@ -17,7 +17,7 @@ use tokio::task::spawn_blocking;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Draw(JobState<Drawn, DrawProgress>),
+    Draw(Poll<Drawn, DrawProgress>),
     Save,
     Saved(Result<(), Arc<eyre::Report>>),
     // <place>
@@ -37,23 +37,23 @@ pub(crate) enum Message {
 pub(crate) struct LoadedImage {
     pub(crate) img: Img,
     pub(crate) zoom: f32,
-    pub(crate) drawing: JobState<Option<Drawn>, (Spinner, DrawProgress)>,
+    pub(crate) drawing: Poll<Option<Drawn>, (Spinner, DrawProgress)>,
     opts: PlaceOptions,
 }
 
 impl LoadedImage {
     pub(crate) fn new(img: Img) -> Self {
         // [TODO] zoom
-        Self { img, zoom: 0.4, drawing: JobState::Ready(Ok(None)), opts: PlaceOptions::default() }
+        Self { img, zoom: 0.4, drawing: Poll::Ready(Ok(None)), opts: PlaceOptions::default() }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
-        if let JobState::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
+        if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
     }
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Draw(JobState::Running(DrawProgress::Pending)) => {
-                self.drawing = JobState::Running((Spinner::new(), DrawProgress::default()));
+            Message::Draw(Poll::Pending(DrawProgress::Pending)) => {
+                self.drawing = Poll::Pending((Spinner::new(), DrawProgress::default()));
                 let loaded = self.clone();
                 let options = self.opts;
                 Task::stream(iced_futures::stream::channel(0, async move |mut tx| {
@@ -63,10 +63,7 @@ impl LoadedImage {
                             loaded
                                 .draw_teamim(DATAPATH, options, {
                                     move |progress| {
-                                        _ = tx
-                                            .lock()
-                                            .unwrap()
-                                            .try_send(JobState::Running(progress));
+                                        _ = tx.lock().unwrap().try_send(Poll::Pending(progress));
                                     }
                                 })
                                 .map_err(Arc::new)
@@ -74,21 +71,21 @@ impl LoadedImage {
                     })
                     .await
                     .expect("blocking task to finish");
-                    _ = tx.try_send(JobState::Ready(result));
+                    _ = tx.try_send(Poll::Ready(result));
                 }))
                 .map(Message::Draw)
             }
-            Message::Draw(JobState::Running(progress)) => {
-                self.drawing = JobState::Running((Spinner::new(), progress));
+            Message::Draw(Poll::Pending(progress)) => {
+                self.drawing = Poll::Pending((Spinner::new(), progress));
                 Task::none()
             }
-            Message::Draw(JobState::Ready(drawn_res)) => {
-                self.drawing = JobState::Ready(drawn_res.map(Some));
+            Message::Draw(Poll::Ready(drawn_res)) => {
+                self.drawing = Poll::Ready(drawn_res.map(Some));
                 Task::none()
             }
             Message::Save => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Running(Spinner::new());
+                drawn.saving = Poll::Pending(Spinner::new());
                 let drawn = drawn.clone();
                 Task::future(async move {
                     let result = drawn.save().await.map_err(Arc::new);
@@ -97,14 +94,13 @@ impl LoadedImage {
             }
             Message::Saved(saved) => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = JobState::Ready(saved);
+                drawn.saving = Poll::Ready(saved);
                 Task::none()
             }
             Message::PlaceMode(miss_idx) => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
                 let diac = drawn.misses[miss_idx].diacritic.to_string().into();
-                drawn.place_diac =
-                    JobState::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
+                drawn.place_diac = Poll::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
                 Task::none()
             }
             Message::Place { scroll_offset } => {
@@ -124,7 +120,7 @@ impl LoadedImage {
                     })
                     .await
                     .expect("blocking task to finish");
-                    Message::Draw(JobState::Ready(res))
+                    Message::Draw(Poll::Ready(res))
                 })
             }
             Message::PlaceMove(point) => {
@@ -137,16 +133,16 @@ impl LoadedImage {
             }
             Message::PlaceCancel => {
                 let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.place_diac = JobState::Ready(Ok(None));
+                drawn.place_diac = Poll::Ready(Ok(None));
                 Task::none()
             }
             Message::Blur => Task::chain(
-                Task::done(Message::Draw(JobState::Running(DrawProgress::ImageEffects))),
+                Task::done(Message::Draw(Poll::Pending(DrawProgress::ImageEffects))),
                 Task::future({
                     let img = self.img.clone();
                     async move {
                         spawn_blocking(move || {
-                            Message::Draw(JobState::Ready(Ok(Drawn::new(img.blur(), vec![]))))
+                            Message::Draw(Poll::Ready(Ok(Drawn::new(img.blur(), vec![]))))
                         })
                         .await
                         .expect("blocking task to finish")
@@ -215,10 +211,5 @@ fn place_diac(
     let handle = Handle::from_rgba(drawn.img.width, drawn.img.height, pixels.clone());
     let img = Img { pixels, handle, ..drawn.img };
 
-    Ok(Drawn {
-        img,
-        misses,
-        saving: JobState::Ready(Ok(())),
-        place_diac: JobState::Ready(Ok(None)),
-    })
+    Ok(Drawn { img, misses, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) })
 }

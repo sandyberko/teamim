@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use crate::loaded::LoadedImage;
 
-use super::{App, JobState, view};
+use super::{App, Poll, view};
 use teamim::PlaceOptions;
 
 #[test]
@@ -10,7 +10,7 @@ fn drawn_test() -> eyre::Result<()> {
     fn load() -> eyre::Result<LoadedImage> {
         let path = Path::new("../../assets/images/N5/007.jpg");
         let mut loaded = super::load_image(path)?;
-        loaded.drawing = JobState::Ready(Ok(Some(loaded.clone().draw_teamim(
+        loaded.drawing = Poll::Ready(Ok(Some(loaded.clone().draw_teamim(
             c"../../assets/tessdata/",
             PlaceOptions::default(),
             |progress| {
@@ -20,7 +20,7 @@ fn drawn_test() -> eyre::Result<()> {
         Ok(loaded)
     }
     iced::application(
-        || App { img: JobState::Ready(load().map(Some).map_err(Arc::new)), ..App::default() },
+        || App { img: Poll::Ready(load().map(Some).map_err(Arc::new)), ..App::default() },
         App::update,
         view,
     )

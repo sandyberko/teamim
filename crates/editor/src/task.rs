@@ -8,28 +8,27 @@ use iced::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) enum JobState<Ready, Running = ()> {
-    /// the has either not yet started or has already finished.
+pub(crate) enum Poll<Ready, Pending = ()> {
     Ready(Result<Ready, Arc<eyre::Report>>),
-    Running(Running),
+    Pending(Pending),
 }
 
-impl<Ready: Default, Running> Default for JobState<Ready, Running> {
+impl<Ready: Default, Pending> Default for Poll<Ready, Pending> {
     fn default() -> Self {
-        JobState::Ready(Ok(Ready::default()))
+        Poll::Ready(Ok(Ready::default()))
     }
 }
 
-impl<Ready, Running> JobState<Ready, Running> {
+impl<Ready, Pending> Poll<Ready, Pending> {
     pub(crate) fn ready_ok(&self) -> Option<&Ready> {
-        if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
     pub(crate) fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
-        if let JobState::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
 }
 
-impl<Ready> JobState<Ready, Spinner> {
+impl<Ready> Poll<Ready, Spinner> {
     pub(crate) fn loading_btn<'a, Message, Theme, Renderer>(
         &'_ self,
         label: impl IntoFragment<'a>,
@@ -43,7 +42,7 @@ impl<Ready> JobState<Ready, Spinner> {
         button(
             row([
                 Some(text(label).into()),
-                if let JobState::Running(spinner) = self { Some(spinner.view()) } else { None },
+                if let Poll::Pending(spinner) = self { Some(spinner.view()) } else { None },
             ]
             .into_iter()
             .filter_map(identity))
