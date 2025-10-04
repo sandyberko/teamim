@@ -3,7 +3,6 @@ use std::{path::Path, sync::Arc};
 use crate::loaded::LoadedImage;
 
 use super::{App, Poll, view};
-use teamim::PlaceOptions;
 
 #[test]
 fn drawn_test() -> eyre::Result<()> {
@@ -12,7 +11,6 @@ fn drawn_test() -> eyre::Result<()> {
         let mut loaded = super::load_image(path)?;
         loaded.drawing = Poll::Ready(Ok(Some(loaded.clone().draw_teamim(
             c"../../assets/tessdata/",
-            PlaceOptions::default(),
             |progress| {
                 eprintln!("{progress:?}");
             },

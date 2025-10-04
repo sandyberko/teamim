@@ -1,10 +1,11 @@
 use super::{Drawn, Img, with_tctx};
-use crate::{FONT_SIZE, Place, Spinner, diac_renderer, task::Poll};
+use crate::{FONT_SIZE, PADDING, Place, Spinner, diac_renderer, strs, task::Poll};
 use eyre::OptionExt as _;
 use iced::{
-    Point, Task,
+    Element, Point, Task,
     advanced::image::Bytes,
-    widget::{image::Handle, operation::AbsoluteOffset},
+    alignment::Vertical,
+    widget::{image::Handle, operation::AbsoluteOffset, row, slider, text},
 };
 use image::{ImageBuffer, Rgba};
 use num_traits::ToPrimitive as _;
@@ -30,7 +31,7 @@ pub(crate) enum Message {
     PlaceMove(Point),
     PlaceCancel,
     // </place>
-    Blur,
+    SetBlur(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -38,13 +39,20 @@ pub(crate) struct LoadedImage {
     pub(crate) img: Img,
     pub(crate) zoom: f32,
     pub(crate) drawing: Poll<Option<Drawn>, (Spinner, DrawProgress)>,
+    blur: u32,
     opts: PlaceOptions,
 }
 
 impl LoadedImage {
     pub(crate) fn new(img: Img) -> Self {
         // [TODO] zoom
-        Self { img, zoom: 0.4, drawing: Poll::Ready(Ok(None)), opts: PlaceOptions::default() }
+        Self {
+            img,
+            zoom: 0.4,
+            drawing: Poll::Ready(Ok(None)),
+            blur: 0,
+            opts: PlaceOptions::default(),
+        }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
@@ -55,13 +63,12 @@ impl LoadedImage {
             Message::Draw(Poll::Pending(DrawProgress::Pending)) => {
                 self.drawing = Poll::Pending((Spinner::new(), DrawProgress::default()));
                 let loaded = self.clone();
-                let options = self.opts;
                 Task::stream(iced_futures::stream::channel(0, async move |mut tx| {
                     let result = tokio::task::spawn_blocking({
                         let tx = Mutex::new(tx.clone());
                         move || {
                             loaded
-                                .draw_teamim(DATAPATH, options, {
+                                .draw_teamim(DATAPATH, {
                                     move |progress| {
                                         _ = tx.lock().unwrap().try_send(Poll::Pending(progress));
                                     }
@@ -136,26 +143,16 @@ impl LoadedImage {
                 drawn.place_diac = Poll::Ready(Ok(None));
                 Task::none()
             }
-            Message::Blur => Task::chain(
-                Task::done(Message::Draw(Poll::Pending(DrawProgress::ImageEffects))),
-                Task::future({
-                    let img = self.img.clone();
-                    async move {
-                        spawn_blocking(move || {
-                            Message::Draw(Poll::Ready(Ok(Drawn::new(img.blur(), vec![]))))
-                        })
-                        .await
-                        .expect("blocking task to finish")
-                    }
-                }),
-            ),
+            Message::SetBlur(blur) => {
+                self.blur = blur;
+                Task::none()
+            }
         }
     }
 
     pub(crate) fn draw_teamim(
         self,
         datapath: &'static CStr,
-        options: PlaceOptions,
         progress_callback: impl Fn(DrawProgress) + Send + 'static,
     ) -> eyre::Result<Drawn> {
         let mut data = self.img.pixels.to_vec();
@@ -164,7 +161,9 @@ impl LoadedImage {
             &mut data,
             self.img.width.try_into()?,
             self.img.height.try_into()?,
-            |img| with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, options, progress_callback)),
+            |img| {
+                with_tctx(datapath, |ctx| ctx.place_teamim_pix(img, self.opts, progress_callback))
+            },
         )?
         .unwrap_or_else(|err| Err(err.into()))?;
 
@@ -172,6 +171,26 @@ impl LoadedImage {
         let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
         let img = Img { pixels, handle, ..self.img };
         Ok(Drawn::new(img, misses))
+    }
+
+    pub(crate) fn draw_tools<'a>(&self) -> Element<'a, Message> {
+        let (label, state) = match self.drawing.clone() {
+            Poll::Pending((spinner, progress)) => {
+                (strs::draw_progress(progress), Poll::Pending(spinner))
+            }
+            Poll::Ready(ready) => (strs::DRAW_TEAMIM, Poll::Ready(ready)),
+        };
+
+        row![
+            // blur
+            slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0),
+            text(strs::BLUR),
+            // draw
+            state.loading_btn(label).on_press(Message::Draw(Poll::Pending(DrawProgress::Pending))),
+        ]
+        .align_y(Vertical::Center)
+        .spacing(PADDING as u32)
+        .into()
     }
 }
 

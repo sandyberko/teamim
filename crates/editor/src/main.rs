@@ -40,7 +40,7 @@ use std::{
 use editor::{spinner::Spinner, stage};
 use teamim::{DiacMiss, DrawProgress, TeamimCtx};
 
-use crate::task::Poll;
+use crate::{loaded::LoadedImage, task::Poll};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -111,21 +111,10 @@ impl App {
             // select
             Some(self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into()),
             // draw
-            self.img.ready_ok().and_then(Option::as_ref).map(|loaded| {
-                let (label, state) = match loaded.drawing.clone() {
-                    Poll::Pending((spinner, progress)) => {
-                        (strs::draw_progress(progress), Poll::Pending(spinner))
-                    }
-                    Poll::Ready(ready) => (strs::DRAW_TEAMIM, Poll::Ready(ready)),
-                };
-
-                state
-                    .loading_btn(label)
-                    .on_press(Message::Loaded(loaded::Message::Draw(Poll::Pending(
-                        DrawProgress::Pending,
-                    ))))
-                    .into()
-            }),
+            self.img
+                .ready_ok()
+                .and_then(Option::as_ref)
+                .map(|loaded| loaded.draw_tools().map(Message::Loaded)),
             // save
             self.drawn().map(|drawn| {
                 drawn.saving.loading_btn(strs::SAVE).on_press(loaded::Message::Save.into()).into()
@@ -134,11 +123,6 @@ impl App {
             self.drawn()
                 .and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position)
                 .map(|pos| widget::text(format!("{pos}")).into()),
-            // blur
-            // Some(slider(0..=100, self.opts.blur, Message::Blur).width(FONT_SIZE * 10.0).into()),
-            self.img.ready_ok().and_then(Option::as_ref).map(|_| {
-                button(strs::BLUR).on_press(Message::Loaded(loaded::Message::Blur)).into()
-            }),
         ];
 
         widget::row(children.into_iter().filter_map(identity))
