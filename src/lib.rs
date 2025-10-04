@@ -246,6 +246,86 @@ impl TeamimCtx {
         Ok(misses)
     }
 
+    pub fn positions(
+        &mut self,
+        img: &mut Pix,
+        progress_callback: impl Fn(DrawProgress),
+    ) -> Result<(Vec<DiacPos>, Vec<DiacMiss>), PlaceError> {
+        progress_callback(DrawProgress::Recognizing);
+        self.tess.set_image(img);
+        self.tess.recognize()?;
+
+        let snippet = self.tess.get_text()?;
+        let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
+        let boxes = self
+            .tess
+            .results_iter(PageIteratorLevel::Symbol)
+            .map(|BoundingBox { value, rect, page }| {
+                eyre::Ok(BoundingBox {
+                    value: value.as_str()?.chars().next().ok_or_eyre("empty box")?,
+                    rect,
+                    page,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        progress_callback(DrawProgress::Searching);
+        let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
+        let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
+
+        // diff
+        progress_callback(DrawProgress::Diffing);
+        // (ocr, ground_truth)
+        let (old, new) = (snippet.as_str(), r#match.text);
+        let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
+        let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
+        let mut ops = diff.ops().iter().peekable();
+
+        progress_callback(DrawProgress::Placing);
+        let mut last_diacrit_top = 0;
+        let mut positions = Vec::new();
+        let mut misses = Vec::new();
+        let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
+        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
+            let char_offset = char_idx - snip_char_offset;
+            let change = 'change: loop {
+                let Some(change) = ops.peek() else {
+                    break 'taam;
+                };
+                if change.new_range().start > char_offset {
+                    continue 'taam;
+                }
+                if change.new_range().end > char_offset {
+                    break 'change change;
+                }
+                ops.next();
+            };
+            match change.tag() {
+                DiffTag::Equal => {
+                    let char_offset_in_change = char_offset - change.new_range().start;
+                    let box_idx = change.old_range().start + char_offset_in_change;
+                    let bx = &boxes[box_idx];
+                    let rect = bx.rect;
+                    last_diacrit_top = bx.rect.top;
+                    positions.push(DiacPos { letter, diacritic, rect });
+                }
+                DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
+                DiffTag::Insert | DiffTag::Replace => {
+                    let range = change.new_range();
+                    let pre = remapper
+                        .slice_new(range.start.saturating_sub(6)..range.end)
+                        .ok_or_eyre("invalid range")?;
+                    let post = remapper
+                        .slice_new(range.end..new.len().min(range.end + 6))
+                        .ok_or_eyre("invalid range")?;
+                    let missing_text = format!("{pre}{diacritic}{post}").into();
+                    let top = last_diacrit_top;
+                    misses.push(DiacMiss { letter, diacritic, char_idx, top, missing_text });
+                }
+            }
+        }
+        Ok((positions, misses))
+    }
     pub fn diff_boxes(
         &mut self,
         img: &mut Pix,
@@ -303,6 +383,13 @@ impl TeamimCtx {
 
         Ok(box_diff)
     }
+}
+
+#[derive(Debug)]
+pub struct DiacPos {
+    pub letter: char,
+    pub diacritic: char,
+    pub rect: Rect,
 }
 
 #[derive(Debug, Clone)]

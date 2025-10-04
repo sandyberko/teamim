@@ -8,24 +8,26 @@ use iced::{
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
+pub(crate) type TryPoll<Ready, Pending = ()> = Poll<Result<Ready, eyre::Report>, Pending>;
+
 #[derive(Debug, Clone)]
 pub(crate) enum Poll<Ready, Pending = ()> {
-    Ready(Result<Ready, Arc<eyre::Report>>),
+    Ready(Ready),
     Pending(Pending),
 }
 
 impl<Ready: Default, Pending> Default for Poll<Ready, Pending> {
     fn default() -> Self {
-        Poll::Ready(Ok(Ready::default()))
+        Poll::Ready(Ready::default())
     }
 }
 
-impl<Ready, Pending> Poll<Ready, Pending> {
+impl<Ready, Pending> TryPoll<Ready, Pending> {
     pub(crate) fn ready_ok(&self) -> Option<&Ready> {
-        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let TryPoll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
     pub(crate) fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
-        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let TryPoll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
 }
 
