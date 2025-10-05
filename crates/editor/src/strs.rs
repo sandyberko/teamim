@@ -1,13 +1,13 @@
-use teamim::DrawProgress;
+use teamim::PositProgress;
 
-pub const fn draw_progress(progress: DrawProgress) -> &'static str {
+pub const fn draw_progress(progress: PositProgress) -> &'static str {
     match progress {
-        DrawProgress::Pending => "מצייר...",
-        DrawProgress::Recognizing => "מזהה...",
-        DrawProgress::ImageEffects => "עורך תמונה...",
-        DrawProgress::Searching => "מחפש...",
-        DrawProgress::Diffing => "משווה...",
-        DrawProgress::Placing => "ממקם...",
+        PositProgress::Pending => "מצייר...",
+        PositProgress::Recognizing => "מזהה...",
+        PositProgress::ImageEffects => "עורך תמונה...",
+        PositProgress::Searching => "מחפש...",
+        PositProgress::Diffing => "משווה...",
+        PositProgress::Placing => "ממקם...",
     }
 }
 pub const TITLE: &str = "טעמים";

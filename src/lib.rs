@@ -59,7 +59,7 @@ impl DiacMiss {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub enum DrawProgress {
+pub enum PositProgress {
     #[default]
     Pending,
     Recognizing,
@@ -73,6 +73,8 @@ pub enum DrawProgress {
 pub struct TeamimCtx {
     tess: Tess,
 }
+
+pub type DiacResults = (Vec<DiacPos>, Vec<DiacMiss>);
 
 impl TeamimCtx {
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
@@ -152,9 +154,9 @@ impl TeamimCtx {
         &mut self,
         img: &mut Pix,
         options: PlaceOptions,
-        progress_callback: impl Fn(DrawProgress),
+        progress_callback: impl Fn(PositProgress),
     ) -> Result<Vec<DiacMiss>, PlaceError> {
-        progress_callback(DrawProgress::Recognizing);
+        progress_callback(PositProgress::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
 
@@ -172,7 +174,7 @@ impl TeamimCtx {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        progress_callback(DrawProgress::ImageEffects);
+        progress_callback(PositProgress::ImageEffects);
         if options.blur != 0 {
             *img = img.blur(options.blur)?;
         }
@@ -183,19 +185,19 @@ impl TeamimCtx {
 
         let options = options.estimate_scale(&boxes);
 
-        progress_callback(DrawProgress::Searching);
+        progress_callback(PositProgress::Searching);
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
         let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
 
         // diff
-        progress_callback(DrawProgress::Diffing);
+        progress_callback(PositProgress::Diffing);
         // (ocr, ground_truth)
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
         let mut ops = diff.ops().iter().peekable();
 
-        progress_callback(DrawProgress::Placing);
+        progress_callback(PositProgress::Placing);
         let mut last_diacrit_top = 0;
         let mut misses = Vec::new();
 
@@ -249,9 +251,9 @@ impl TeamimCtx {
     pub fn positions(
         &mut self,
         img: &mut Pix,
-        progress_callback: impl Fn(DrawProgress),
-    ) -> Result<(Vec<DiacPos>, Vec<DiacMiss>), PlaceError> {
-        progress_callback(DrawProgress::Recognizing);
+        progress_callback: impl Fn(PositProgress),
+    ) -> Result<DiacResults, PlaceError> {
+        progress_callback(PositProgress::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
 
@@ -269,19 +271,19 @@ impl TeamimCtx {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        progress_callback(DrawProgress::Searching);
+        progress_callback(PositProgress::Searching);
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
         let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
 
         // diff
-        progress_callback(DrawProgress::Diffing);
+        progress_callback(PositProgress::Diffing);
         // (ocr, ground_truth)
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
         let mut ops = diff.ops().iter().peekable();
 
-        progress_callback(DrawProgress::Placing);
+        progress_callback(PositProgress::Placing);
         let mut last_diacrit_top = 0;
         let mut positions = Vec::new();
         let mut misses = Vec::new();
@@ -305,9 +307,10 @@ impl TeamimCtx {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let bx = &boxes[box_idx];
-                    let rect = bx.rect;
+                    let box_geometry = into_geometry(bx, OriginPos::TopLeft);
+                    let pos = position_taam(letter, &box_geometry, diacritic)?;
                     last_diacrit_top = bx.rect.top;
-                    positions.push(DiacPos { letter, diacritic, rect });
+                    positions.push(DiacPos { letter, diacritic, pos });
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
@@ -329,9 +332,9 @@ impl TeamimCtx {
     pub fn diff_boxes(
         &mut self,
         img: &mut Pix,
-        progress_callback: impl Fn(DrawProgress),
+        progress_callback: impl Fn(PositProgress),
     ) -> Result<Vec<BoxDiffOp>, PlaceError> {
-        progress_callback(DrawProgress::Recognizing);
+        progress_callback(PositProgress::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
 
@@ -343,10 +346,10 @@ impl TeamimCtx {
             .map(|bx| eyre::Ok(bx.rect))
             .collect::<Result<Vec<_>, _>>()?;
 
-        progress_callback(DrawProgress::Searching);
+        progress_callback(PositProgress::Searching);
         let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
         // diff
-        progress_callback(DrawProgress::Diffing);
+        progress_callback(PositProgress::Diffing);
         // (ocr, ground_truth)
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
@@ -360,7 +363,7 @@ impl TeamimCtx {
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
         let ops = diff.ops().iter().peekable();
 
-        progress_callback(DrawProgress::Placing);
+        progress_callback(PositProgress::Placing);
         let mut box_diff = Vec::new();
         for op in ops {
             match op.tag() {
@@ -389,7 +392,7 @@ impl TeamimCtx {
 pub struct DiacPos {
     pub letter: char,
     pub diacritic: char,
-    pub rect: Rect,
+    pub pos: [f32; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -686,6 +689,37 @@ pub fn place_taam(
             .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
     }
     Ok(())
+}
+
+pub fn position_taam(letter: char, bx: &BoxGeometry, diacritic: char) -> eyre::Result<[f32; 2]> {
+    return Ok([bx.x as _, bx.y as _]);
+    let Some(glyph) = GLYPHS.get(&diacritic) else {
+        bail!("no glyph for {diacritic:?} {:x}", diacritic as u32);
+    };
+    let mut scale_factor = 1.0;
+    if glyph.placement == Placement::After {
+        scale_factor *= 0.6;
+    }
+
+    let margin_top = 20.0 * scale_factor;
+
+    let BoxGeometry { x, y, w, h } = *bx;
+    let [x, y, w, h] = [x, y, w, h].map(|coord| coord as f32);
+    let pos = match glyph.placement {
+        Placement::Top => [x, y - margin_top],
+        Placement::Bottom => [x, y + h],
+        Placement::After => {
+            if glyph == &MAQAF {
+                let lamed = if letter == 'ל' { h / 2.0 } else { 0.0 };
+                [x - w - (5.0 * scale_factor), y + lamed]
+            } else if glyph == &SOF_PASUQ {
+                [x - w - (3.0 * scale_factor), y]
+            } else {
+                panic!("unexpected diacritic [א{diacritic}] placed after")
+            }
+        }
+    };
+    Ok(pos)
 }
 
 #[derive(Copy, Clone, Debug)]

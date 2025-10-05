@@ -5,12 +5,9 @@ mod loaded;
 mod strs;
 mod task;
 
-#[cfg(test)]
-mod tests;
-
 use eyre::{OptionExt as _, WrapErr as _, bail, eyre};
 use iced::{
-    Element, Length, Point, Subscription, Task, Vector,
+    Color, Element, Font, Length, Point, Settings, Subscription, Task, Vector,
     advanced::image::Bytes,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
@@ -29,6 +26,7 @@ use image::{
 use num_traits::{AsPrimitive, ToPrimitive as _};
 use rfd::AsyncFileDialog;
 use std::{
+    borrow::Cow,
     cell::RefCell,
     convert::identity,
     ffi::CStr,
@@ -39,7 +37,7 @@ use std::{
 };
 
 use editor::{spinner::Spinner, stage};
-use teamim::{DiacMiss, DiacPos, DrawProgress, TeamimCtx, leptonica_ext::PixBox};
+use teamim::{DiacMiss, DiacPos, PositProgress, TeamimCtx, glyph::SPACED, leptonica_ext::PixBox};
 
 use crate::{
     loaded::LoadedImage,
@@ -278,7 +276,19 @@ fn drawn_content_view<'a>(
                 }),
             ]
             .into_iter()
-            .filter_map(identity),
+            .filter_map(identity)
+            // positioned diacs
+            .chain(drawn.positions.iter().map(|pos| {
+                let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
+                (
+                    text(spaced)
+                        .color(Color::from_rgb(1., 0., 0.))
+                        .size(FONT_SIZE * zoom)
+                        .font(Font::with_name("Guttman Stam"))
+                        .into(),
+                    pos.pos.map(|coord| coord * zoom).into(),
+                )
+            })),
         ))
         .on_move(|pos| loaded::Message::PlaceMove(pos).into())
         .on_press(loaded::Message::Place { scroll_offset }.into())
@@ -371,35 +381,6 @@ impl Img {
         }
         Ok(())
     }
-
-    // [TODO] reduce clones
-    pub(crate) fn draw_teamim(
-        self,
-        datapath: &'static CStr,
-        progress_callback: impl Fn(DrawProgress) + Send + 'static,
-    ) -> eyre::Result<Drawn> {
-        let Img { width, height, pixels, .. } = self;
-        let mut buf = pixels.to_vec();
-
-        let (positions, misses) =
-            PixBox::from_rgba8_with(&mut buf, width.try_into()?, height.try_into()?, |img| {
-                with_tctx(datapath, |ctx| ctx.positions(img, progress_callback))
-            })?
-            .unwrap_or_else(|err| Err(err.into()))?;
-
-        let mut img = ImageBuffer::from_raw(width, height, buf).ok_or_eyre("expected valid img")?;
-        // [TODO] cache, parellelize
-        for pos in &positions {
-            let mut buf = [0; 4];
-            let text = pos.letter.encode_utf8(&mut buf);
-            diac_renderer::draw_text(&mut img, [pos.rect.left, pos.rect.top], text, FONT_SIZE);
-        }
-
-        let pixels = Bytes::from(img.into_raw());
-        let handle = Handle::from_rgba(width, height, pixels.clone());
-        let img = Img { pixels, handle, ..self };
-        Ok(Drawn::new(img, positions, misses))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -460,12 +441,20 @@ impl Drawn {
     }
 }
 
-fn view(state: &'_ App) -> Element<'_, Message> {
-    App::view(state)
-}
 fn main() -> eyre::Result<()> {
-    iced::application(App::default, App::update, view)
+    let boot_fn = App::default;
+    run_app(boot_fn)?;
+    Ok(())
+}
+
+fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
+    const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
+    fn view(state: &'_ App) -> Element<'_, Message> {
+        App::view(state)
+    }
+    iced::application(boot_fn, App::update, view)
         .subscription(App::subscription)
+        .settings(Settings { fonts: vec![Cow::Borrowed(GUTTMAN)], ..Default::default() })
         .title(strs::TITLE)
         .run()?;
     Ok(())
