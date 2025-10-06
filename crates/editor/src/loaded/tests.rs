@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use crate::{
-    App, Drawn, load_image,
-    loaded::{LoadedImage, position_diacs},
+    App, load_image,
+    loaded::{LoadedImage, drawn::Drawn, position_diacs},
     run_app,
     task::Poll,
 };
@@ -14,8 +14,8 @@ fn drawn_test() -> eyre::Result<()> {
         let mut loaded = load_image(path)?;
         let progress_callback = |progress| eprintln!("{progress:?}");
         let (positions, misses) =
-            position_diacs(loaded.img.clone(), c"../../assets/tessdata/", progress_callback)?;
-        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(loaded.img.clone(), positions, misses))));
+            position_diacs(&loaded.img, c"../../assets/tessdata/", progress_callback)?;
+        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(positions, misses))));
         Ok(loaded)
     }
     let boot_fn = || App { img: Poll::Ready(load().map(Some)), ..App::default() };

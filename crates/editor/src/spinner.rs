@@ -4,11 +4,12 @@
 use std::time::Instant;
 
 use iced::{
-    Color, Element, Length, Point, Rectangle, mouse,
+    Color, Element, Length, Point, Rectangle,
+    advanced::graphics::geometry,
+    mouse,
     theme::Base,
     widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc},
 };
-use iced_renderer::geometry;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Spinner {
@@ -55,11 +56,12 @@ impl Spinner {
         self.last_tick = now;
     }
 
+    #[must_use]
     pub fn view<'a, Message, Theme, Renderer>(self) -> Element<'a, Message, Theme, Renderer>
     where
         Message: 'a,
         Theme: Base + 'a,
-        Renderer: iced_renderer::geometry::Renderer + 'a,
+        Renderer: geometry::Renderer + 'a,
     {
         Canvas::new(self).width(Length::Fixed(self.size)).height(Length::Fixed(self.size)).into()
     }

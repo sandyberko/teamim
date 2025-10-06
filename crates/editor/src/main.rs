@@ -5,30 +5,26 @@ mod loaded;
 mod strs;
 mod task;
 
-use eyre::{OptionExt as _, WrapErr as _, bail, eyre};
+use eyre::{OptionExt as _, WrapErr as _, eyre};
 use iced::{
-    Color, Element, Font, Length, Point, Settings, Subscription, Task, Vector,
+    Element, Length, Settings, Subscription, Task,
     advanced::image::Bytes,
-    keyboard::{Key, key::Named, on_key_press},
-    mouse::Interaction,
     widget::{
-        self, Column, button,
+        self, Column,
         image::Handle,
-        mouse_area,
         scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-        text,
+        text::{Fragment, IntoFragment},
     },
 };
 use image::{
     ImageBuffer, ImageFormat, ImageReader, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer,
     imageops::fast_blur,
 };
-use num_traits::{AsPrimitive, ToPrimitive as _};
+use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
 use std::{
     borrow::Cow,
     cell::RefCell,
-    convert::identity,
     ffi::CStr,
     mem,
     path::Path,
@@ -37,12 +33,9 @@ use std::{
 };
 
 use editor::{spinner::Spinner, stage};
-use teamim::{DiacMiss, DiacPos, PositProgress, TeamimCtx, glyph::SPACED, leptonica_ext::PixBox};
+use teamim::TeamimCtx;
 
-use crate::{
-    loaded::LoadedImage,
-    task::{Poll, TryPoll},
-};
+use crate::task::{Poll, Progress, TryPoll};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -81,64 +74,48 @@ where
     })
 }
 
-type ImgState = TryPoll<Option<loaded::LoadedImage>, Spinner>;
 const FONT_SIZE: f32 = 72.0;
 
+// [TODO]
+#[derive(Default)]
+struct SelectProgress {}
 struct App {
-    img: ImgState,
+    img: TryPoll<Option<loaded::LoadedImage>, Progress<SelectProgress>>,
     scroll_offset: AbsoluteOffset,
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self { img: Poll::Ready(Ok(None)), scroll_offset: Default::default() }
+        Self { img: Poll::Ready(Ok(None)), scroll_offset: AbsoluteOffset::default() }
     }
 }
 
 impl App {
     fn ticker_sub(&self) -> Subscription<Message> {
-        let ticker = iced::time::every(Duration::from_millis(16)).map(Message::Tick);
-        let loaded = match &self.img {
-            TryPoll::Pending(_) => return ticker,
-            TryPoll::Ready(Ok(Some(loaded))) => loaded,
-            TryPoll::Ready(_) => return Subscription::none(),
-        };
-        let drawn = match &loaded.drawing {
-            TryPoll::Pending(_) => return ticker,
-            TryPoll::Ready(Ok(Some(drawn))) => drawn,
-            TryPoll::Ready(_) => return Subscription::none(),
-        };
-        let () = match &drawn.saving {
-            Poll::Pending(_) => return ticker,
-            Poll::Ready(_) => return Subscription::none(),
-        };
+        match &self.img {
+            Poll::Pending(_) => iced::time::every(Duration::from_millis(16)).map(Message::Tick),
+            Poll::Ready(Ok(Some(loaded))) => loaded.subscription().map(Message::Loaded),
+            Poll::Ready(_) => Subscription::none(),
+        }
     }
     fn toolbar<'a>(&'_ self) -> Element<'a, Message> {
         let children = [
             // select
-            Some(self.img.loading_btn(strs::SELECT_IMG).on_press(Message::SelectImage).into()),
+            Some(self.img.loading_btn().on_press(Message::SelectImage).into()),
             // draw
             self.img
-                .ready_ok()
+                .as_ready_ok()
                 .and_then(Option::as_ref)
-                .map(|loaded| loaded.draw_tools().map(Message::Loaded)),
-            // save
-            self.drawn().map(|drawn| {
-                drawn.saving.loading_btn(strs::SAVE).on_press(loaded::Message::Save.into()).into()
-            }),
-            // [DEBUG]
-            self.drawn()
-                .and_then(|drawn| drawn.place_diac.ready_ok()?.as_ref()?.position)
-                .map(|pos| widget::text(format!("{pos}")).into()),
+                .map(|loaded| loaded.toolbar_view().map(Message::Loaded)),
         ];
 
-        widget::row(children.into_iter().filter_map(identity))
-            .spacing(PADDING as u32)
+        widget::row(children.into_iter().flatten())
+            .spacing(u32::from(PADDING))
             .width(Length::Fill)
             .into()
     }
 
-    fn content_view<'a>(&'a self) -> Element<'a, Message> {
+    fn content_view(&self) -> Element<'_, Message> {
         let TryPoll::Ready(ready) = &self.img else {
             return widget::text(strs::LOADING).into();
         };
@@ -150,18 +127,10 @@ impl App {
             return widget::text(strs::NO_IMG_SELECTED).into();
         };
 
-        if let Some(drawn) = loaded.drawing.ready_ok().and_then(Option::as_ref) {
-            drawn_content_view(drawn, loaded.zoom, self.scroll_offset)
-        } else {
-            loaded.img.view(loaded.zoom)
-        }
+        loaded.view(self.scroll_offset).map(Message::Loaded)
     }
 
-    fn drawn(&self) -> Option<&Drawn> {
-        self.img.ready_ok().and_then(|loaded| loaded.as_ref()?.drawing.ready_ok()?.as_ref())
-    }
-
-    fn view<'a>(&'a self) -> Element<'a, Message> {
+    fn view(&self) -> Element<'_, Message> {
         let img = self.content_view();
         let scroll_dir =
             Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
@@ -169,7 +138,7 @@ impl App {
             self.toolbar(),
             widget::scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
         ])
-        .spacing(PADDING as u32)
+        .spacing(u32::from(PADDING))
         .padding(PADDING)
         .into()
     }
@@ -177,8 +146,8 @@ impl App {
     fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Tick(now) => {
-                if let TryPoll::Pending(spinner) = &mut self.img {
-                    spinner.tick(now);
+                if let TryPoll::Pending(progress) = &mut self.img {
+                    progress.spinner.tick(now);
                 }
                 Task::none()
             }
@@ -187,7 +156,7 @@ impl App {
                     return Task::none();
                 }
 
-                self.img = TryPoll::Pending(Spinner::new());
+                self.img = Poll::Pending(Progress::default());
                 Task::future(async move {
                     let loaded = select_image().await;
                     Message::ImageLoaded(Arc::new(Mutex::new(loaded)))
@@ -215,87 +184,12 @@ impl App {
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
             self.ticker_sub(),
-            self.drawn().and_then(|drawn| drawn.place_diac.ready_ok()).map_or(
-                Subscription::none(),
-                |_| {
-                    on_key_press(|key, _| {
-                        (key == Key::Named(Named::Escape))
-                            .then_some(loaded::Message::PlaceCancel.into())
-                    })
-                },
-            ),
+            self.img
+                .as_ready_ok()
+                .and_then(Option::as_ref)
+                .map_or(Subscription::none(), |loaded| loaded.subscription().map(Message::Loaded)),
         ])
     }
-}
-
-fn drawn_content_view<'a>(
-    drawn: &'a Drawn,
-    zoom: f32,
-    scroll_offset: AbsoluteOffset,
-) -> Element<'a, Message> {
-    let place = drawn.place_diac.ready_ok().and_then(Option::as_ref);
-    widget::row([
-        // misses
-        stage(drawn.misses.iter().enumerate().map(|(miss_idx, miss)| {
-            (
-                button(text(miss.missing_text.as_ref()).size(48.0 * zoom))
-                    .on_press_maybe(
-                        if let Some(place) = drawn.place_diac.ready_ok().and_then(Option::as_ref)
-                            && place.miss_idx == miss_idx
-                        {
-                            None
-                        } else {
-                            Some(loaded::Message::PlaceMode(miss_idx).into())
-                        },
-                    )
-                    .into(),
-                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
-            )
-        }))
-        .into(),
-        // image
-        mouse_area(stage(
-            [
-                Some((drawn.img.view(zoom), Point::ORIGIN)),
-                drawn.place_diac.ready_ok().and_then(Option::as_ref).and_then(|place| {
-                    let position = place.position?;
-                    Some((
-                        // [TODO] color(black)
-                        mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
-                            .interaction(Interaction::Crosshair)
-                            .on_move(move |offset| {
-                                loaded::Message::PlaceMove(
-                                    position + Vector::new(offset.x, offset.y),
-                                )
-                                .into()
-                            })
-                            .on_press(loaded::Message::Place { scroll_offset }.into())
-                            .into(),
-                        position,
-                    ))
-                }),
-            ]
-            .into_iter()
-            .filter_map(identity)
-            // positioned diacs
-            .chain(drawn.positions.iter().map(|pos| {
-                let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
-                (
-                    text(spaced)
-                        .color(Color::from_rgb(1., 0., 0.))
-                        .size(FONT_SIZE * zoom)
-                        .font(Font::with_name("Guttman Stam"))
-                        .into(),
-                    pos.pos.map(|coord| coord * zoom).into(),
-                )
-            })),
-        ))
-        .on_move(|pos| loaded::Message::PlaceMove(pos).into())
-        .on_press(loaded::Message::Place { scroll_offset }.into())
-        .interaction(if place.is_some() { Interaction::Crosshair } else { Interaction::default() })
-        .into(),
-    ])
-    .into()
 }
 
 async fn select_image() -> eyre::Result<Option<loaded::LoadedImage>> {
@@ -342,7 +236,7 @@ struct Img {
 }
 
 impl Img {
-    fn view<'a>(&'_ self, zoom: f32) -> Element<'a, Message> {
+    fn view<'a, Message>(&self, zoom: f32) -> Element<'a, Message> {
         widget::Image::new(&self.handle)
             .height(AsPrimitive::<f32>::as_(self.height) * zoom)
             .width(AsPrimitive::<f32>::as_(self.width) * zoom)
@@ -358,7 +252,11 @@ impl Img {
         Img { pixels, handle, ..self.clone() }
     }
 
-    async fn save(self) -> eyre::Result<()> {
+    async fn save(self, progress: impl Fn(SaveStatus)) -> eyre::Result<()> {
+        progress(SaveStatus::Rendering);
+        // [TODO] render
+
+        progress(SaveStatus::SelectingFile);
         // [TODO]
         let mut dialog = AsyncFileDialog::new().set_title(strs::SAVE).add_filter("image", IMG_EXTS);
         if let Some(dir) = self.path.parent() {
@@ -368,6 +266,8 @@ impl Img {
             dialog = dialog.set_file_name(file_name.to_str().ok_or_eyre("שם הקובץ לא תקין")?);
         }
         let file = dialog.save_file().await.ok_or_eyre("שמירה בוטלה")?;
+
+        progress(SaveStatus::Writing);
         let img = ImageBuffer::<Rgba<u8>, _>::from_raw(self.width, self.height, self.pixels)
             .expect("`data` to be big enough for width * height");
         let format = ImageFormat::from_path(file.path())?;
@@ -384,60 +284,15 @@ impl Img {
 }
 
 #[derive(Debug, Clone)]
-struct Place {
-    miss_idx: usize,
-    diac: Arc<str>,
-    position: Option<Point>,
+pub(crate) enum SaveStatus {
+    Trigger(Img),
+    Rendering,
+    SelectingFile,
+    Writing,
 }
-
-#[derive(Debug)]
-struct Drawn {
-    img: Img,
-    positions: Vec<DiacPos>,
-    misses: Vec<DiacMiss>,
-    saving: Poll<Result<(), Arc<eyre::ErrReport>>, Spinner>,
-    place_diac: TryPoll<Option<Place>, Spinner>,
-}
-
-impl Drawn {
-    fn new(img: Img, positions: Vec<DiacPos>, misses: Vec<DiacMiss>) -> Self {
-        Self {
-            img,
-            positions,
-            misses,
-            saving: Poll::Ready(Ok(())),
-            place_diac: Poll::Ready(Ok(None)),
-        }
-    }
-
-    fn place_diac(&mut self, scroll_offset: AbsoluteOffset, zoom: f32) -> eyre::Result<()> {
-        let Some(place) = self.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
-            bail!("stale")
-        };
-        let Some(&position) = place.position.as_ref() else { bail!("stale") };
-        let x = ((position.x + scroll_offset.x) / zoom)
-            .to_i32()
-            .ok_or_eyre("Failed to convert x coordinate to i32")?;
-        let y = ((position.y + scroll_offset.y) / zoom)
-            .to_i32()
-            .ok_or_eyre("Failed to convert y coordinate to i32")?;
-
-        // [TODO]
-        let mut pixels = self.img.pixels.to_vec();
-
-        let mut img =
-            ImageBuffer::<Rgba<u8>, _>::from_raw(self.img.width, self.img.height, pixels.as_mut())
-                .ok_or_eyre("failed to convert to image")?;
-
-        let mut buf = [0; 4];
-        let text = self.misses[place.miss_idx].diacritic.encode_utf8(&mut buf);
-        diac_renderer::draw_text(&mut img, [x, y], text, FONT_SIZE);
-
-        let pixels = Bytes::from(pixels);
-        let handle = Handle::from_rgba(self.img.width, self.img.height, pixels.clone());
-        self.img = Img { pixels, handle, ..self.img.clone() };
-        self.misses.remove(place.miss_idx);
-        Ok(())
+impl<Ready> IntoFragment<'static> for &Poll<Ready, Progress<SaveStatus>> {
+    fn into_fragment(self) -> Fragment<'static> {
+        Cow::Borrowed(strs::SAVE)
     }
 }
 

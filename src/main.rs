@@ -8,7 +8,11 @@ use std::{
 use clap::Parser;
 use eyre::{Context, ContextCompat, OptionExt, bail};
 use teamim::{
-    fuzzy_find, glyph::{Placement, GLYPHS}, into_geometry, leptonica_ext::{BoxGeometry, PixBox}, tesseract_ext::{bounding_box::parse_char_box, PageIteratorLevel, Tess}, OriginPos, TeamimCtx, DATAPATH
+    DATAPATH, OriginPos, TeamimCtx, fuzzy_find,
+    glyph::{GLYPHS, Placement},
+    into_geometry,
+    leptonica_ext::{BoxGeometry, PixBox},
+    tesseract_ext::{PageIteratorLevel, Tess, bounding_box::parse_char_box},
 };
 
 #[derive(Parser)]

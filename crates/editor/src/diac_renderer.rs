@@ -72,9 +72,10 @@ pub fn draw_text<Container>(
                 let src = Rgba(color.as_rgba());
 
                 // Alpha blend: src over dst
-                let alpha = src[3] as f32 / 255.0;
+                let alpha = f32::from(src[3]) / 255.0;
                 for i in 0..3 {
-                    pixel[i] = ((1.0 - alpha) * (pixel[i] as f32) + alpha * (src[i] as f32)) as u8;
+                    pixel[i] =
+                        ((1.0 - alpha) * f32::from(pixel[i]) + alpha * f32::from(src[i])) as u8;
                 }
                 // Update alpha too (optional, depending on use case)
                 pixel[3] = 255;

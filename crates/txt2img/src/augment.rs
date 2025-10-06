@@ -1,5 +1,5 @@
-use imageproc::geometric_transformations::{Interpolation, warp_with};
-use imageproc::image::Luma;
+#![expect(dead_code, unused_variables)]
+
 use imageproc::{filter::gaussian_blur_f32, image::GrayImage, noise::gaussian_noise_mut};
 use rand::Rng;
 use std::f32::consts::PI;

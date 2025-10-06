@@ -1,56 +1,70 @@
+mod drawn;
+
 #[cfg(test)]
 mod tests;
 
-use super::{Drawn, Img, with_tctx};
 use crate::{
-    FONT_SIZE, PADDING, Place, Spinner, diac_renderer, strs,
-    task::{Poll, TryPoll},
+    FONT_SIZE, Img, PADDING, strs,
+    task::{Poll, Progress, TryPoll},
+    with_tctx,
 };
-use eyre::{Context, OptionExt as _, eyre};
+use drawn::Drawn;
+use editor::spinner::Spinner;
+use eyre::{Context, eyre};
 use iced::{
-    Element, Point, Task,
-    advanced::image::Bytes,
+    Element, Subscription, Task,
     alignment::Vertical,
-    futures::future::Ready,
-    widget::{image::Handle, operation::AbsoluteOffset, row, slider, text},
+    stream::channel,
+    widget::{
+        operation::AbsoluteOffset,
+        row, slider,
+        text::{self, IntoFragment},
+    },
 };
-use iced_futures::stream;
-use image::{ImageBuffer, Rgba};
-use num_traits::ToPrimitive as _;
 use std::{
+    borrow::Cow,
     ffi::CStr,
     mem,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
-use teamim::{DATAPATH, DiacResults, PlaceOptions, PositProgress, leptonica_ext::PixBox};
+use teamim::{DATAPATH, DiacResults, PositStatus, leptonica_ext::PixBox};
 use tokio::task::spawn_blocking;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Transform {
+    scroll_offset: AbsoluteOffset,
+    zoom: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum BlurStatus {
+    #[default]
+    Blurring,
+}
+
+impl<Ready> IntoFragment<'static> for &Poll<Ready, Progress<BlurStatus>> {
+    fn into_fragment(self) -> text::Fragment<'static> {
+        Cow::Borrowed(strs::BLUR)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    PositDiacs(Poll<Arc<Mutex<eyre::Result<DiacResults>>>, PositProgress>),
-    // [TODO] move to `mod loaded`, refactor to `Poll`
-    Save,
-    Saved(Result<(), Arc<eyre::Report>>),
-    // <place>
-    /// enters placing mode with the given miss' diacritic
-    PlaceMode(usize),
-    /// places discritic at [`Place::position`]
-    Place {
-        scroll_offset: AbsoluteOffset,
-    },
-    PlaceMove(Point),
-    PlaceCancel,
-    // </place>
+    Draw(Poll<Arc<Mutex<eyre::Result<DiacResults>>>, PositStatus>),
+    Drawn(drawn::Message),
+    Tick(Instant),
     SetBlur(u32),
+    Blur(Poll<Img, BlurStatus>),
 }
 
 #[derive(Debug)]
 pub(crate) struct LoadedImage {
-    pub(crate) img: Img,
-    pub(crate) zoom: f32,
-    pub(crate) drawing: TryPoll<Option<Drawn>, (Spinner, PositProgress)>,
+    img: Img,
+    zoom: f32,
     blur: u32,
-    opts: PlaceOptions,
+    blurring: Poll<Option<Img>, Progress<BlurStatus>>,
+    drawing: TryPoll<Option<Drawn>, Progress<PositStatus>>,
 }
 
 impl LoadedImage {
@@ -59,9 +73,9 @@ impl LoadedImage {
         Self {
             img,
             zoom: 0.4,
-            drawing: TryPoll::Ready(Ok(None)),
             blur: 0,
-            opts: PlaceOptions::default(),
+            drawing: TryPoll::Ready(Ok(None)),
+            blurring: Poll::Ready(None),
         }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
@@ -70,68 +84,62 @@ impl LoadedImage {
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::PositDiacs(msg) => self.posit_diacs(msg),
-            Message::Save => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                // [TODO] Task::batch
-                drawn.saving = Poll::Pending(Spinner::new());
-                let img = drawn.img.clone();
-                Task::future(async move {
-                    let result = img.save().await.map_err(Arc::new);
-                    Message::Saved(result)
-                })
+            Message::Draw(msg) => self.posit_diacs(msg),
+            Message::Drawn(msg) => {
+                self.drawn_mut().map_or(Task::none(), |drawn| drawn.update(msg)).map(Message::Drawn)
             }
-            Message::Saved(saved) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.saving = Poll::Ready(saved);
-                Task::none()
-            }
-            Message::PlaceMode(miss_idx) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let diac = drawn.misses[miss_idx].diacritic.to_string().into();
-                drawn.place_diac =
-                    TryPoll::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
-                Task::none()
-            }
-            Message::Place { scroll_offset } => {
-                let Some(drawn) = self.drawing.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-                // [TODO] offload
-                if let Err(err) = drawn.place_diac(scroll_offset, self.zoom) {
-                    self.drawing = Poll::Ready(Err(err));
+            Message::Tick(now) => {
+                if let Some(progress) = self.drawing.as_mut_pending() {
+                    progress.spinner.tick(now);
                 }
-                Task::none()
-            }
-            Message::PlaceMove(point) => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                let Some(place) = drawn.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
-                    return Task::none();
-                };
-                place.position = Some(point);
-                Task::none()
-            }
-            Message::PlaceCancel => {
-                let Some(drawn) = self.drawn_mut() else { return Task::none() };
-                drawn.place_diac = TryPoll::Ready(Ok(None));
                 Task::none()
             }
             Message::SetBlur(blur) => {
                 self.blur = blur;
                 Task::none()
             }
+            Message::Blur(msg) => match msg {
+                Poll::Pending(BlurStatus::Blurring) => {
+                    self.blurring = Poll::Pending(Progress::with_status(BlurStatus::Blurring));
+                    let img = self.img.clone();
+                    Task::future(async move {
+                        spawn_blocking(move || {
+                            let blurred = img.blur();
+                            Message::Blur(Poll::Ready(blurred))
+                        })
+                        .await
+                        .expect("blocking task to finish")
+                    })
+                }
+                Poll::Ready(blurred) => {
+                    self.blurring = Poll::Ready(Some(blurred.clone()));
+                    Task::none()
+                }
+            },
         }
+    }
+    pub fn view(&'_ self, scroll_offset: AbsoluteOffset) -> Element<'_, Message> {
+        if let Some(drawn) = self.drawing.as_ready_ok().and_then(Option::as_ref) {
+            let opts = Transform { zoom: self.zoom, scroll_offset };
+            drawn.view(opts, self.img()).map(Message::Drawn)
+        } else {
+            self.img().view(self.zoom)
+        }
+    }
+
+    fn img(&self) -> &Img {
+        self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img)
     }
 
     fn posit_diacs(
         &mut self,
-        msg: Poll<Arc<Mutex<eyre::Result<DiacResults, eyre::Error>>>, PositProgress>,
+        msg: Poll<Arc<Mutex<eyre::Result<DiacResults, eyre::Error>>>, PositStatus>,
     ) -> Task<Message> {
         match msg {
-            Poll::Pending(PositProgress::Pending) => {
-                self.drawing = Poll::Pending((Spinner::new(), PositProgress::default()));
+            Poll::Pending(PositStatus::Pending) => {
+                self.drawing = Poll::Pending(Progress::default());
                 let img = self.img.clone();
-                Task::stream(stream::channel(0, async move |mut tx| {
+                Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
                         let tx = tx.clone();
                         move |progress| {
@@ -139,54 +147,71 @@ impl LoadedImage {
                         }
                     };
                     let result =
-                        spawn_blocking(move || position_diacs(img, DATAPATH, progress_callback))
+                        spawn_blocking(move || position_diacs(&img, DATAPATH, progress_callback))
                             .await
                             .expect("blocking task to finish");
                     _ = tx.try_send(Poll::Ready(Arc::new(Mutex::new(result))));
                 }))
-                .map(Message::PositDiacs)
+                .map(Message::Draw)
             }
-            Poll::Pending(progress) => {
-                self.drawing = Poll::Pending((Spinner::new(), progress));
+            Poll::Pending(msg) => {
+                let spinner = self
+                    .drawing
+                    .as_pending()
+                    .map_or(Spinner::default(), |progress| progress.spinner);
+                self.drawing = Poll::Pending(Progress { spinner, status: msg });
                 Task::none()
             }
             Poll::Ready(diac_res) => {
                 let mut drawn_res = diac_res.lock().unwrap();
                 let drawn_res = mem::replace(&mut *drawn_res, Err(eyre!("result taken")))
-                    .map(|(positions, misses)| Drawn::new(self.img.clone(), positions, misses));
+                    .map(|(positions, misses)| Drawn::new(positions, misses));
                 self.drawing = Poll::Ready(drawn_res.map(Some));
                 Task::none()
             }
         }
     }
 
-    pub(crate) fn draw_tools<'a>(&self) -> Element<'a, Message> {
-        let (label, state) = match &self.drawing {
-            Poll::Pending((spinner, progress)) => {
-                (strs::draw_progress(*progress), Poll::Pending(*spinner))
-            }
-            Poll::Ready(ready) => (strs::DRAW_TEAMIM, Poll::Ready(ready)),
-        };
-
-        row![
+    pub(crate) fn toolbar_view<'a>(&self) -> Element<'a, Message> {
+        row([
             // blur
-            slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0),
-            text(strs::BLUR),
+            slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0).into(),
+            self.blurring
+                .loading_btn()
+                .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))
+                .into(),
             // draw
-            state
-                .loading_btn(label)
-                .on_press(Message::PositDiacs(Poll::Pending(PositProgress::Pending))),
+            self.drawing
+                .loading_btn()
+                .on_press(Message::Draw(Poll::Pending(PositStatus::Pending)))
+                .into(),
         ]
+        .into_iter()
+        .chain(
+            // drawn
+            self.drawing
+                .as_ready_ok()
+                .and_then(Option::as_ref)
+                .map(|drawn| drawn.toolbar_view(self.img().clone()).map(Message::Drawn)),
+        ))
         .align_y(Vertical::Center)
-        .spacing(PADDING as u32)
+        .spacing(u32::from(PADDING))
         .into()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        match &self.drawing {
+            Poll::Pending(_) => iced::time::every(Duration::from_millis(16)).map(Message::Tick),
+            Poll::Ready(Ok(Some(_))) => Drawn::subscription().map(Message::Drawn),
+            Poll::Ready(_) => Subscription::none(),
+        }
     }
 }
 
 fn position_diacs(
-    img: Img,
+    img: &Img,
     datapath: &CStr,
-    progress_callback: impl Fn(PositProgress),
+    progress_callback: impl Fn(PositStatus),
 ) -> Result<(Vec<teamim::DiacPos>, Vec<teamim::DiacMiss>), eyre::Error> {
     PixBox::from_rgba8_with(
         &mut img.pixels.to_vec(),
