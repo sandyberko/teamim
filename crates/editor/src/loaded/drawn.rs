@@ -1,6 +1,9 @@
+#[cfg(test)]
+mod tests;
+
 use std::{iter::once, sync::Arc};
 
-use eyre::{OptionExt as _, bail};
+use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
     Color, Element, Font, Point, Subscription, Task, Vector,
     futures::StreamExt,
@@ -9,13 +12,15 @@ use iced::{
     stream::channel,
     widget::{button, mouse_area, row, text},
 };
-use num_traits::{AsPrimitive, ToPrimitive as _};
+use image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer};
+use num_traits::AsPrimitive;
+use rfd::AsyncFileDialog;
 use teamim::{DiacMiss, DiacPos, glyph::SPACED};
 
 use crate::{
-    FONT_SIZE, Img, SaveStatus, Spinner,
+    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, Spinner, diac_renderer,
     loaded::Transform,
-    stage,
+    stage, strs,
     task::{Poll, Progress, TryPoll},
 };
 
@@ -55,13 +60,15 @@ impl Drawn {
         match msg {
             Message::Save(msg) => match msg {
                 // trigger
-                Poll::Pending(SaveStatus::Trigger(img)) => Task::stream(
-                    channel(1, async move |mut tx| {
-                        let result = img
-                            .save(|status| _ = tx.clone().try_send(Poll::Pending(status)))
-                            .await
-                            .map_err(Arc::new);
-                        _ = tx.try_send(Poll::Ready(result));
+                Poll::Pending(SaveStatus::Trigger(img, transform)) => Task::stream(
+                    channel(1, {
+                        let positions = self.positions.clone();
+                        async move |mut tx| {
+                            let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
+                            let result =
+                                save(img, &positions, transform, report).await.map_err(Arc::new);
+                            _ = tx.try_send(Poll::Ready(result));
+                        }
                     })
                     .map(Message::Save),
                 ),
@@ -109,14 +116,18 @@ impl Drawn {
         on_key_press(|key, _| (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel))
     }
 
-    pub fn toolbar_view<'a>(&self, img_to_save: Img) -> Element<'a, Message> {
+    pub fn toolbar_view<'a>(
+        &self,
+        img_to_save: NamedImg,
+        transform: Transform,
+    ) -> Element<'a, Message> {
         self.saving
             .loading_btn()
-            .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save))))
+            .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save, transform))))
             .into()
     }
 
-    pub fn view(&self, opts: Transform, img: &Img) -> Element<'_, Message> {
+    pub fn view(&self, opts: Transform, img: &NamedImg) -> Element<'_, Message> {
         let Transform { scroll_offset, zoom } = opts;
         let place = self.place_diac.as_ready_ok().and_then(Option::as_ref);
         row([
@@ -167,7 +178,8 @@ impl Drawn {
                             .size(FONT_SIZE * zoom)
                             .font(Font::with_name("Guttman Stam"))
                             .into(),
-                        pos.pos.map(|coord| coord * zoom).into(),
+                        #[expect(clippy::cast_precision_loss)]
+                        pos.pos.map(|coord| coord as f32 * zoom).into(),
                     )
                 })),
             ))
@@ -183,21 +195,21 @@ impl Drawn {
         .into()
     }
 
-    fn place_diac(&mut self, opts: Transform) -> eyre::Result<()> {
-        let Some(place) = self.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
-            bail!("stale")
-        };
-        let Some(&position) = place.position.as_ref() else { bail!("stale") };
-        let Transform { scroll_offset, zoom } = opts;
-
-        let x = ((position.x + scroll_offset.x) / zoom)
-            .to_i32()
-            .ok_or_eyre("Failed to convert x coordinate to i32")?;
-        let y = ((position.y + scroll_offset.y) / zoom)
-            .to_i32()
-            .ok_or_eyre("Failed to convert y coordinate to i32")?;
-
+    fn place_diac(&mut self, _opts: Transform) -> eyre::Result<()> {
         todo!()
+        // let Some(place) = self.place_diac.ready_ok_mut().and_then(Option::as_mut) else {
+        //     bail!("stale")
+        // };
+        // let Some(&position) = place.position.as_ref() else { bail!("stale") };
+        // let Transform { scroll_offset, zoom } = opts;
+
+        // let x = ((position.x + scroll_offset.x) / zoom)
+        //     .to_i32()
+        //     .ok_or_eyre("Failed to convert x coordinate to i32")?;
+        // let y = ((position.y + scroll_offset.y) / zoom)
+        //     .to_i32()
+        //     .ok_or_eyre("Failed to convert y coordinate to i32")?;
+
         // [TODO]
         // let mut pixels = self.img.pixels.to_vec();
 
@@ -214,5 +226,51 @@ impl Drawn {
         // self.img = Img { pixels, handle, ..self.img.clone() };
         // self.misses.remove(place.miss_idx);
         // Ok(())
+    }
+}
+
+async fn save(
+    img: NamedImg,
+    positions: &[DiacPos],
+    transform: Transform,
+    progress: impl Fn(SaveStatus),
+) -> eyre::Result<()> {
+    let path = img.path;
+    let mut img = img.img.to_rgba();
+
+    progress(SaveStatus::SelectingFile);
+    // [TODO]
+    let mut dialog = AsyncFileDialog::new().set_title(strs::SAVE).add_filter("image", IMG_EXTS);
+    if let Some(dir) = path.parent() {
+        dialog = dialog.set_directory(dir);
+    }
+    if let Some(file_name) = path.file_name() {
+        dialog = dialog.set_file_name(file_name.to_str().ok_or_eyre("שם הקובץ לא תקין")?);
+    }
+    let file = dialog.save_file().await.ok_or_eyre("שמירה בוטלה")?;
+
+    progress(SaveStatus::Rendering);
+    render(positions, transform, &mut img);
+
+    progress(SaveStatus::Writing);
+    let format = ImageFormat::from_path(file.path())?;
+    if format == ImageFormat::Jpeg {
+        // [FIXME]: [red] diacs?
+        ConvertBuffer::<ImageBuffer<Rgb<u8>, _>>::convert(&img)
+            .save_with_format(file.path(), format)
+            .wrap_err(strs::SAVE_FAILED)?;
+    } else {
+        img.save_with_format(file.path(), format).wrap_err(strs::SAVE_FAILED)?;
+    }
+    Ok(())
+}
+
+fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
+    let mut renderer = diac_renderer::Renderer::new();
+    for pos in positions {
+        let mut buf = [0; 4];
+        let text = pos.diacritic.encode_utf8(&mut buf);
+        let position = pos.pos.map(|coord| coord as _);
+        renderer.draw_text(img, position, text, FONT_SIZE * transform.zoom);
     }
 }

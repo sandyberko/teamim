@@ -4,7 +4,7 @@ mod drawn;
 mod tests;
 
 use crate::{
-    FONT_SIZE, Img, PADDING, strs,
+    FONT_SIZE, Img, NamedImg, PADDING, strs,
     task::{Poll, Progress, TryPoll},
     with_tctx,
 };
@@ -23,7 +23,6 @@ use iced::{
 };
 use std::{
     borrow::Cow,
-    ffi::CStr,
     mem,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -35,6 +34,12 @@ use tokio::task::spawn_blocking;
 pub struct Transform {
     scroll_offset: AbsoluteOffset,
     zoom: f32,
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self { scroll_offset: AbsoluteOffset::default(), zoom: 1.0 }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,20 +60,20 @@ pub(crate) enum Message {
     Drawn(drawn::Message),
     Tick(Instant),
     SetBlur(u32),
-    Blur(Poll<Img, BlurStatus>),
+    Blur(Poll<NamedImg, BlurStatus>),
 }
 
 #[derive(Debug)]
 pub(crate) struct LoadedImage {
-    img: Img,
+    img: NamedImg,
     zoom: f32,
     blur: u32,
-    blurring: Poll<Option<Img>, Progress<BlurStatus>>,
+    blurring: Poll<Option<NamedImg>, Progress<BlurStatus>>,
     drawing: TryPoll<Option<Drawn>, Progress<PositStatus>>,
 }
 
 impl LoadedImage {
-    pub(crate) fn new(img: Img) -> Self {
+    pub(crate) fn new(img: NamedImg) -> Self {
         // [TODO] zoom
         Self {
             img,
@@ -127,7 +132,7 @@ impl LoadedImage {
         }
     }
 
-    fn img(&self) -> &Img {
+    fn img(&self) -> &NamedImg {
         self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img)
     }
 
@@ -146,10 +151,23 @@ impl LoadedImage {
                             _ = tx.clone().try_send(Poll::Pending(progress));
                         }
                     };
-                    let result =
-                        spawn_blocking(move || position_diacs(&img, DATAPATH, progress_callback))
-                            .await
-                            .expect("blocking task to finish");
+                    let result = spawn_blocking(move || {
+                        let img: &Img = &img.img;
+                        PixBox::from_rgba8_with(
+                            &mut img.pixels.to_vec(),
+                            img.width.try_into()?,
+                            img.height.try_into()?,
+                            |img| {
+                                with_tctx(DATAPATH, |ctx| {
+                                    ctx.positions(img, progress_callback).wrap_err("place error")
+                                })
+                            },
+                        )
+                        .flatten()
+                        .flatten()
+                    })
+                    .await
+                    .expect("blocking task to finish");
                     _ = tx.try_send(Poll::Ready(Arc::new(Mutex::new(result))));
                 }))
                 .map(Message::Draw)
@@ -172,7 +190,7 @@ impl LoadedImage {
         }
     }
 
-    pub(crate) fn toolbar_view<'a>(&self) -> Element<'a, Message> {
+    pub(crate) fn toolbar_view<'a>(&self, scroll_offset: AbsoluteOffset) -> Element<'a, Message> {
         row([
             // blur
             slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0).into(),
@@ -189,10 +207,11 @@ impl LoadedImage {
         .into_iter()
         .chain(
             // drawn
-            self.drawing
-                .as_ready_ok()
-                .and_then(Option::as_ref)
-                .map(|drawn| drawn.toolbar_view(self.img().clone()).map(Message::Drawn)),
+            self.drawing.as_ready_ok().and_then(Option::as_ref).map(|drawn| {
+                drawn
+                    .toolbar_view(self.img().clone(), Transform { scroll_offset, zoom: self.zoom })
+                    .map(Message::Drawn)
+            }),
         ))
         .align_y(Vertical::Center)
         .spacing(u32::from(PADDING))
@@ -206,21 +225,4 @@ impl LoadedImage {
             Poll::Ready(_) => Subscription::none(),
         }
     }
-}
-
-fn position_diacs(
-    img: &Img,
-    datapath: &CStr,
-    progress_callback: impl Fn(PositStatus),
-) -> Result<(Vec<teamim::DiacPos>, Vec<teamim::DiacMiss>), eyre::Error> {
-    PixBox::from_rgba8_with(
-        &mut img.pixels.to_vec(),
-        img.width.try_into()?,
-        img.height.try_into()?,
-        |img| {
-            with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))
-        },
-    )
-    .flatten()
-    .flatten()
 }

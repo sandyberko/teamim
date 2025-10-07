@@ -388,11 +388,11 @@ impl TeamimCtx {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct DiacPos {
     pub letter: char,
     pub diacritic: char,
-    pub pos: [f32; 2],
+    pub pos: [i32; 2],
 }
 
 #[derive(Debug, Clone)]

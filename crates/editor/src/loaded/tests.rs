@@ -1,20 +1,29 @@
-use std::path::Path;
+use std::{ffi::CStr, path::Path};
+use teamim::leptonica_ext::PixBox;
 
 use crate::{
-    App, load_image,
-    loaded::{LoadedImage, drawn::Drawn, position_diacs},
+    App, Img, load_image,
+    loaded::{LoadedImage, drawn::Drawn},
     run_app,
     task::Poll,
+    with_tctx,
 };
 
+pub(crate) const DATAPATH: &CStr = c"../../assets/tessdata/";
 #[test]
 fn drawn_test() -> eyre::Result<()> {
     fn load() -> eyre::Result<LoadedImage> {
         let path = Path::new("../../assets/images/N5/007.jpg");
         let mut loaded = load_image(path)?;
-        let progress_callback = |progress| eprintln!("{progress:?}");
-        let (positions, misses) =
-            position_diacs(&loaded.img, c"../../assets/tessdata/", progress_callback)?;
+        let Img { width, height, pixels } = loaded.img.img.clone();
+        let (positions, misses) = PixBox::from_rgba8_with(
+            &mut pixels.to_vec(),
+            width.try_into()?,
+            height.try_into()?,
+            |img| {
+                with_tctx(DATAPATH, |ctx| ctx.positions(img, |progress| eprintln!("{progress:?}")))
+            },
+        )???;
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(positions, misses))));
         Ok(loaded)
     }
