@@ -8,16 +8,7 @@ use iced::{
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct Progress<Status> {
-    pub spinner: Spinner,
-    pub status: Status,
-}
-impl<Status> Progress<Status> {
-    pub(crate) fn with_status(status: Status) -> Self {
-        Self { status, spinner: Spinner::default() }
-    }
-}
+use crate::FONT_SIZE;
 
 pub(crate) type TryPoll<Ready, Pending = ()> = Poll<Result<Ready, eyre::Report>, Pending>;
 
@@ -56,21 +47,16 @@ impl<Ready, Pending> TryPoll<Ready, Pending> {
     }
 }
 
-impl<Ready, Status> Poll<Ready, Progress<Status>> {
-    pub(crate) fn loading_btn<'a, Message, Theme, Renderer>(
-        &'_ self,
-    ) -> Button<'a, Message, Theme, Renderer>
+impl<Ready, Status> Poll<Ready, Status> {
+    pub(crate) fn loading_btn<'a, Message>(&'_ self) -> Button<'a, Message>
     where
         for<'s> &'s Self: IntoFragment<'a>,
         Message: Clone + 'a,
-        Renderer: advanced::Renderer + advanced::text::Renderer + geometry::Renderer + 'a,
-        Theme: Base + button::Catalog + text::Catalog + 'a,
     {
         button(
-            row(once(text(self).into())
-                .chain(self.as_pending().map(|progress| progress.spinner.view())))
-            .spacing(6)
-            .align_y(Vertical::Center),
+            row(once(text(self).into()).chain(self.as_pending().map(|_| Spinner::new().into())))
+                .spacing(6)
+                .align_y(Vertical::Center),
         )
     }
 }

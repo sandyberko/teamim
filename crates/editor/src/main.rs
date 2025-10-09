@@ -34,12 +34,11 @@ use teamim::TeamimCtx;
 
 use crate::{
     loaded::Transform,
-    task::{Poll, Progress, TryPoll},
+    task::{Poll, TryPoll},
 };
 
 #[derive(Debug, Clone)]
 enum Message {
-    Tick(Instant),
     SelectImage,
     ImageLoaded(Arc<Mutex<eyre::Result<Option<loaded::LoadedImage>>>>),
     Loaded(loaded::Message),
@@ -80,7 +79,7 @@ const FONT_SIZE: f32 = 72.0;
 #[derive(Default)]
 struct SelectProgress {}
 struct App {
-    img: TryPoll<Option<loaded::LoadedImage>, Progress<SelectProgress>>,
+    img: TryPoll<Option<loaded::LoadedImage>, SelectProgress>,
     scroll_offset: AbsoluteOffset,
 }
 
@@ -91,13 +90,6 @@ impl Default for App {
 }
 
 impl App {
-    fn ticker_sub(&self) -> Subscription<Message> {
-        match &self.img {
-            Poll::Pending(_) => iced::time::every(Duration::from_millis(16)).map(Message::Tick),
-            Poll::Ready(Ok(Some(loaded))) => loaded.subscription().map(Message::Loaded),
-            Poll::Ready(_) => Subscription::none(),
-        }
-    }
     fn toolbar<'a>(&'_ self) -> Element<'a, Message> {
         let children = [
             // select
@@ -145,18 +137,12 @@ impl App {
 
     fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Tick(now) => {
-                if let TryPoll::Pending(progress) = &mut self.img {
-                    progress.spinner.tick(now);
-                }
-                Task::none()
-            }
             Message::SelectImage => {
                 if let TryPoll::Pending(_) = self.img {
                     return Task::none();
                 }
 
-                self.img = Poll::Pending(Progress::default());
+                self.img = Poll::Pending(SelectProgress::default());
                 Task::future(async move {
                     let loaded = select_image().await;
                     Message::ImageLoaded(Arc::new(Mutex::new(loaded)))
@@ -179,16 +165,6 @@ impl App {
                 Task::none()
             }
         }
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
-            self.ticker_sub(),
-            self.img
-                .as_ready_ok()
-                .and_then(Option::as_ref)
-                .map_or(Subscription::none(), |loaded| loaded.subscription().map(Message::Loaded)),
-        ])
     }
 }
 
@@ -272,7 +248,7 @@ pub(crate) enum SaveStatus {
     SelectingFile,
     Writing,
 }
-impl<Ready> IntoFragment<'static> for &Poll<Ready, Progress<SaveStatus>> {
+impl<Ready> IntoFragment<'static> for &Poll<Ready, SaveStatus> {
     fn into_fragment(self) -> Fragment<'static> {
         Cow::Borrowed(strs::SAVE)
     }
@@ -290,7 +266,6 @@ fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
         App::view(state)
     }
     iced::application(boot_fn, App::update, view)
-        .subscription(App::subscription)
         .settings(Settings { fonts: vec![Cow::Borrowed(GUTTMAN)], ..Default::default() })
         .title(strs::TITLE)
         .run()?;

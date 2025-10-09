@@ -5,7 +5,7 @@ mod tests;
 
 use crate::{
     FONT_SIZE, Img, NamedImg, PADDING, strs,
-    task::{Poll, Progress, TryPoll},
+    task::{Poll, TryPoll},
     with_tctx,
 };
 use drawn::Drawn;
@@ -48,7 +48,7 @@ pub enum BlurStatus {
     Blurring,
 }
 
-impl<Ready> IntoFragment<'static> for &Poll<Ready, Progress<BlurStatus>> {
+impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
     fn into_fragment(self) -> text::Fragment<'static> {
         Cow::Borrowed(strs::BLUR)
     }
@@ -58,7 +58,6 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, Progress<BlurStatus>> {
 pub(crate) enum Message {
     Draw(Poll<Arc<Mutex<eyre::Result<DiacResults>>>, PositStatus>),
     Drawn(drawn::Message),
-    Tick(Instant),
     SetBlur(u32),
     Blur(Poll<NamedImg, BlurStatus>),
 }
@@ -68,8 +67,8 @@ pub(crate) struct LoadedImage {
     img: NamedImg,
     zoom: f32,
     blur: u32,
-    blurring: Poll<Option<NamedImg>, Progress<BlurStatus>>,
-    drawing: TryPoll<Option<Drawn>, Progress<PositStatus>>,
+    blurring: Poll<Option<NamedImg>, BlurStatus>,
+    drawing: TryPoll<Option<Drawn>, PositStatus>,
 }
 
 impl LoadedImage {
@@ -93,19 +92,13 @@ impl LoadedImage {
             Message::Drawn(msg) => {
                 self.drawn_mut().map_or(Task::none(), |drawn| drawn.update(msg)).map(Message::Drawn)
             }
-            Message::Tick(now) => {
-                if let Some(progress) = self.drawing.as_mut_pending() {
-                    progress.spinner.tick(now);
-                }
-                Task::none()
-            }
             Message::SetBlur(blur) => {
                 self.blur = blur;
                 Task::none()
             }
             Message::Blur(msg) => match msg {
                 Poll::Pending(BlurStatus::Blurring) => {
-                    self.blurring = Poll::Pending(Progress::with_status(BlurStatus::Blurring));
+                    self.blurring = Poll::Pending(BlurStatus::Blurring);
                     let img = self.img.clone();
                     Task::future(async move {
                         spawn_blocking(move || {
@@ -142,7 +135,7 @@ impl LoadedImage {
     ) -> Task<Message> {
         match msg {
             Poll::Pending(PositStatus::Pending) => {
-                self.drawing = Poll::Pending(Progress::default());
+                self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.clone();
                 Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
@@ -173,11 +166,7 @@ impl LoadedImage {
                 .map(Message::Draw)
             }
             Poll::Pending(msg) => {
-                let spinner = self
-                    .drawing
-                    .as_pending()
-                    .map_or(Spinner::default(), |progress| progress.spinner);
-                self.drawing = Poll::Pending(Progress { spinner, status: msg });
+                self.drawing = Poll::Pending(msg);
                 Task::none()
             }
             Poll::Ready(diac_res) => {
@@ -216,13 +205,5 @@ impl LoadedImage {
         .align_y(Vertical::Center)
         .spacing(u32::from(PADDING))
         .into()
-    }
-
-    pub fn subscription(&self) -> Subscription<Message> {
-        match &self.drawing {
-            Poll::Pending(_) => iced::time::every(Duration::from_millis(16)).map(Message::Tick),
-            Poll::Ready(Ok(Some(_))) => Drawn::subscription().map(Message::Drawn),
-            Poll::Ready(_) => Subscription::none(),
-        }
     }
 }

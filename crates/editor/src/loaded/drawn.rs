@@ -21,7 +21,7 @@ use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, Spinner, diac_renderer,
     loaded::Transform,
     stage, strs,
-    task::{Poll, Progress, TryPoll},
+    task::{Poll, TryPoll},
 };
 
 #[derive(Debug, Clone)]
@@ -47,8 +47,8 @@ struct Place {
 pub struct Drawn {
     positions: Vec<DiacPos>,
     misses: Vec<DiacMiss>,
-    saving: Poll<Result<(), Arc<eyre::ErrReport>>, Progress<SaveStatus>>,
-    place_diac: TryPoll<Option<Place>, Spinner>,
+    saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
+    place_diac: TryPoll<Option<Place>>,
 }
 
 impl Drawn {
@@ -73,11 +73,7 @@ impl Drawn {
                     .map(Message::Save),
                 ),
                 Poll::Pending(status) => {
-                    let spinner = self
-                        .saving
-                        .as_pending()
-                        .map_or(Spinner::default(), |progress| progress.spinner);
-                    self.saving = Poll::Pending(Progress { spinner, status });
+                    self.saving = Poll::Pending(status);
                     Task::none()
                 }
                 Poll::Ready(msg) => {
