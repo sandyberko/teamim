@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display};
+use std::{collections::VecDeque, fmt::Display, ops::Sub};
 
 use eyre::{OptionExt, WrapErr, ensure};
 
@@ -6,39 +6,61 @@ pub const LINE_TERMINATOR: char = '\t';
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// NOTE: origin is at **bottom** left
-pub struct Rect {
-    pub left: i32,
-    pub bottom: i32,
-    pub right: i32,
-    pub top: i32,
+pub struct Rect<T = i32> {
+    pub left: T,
+    pub bottom: T,
+    pub right: T,
+    pub top: T,
 }
 
-impl Rect {
+impl<T> Rect<T> {
     #[must_use]
-    pub fn new(left: i32, bottom: i32, right: i32, top: i32) -> Self {
+    pub fn new(left: T, bottom: T, right: T, top: T) -> Self {
         Self { left, bottom, right, top }
     }
 
     #[must_use]
-    pub fn union(&self, other: &Self) -> Self {
-        Self {
-            left: self.left.min(other.left),
-            bottom: self.bottom.min(other.bottom),
-            right: self.right.max(other.right),
-            top: self.top.max(other.top),
-        }
-    }
-
-    #[must_use]
-    pub fn width(&self) -> u32 {
-        self.right.abs_diff(self.left)
-    }
-
-    #[must_use]
-    pub fn height(&self) -> u32 {
-        self.top.abs_diff(self.bottom)
+    pub fn map<U>(self, f: impl Fn(T) -> U) -> Rect<U> {
+        Rect { left: f(self.left), bottom: f(self.bottom), right: f(self.right), top: f(self.top) }
     }
 }
+impl<T> Rect<T>
+where
+    T: Ord + Copy,
+{
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        Self {
+            left: Ord::min(self.left, other.left),
+            bottom: Ord::min(self.bottom, other.bottom),
+            right: Ord::max(self.right, other.right),
+            top: Ord::max(self.top, other.top),
+        }
+    }
+}
+impl<T: Sub<Output = T> + Copy> Rect<T> {
+    pub(crate) fn to_top_left(&self, h: T) -> Rect<T> {
+        let Rect { left, bottom, right, top } = *self;
+        Rect { left, bottom: h - bottom, right, top: h - top }
+    }
+}
+
+macro_rules! impl_rect {
+    ($iN: ty, $uN: ty) => {
+        impl Rect<$iN> {
+            #[must_use]
+            pub fn width(&self) -> $uN {
+                self.right.abs_diff(self.left)
+            }
+
+            #[must_use]
+            pub fn height(&self) -> $uN {
+                self.top.abs_diff(self.bottom)
+            }
+        }
+    };
+}
+impl_rect!(i32, u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
@@ -97,7 +119,7 @@ pub fn parse_char_box(line: &str) -> eyre::Result<BoundingBox<char>> {
     let mut parts = line.as_str().split(' ');
     let mut parse_part = || eyre::Ok(parts.next().ok_or_eyre("unexpected end")?.parse()?);
 
-    let rect = Rect {
+    let rect = Rect::<i32> {
         left: parse_part().wrap_err("failed to parse left")?,
         bottom: parse_part().wrap_err("failed to parse bottom")?,
         right: parse_part().wrap_err("failed to parse right")?,

@@ -306,11 +306,9 @@ impl TeamimCtx {
                 DiffTag::Equal => {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
-                    let bx = &boxes[box_idx];
-                    last_diacrit_top = bx.rect.top;
-                    let bx = into_geometry(bx, OriginPos::TopLeft);
-                    let pos = [bx.x as _, bx.y as _];
-                    positions.push(DiacPos { letter, diacritic, pos });
+                    let rect = boxes[box_idx].rect/* .to_top_left(img.get_h()) */;
+                    last_diacrit_top = rect.top;
+                    positions.push(DiacPos { letter, diacritic, rect });
                 }
                 DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
@@ -392,7 +390,7 @@ impl TeamimCtx {
 pub struct DiacPos {
     pub letter: char,
     pub diacritic: char,
-    pub pos: [i32; 2],
+    pub rect: Rect,
 }
 
 #[derive(Debug, Clone)]

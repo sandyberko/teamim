@@ -260,8 +260,9 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
+
 fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
-    const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
     fn view(state: &'_ App) -> Element<'_, Message> {
         App::view(state)
     }

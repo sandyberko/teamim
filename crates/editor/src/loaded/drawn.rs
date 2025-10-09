@@ -5,17 +5,17 @@ use std::{iter::once, sync::Arc};
 
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Color, Element, Font, Point, Subscription, Task, Vector,
+    Border, Color, Element, Font, Point, Subscription, Task, Vector,
     futures::StreamExt,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{button, mouse_area, row, text},
+    widget::{button, container, mouse_area, row, stack, text},
 };
-use image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer};
+use image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
-use teamim::{DiacMiss, DiacPos, glyph::SPACED};
+use teamim::{DiacMiss, DiacPos, glyph::SPACED, tesseract_ext::bounding_box::Rect};
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
@@ -146,46 +146,70 @@ impl Drawn {
                 )
             }))
             .into(),
-            mouse_area(stage(
-                Iterator::chain(
-                    // image
-                    once((img.view(zoom), Point::ORIGIN)),
-                    self.place_diac.as_ready_ok().and_then(Option::as_ref).and_then(|place| {
-                        let position = place.position?;
-                        Some((
-                            // [TODO] color(black)
-                            mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
-                                .interaction(Interaction::Crosshair)
-                                .on_move(move |offset| {
-                                    Message::PlaceMove(position + Vector::new(offset.x, offset.y))
-                                })
-                                .on_press(Message::Place(Transform { scroll_offset, zoom }))
+            stack([
+                mouse_area(stage(
+                    Iterator::chain(
+                        // image
+                        once((img.view(zoom), Point::ORIGIN)),
+                        // place
+                        self.place_diac.as_ready_ok().and_then(Option::as_ref).and_then(|place| {
+                            let position = place.position?;
+                            Some((
+                                // [TODO] color(black)
+                                mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
+                                    .interaction(Interaction::Crosshair)
+                                    .on_move(move |offset| {
+                                        Message::PlaceMove(
+                                            position + Vector::new(offset.x, offset.y),
+                                        )
+                                    })
+                                    .on_press(Message::Place(Transform { scroll_offset, zoom }))
+                                    .into(),
+                                position,
+                            ))
+                        }),
+                    )
+                    // positioned diacs
+                    .chain(self.positions.iter().map(|pos| {
+                        let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
+                        (
+                            text(spaced)
+                                .color(Color::from_rgb(1., 0., 0.))
+                                .size(FONT_SIZE * zoom)
+                                .font(Font::with_name("Guttman Stam"))
                                 .into(),
-                            position,
-                        ))
-                    }),
-                )
-                // positioned diacs
-                .chain(self.positions.iter().map(|pos| {
-                    let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
+                            #[expect(clippy::cast_precision_loss)]
+                            [pos.rect.left, pos.rect.top].map(|coord| coord as f32 * zoom).into(),
+                        )
+                    })),
+                ))
+                .on_move(Message::PlaceMove)
+                .on_press(Message::Place(Transform { scroll_offset, zoom }))
+                .interaction(if place.is_some() {
+                    Interaction::Crosshair
+                } else {
+                    Interaction::default()
+                })
+                .into(),
+                // debug
+                stage(self.positions.iter().map(|pos| {
                     (
-                        text(spaced)
-                            .color(Color::from_rgb(1., 0., 0.))
-                            .size(FONT_SIZE * zoom)
-                            .font(Font::with_name("Guttman Stam"))
+                        container("")
+                            .width(pos.rect.width())
+                            .height(pos.rect.height())
+                            .style(|_| container::Style {
+                                border: Border::default()
+                                    .width(2)
+                                    .color(Color::from_rgb8(255, 0, 0)),
+                                ..Default::default()
+                            })
                             .into(),
                         #[expect(clippy::cast_precision_loss)]
-                        pos.pos.map(|coord| coord as f32 * zoom).into(),
+                        [pos.rect.left, pos.rect.top].map(|coord| coord as f32 * zoom).into(),
                     )
-                })),
-            ))
-            .on_move(Message::PlaceMove)
-            .on_press(Message::Place(Transform { scroll_offset, zoom }))
-            .interaction(if place.is_some() {
-                Interaction::Crosshair
-            } else {
-                Interaction::default()
-            })
+                }))
+                .into(),
+            ])
             .into(),
         ])
         .into()
@@ -264,9 +288,35 @@ async fn save(
 fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
     let mut renderer = diac_renderer::Renderer::new();
     for pos in positions {
-        let mut buf = [0; 4];
-        let text = pos.diacritic.encode_utf8(&mut buf);
-        let position = pos.pos.map(|coord| coord as _);
-        renderer.draw_text(img, position, text, FONT_SIZE * transform.zoom);
+        // debug
+        draw_red_rectangle(img, pos.rect);
+
+        // let mut buf = [0; 4];
+        // let text = pos.diacritic.encode_utf8(&mut buf);
+        let text = &format!("{}{}", pos.letter, pos.diacritic);
+        renderer.draw_text(img, pos.rect, text, FONT_SIZE * transform.zoom);
+    }
+}
+
+/// Draws a red rectangle onto an RGBA image.
+///
+/// Coordinates are inclusive on top/left and exclusive on bottom/right.
+pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect) {
+    let red = Rgba([255, 0, 0, 255]);
+
+    let Rect { left, bottom, right, top } = rect.map(i32::unsigned_abs);
+
+    // Draw horizontal edges
+    for x in left..right {
+        img.put_pixel(x, top, red);
+
+        img.put_pixel(x, bottom - 1, red);
+    }
+
+    // Draw vertical edges
+    for y in top..bottom {
+        img.put_pixel(left, y, red);
+
+        img.put_pixel(right - 1, y, red);
     }
 }

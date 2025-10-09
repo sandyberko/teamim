@@ -1,7 +1,16 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
-use cosmic_text::{Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Color, FontSystem, Metrics, PlatformFallback, Shaping, SwashCache,
+    fontdb::{self, Source},
+};
 use image::{ImageBuffer, Rgba};
+use teamim::tesseract_ext::bounding_box::Rect;
+
+use crate::GUTTMAN;
 
 pub(crate) struct Renderer {
     font_system: FontSystem,
@@ -10,20 +19,28 @@ pub(crate) struct Renderer {
 
 impl Renderer {
     pub(crate) fn new() -> Self {
-        Self { font_system: FontSystem::new(), swash_cache: SwashCache::new() }
+        let mut db = fontdb::Database::new();
+        db.load_font_source(Source::Binary(Arc::new(GUTTMAN)));
+        let font_system = FontSystem::new_with_locale_and_db_and_fallback(
+            "he-IL".to_owned(),
+            db,
+            PlatformFallback,
+        );
+
+        Self { font_system, swash_cache: SwashCache::new() }
     }
 
     pub(crate) fn draw_text<Container>(
         &mut self,
         img: &mut ImageBuffer<Rgba<u8>, Container>,
-        position: [i32; 2],
+        rect: Rect,
         text: &str,
         font_size: f32,
     ) where
         Container: Deref<Target = [u8]> + DerefMut,
     {
         // Text metrics indicate the font size and line height of a buffer
-        let metrics = Metrics::new(font_size, font_size);
+        let metrics = Metrics::new(rect.width() as _, rect.height() as _);
 
         // A Buffer provides shaping and layout for a UTF-8 string, create one per text widget
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -38,25 +55,18 @@ impl Renderer {
         let attrs = Attrs::new();
 
         // Add some text!
-        buffer.set_text(text, &attrs, Shaping::Advanced);
+        buffer.set_text(text, &attrs, Shaping::Basic);
 
         // Perform shaping as desired
         buffer.shape_until_scroll(true);
-
-        // Inspect the output run
-        // for run in buffer.layout_runs() {
-        //     for glyph in run.glyphs.iter() {
-        //         println!("{:#?}", glyph);
-        //     }
-        // }
 
         // Create a default text color
         let text_color = Color::rgb(0, 0, 0);
 
         // Draw the buffer (for performance, instead use SwashCache directly)
         buffer.draw(&mut self.swash_cache, text_color, |x, y, w, h, color| {
-            let x = position[0] + x;
-            let y = position[1] + y;
+            let x = rect.left + x;
+            let y = rect.top + y;
 
             let image_width = img.width();
             let image_height = img.height();
