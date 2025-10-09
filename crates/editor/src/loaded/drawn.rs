@@ -18,7 +18,7 @@ use rfd::AsyncFileDialog;
 use teamim::{DiacMiss, DiacPos, glyph::SPACED};
 
 use crate::{
-    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, Spinner, diac_renderer,
+    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
     loaded::Transform,
     stage, strs,
     task::{Poll, TryPoll},
