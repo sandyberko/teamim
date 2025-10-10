@@ -291,10 +291,14 @@ fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
         // debug
         draw_red_rectangle(img, pos.rect);
 
-        // let mut buf = [0; 4];
-        // let text = pos.diacritic.encode_utf8(&mut buf);
-        let text = &format!("{}{}", pos.letter, pos.diacritic);
-        renderer.draw_text(img, pos.rect, text, FONT_SIZE * transform.zoom);
+        // [TODO] cache, optimize
+        renderer.draw_glyph(
+            img,
+            pos.diacritic,
+            pos.rect.left.into(),
+            pos.rect.top.into(),
+            FONT_SIZE * transform.zoom,
+        );
     }
 }
 

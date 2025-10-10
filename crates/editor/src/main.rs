@@ -260,15 +260,10 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
-
 fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
     fn view(state: &'_ App) -> Element<'_, Message> {
         App::view(state)
     }
-    iced::application(boot_fn, App::update, view)
-        .settings(Settings { fonts: vec![Cow::Borrowed(GUTTMAN)], ..Default::default() })
-        .title(strs::TITLE)
-        .run()?;
+    iced::application(boot_fn, App::update, view).title(strs::TITLE).run()?;
     Ok(())
 }

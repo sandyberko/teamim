@@ -1,104 +1,137 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
+#[cfg(test)]
+mod tests;
+
+use iced::wgpu::wgc::id::BindGroupLayoutId;
+use image::{
+    ImageBuffer, Luma, Pixel as _, Rgba, RgbaImage,
+    imageops::{overlay, overlay_bounds},
+};
+use swash::{
+    FontRef,
+    scale::{Render, ScaleContext, Source, StrikeWith, image::Image, outline::Outline},
+    zeno::{Format, Vector},
 };
 
-use cosmic_text::{
-    Attrs, Buffer, Color, FontSystem, Metrics, PlatformFallback, Shaping, SwashCache,
-    fontdb::{self, Source},
-};
-use image::{ImageBuffer, Rgba};
-use teamim::tesseract_ext::bounding_box::Rect;
-
-use crate::GUTTMAN;
+const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
 
 pub(crate) struct Renderer {
-    font_system: FontSystem,
-    swash_cache: SwashCache,
+    font: FontRef<'static>,
+    ctx: ScaleContext,
+    image: Image,
 }
 
 impl Renderer {
     pub(crate) fn new() -> Self {
-        let mut db = fontdb::Database::new();
-        db.load_font_source(Source::Binary(Arc::new(GUTTMAN)));
-        let font_system = FontSystem::new_with_locale_and_db_and_fallback(
-            "he-IL".to_owned(),
-            db,
-            PlatformFallback,
-        );
-
-        Self { font_system, swash_cache: SwashCache::new() }
+        Self {
+            font: FontRef::from_index(GUTTMAN, 0).expect("invalid font data"),
+            ctx: ScaleContext::new(),
+            image: Image::new(),
+        }
     }
 
-    pub(crate) fn draw_text<Container>(
+    pub(crate) fn draw_glyph(
         &mut self,
-        img: &mut ImageBuffer<Rgba<u8>, Container>,
-        rect: Rect,
-        text: &str,
-        font_size: f32,
-    ) where
-        Container: Deref<Target = [u8]> + DerefMut,
-    {
-        // Text metrics indicate the font size and line height of a buffer
-        let metrics = Metrics::new(rect.width() as _, rect.height() as _);
+        bottom: &mut RgbaImage,
+        c: char,
+        x: i64,
+        y: i64,
+        px_size: f32,
+    ) {
+        let glyph_id = self.font.charmap().map(c);
+        // Rasterize glyph
+        let mut scaler = self.ctx.builder(self.font).size(px_size).hint(true).build();
+        if !Render::new(&[Source::Outline]).format(Format::Alpha).render_into(
+            &mut scaler,
+            glyph_id,
+            &mut self.image,
+        ) {
+            panic!("outline should exist for glyph {glyph_id}");
+        }
 
-        // A Buffer provides shaping and layout for a UTF-8 string, create one per text widget
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        let bitmap = &self.image;
 
-        // Borrow buffer together with the font system for more convenient method calls
-        let mut buffer = buffer.borrow_with(&mut self.font_system);
+        let bottom_dims = bottom.dimensions();
+        let top_dims = (bitmap.placement.width as u32, bitmap.placement.height as u32);
 
-        // Set a size for the text buffer, in pixels
-        // buffer.set_size(Some(80.0), Some(25.0));
+        // Crop our top image if we're going out of bounds
+        let (
+            origin_bottom_x,
+            origin_bottom_y,
+            origin_top_x,
+            origin_top_y,
+            range_width,
+            range_height,
+        ) = overlay_bounds_ext(bottom_dims, top_dims, x, y);
 
-        // Attributes indicate what font to choose
-        let attrs = Attrs::new();
+        for y in 0..range_height {
+            for x in 0..range_width {
+                let top_alpha =
+                    bitmap.data[(((origin_top_y + y) * top_dims.0) + (origin_top_x + x)) as usize];
+                let top_pixel = Rgba([0xFF, 0, 0, top_alpha]);
 
-        // Add some text!
-        buffer.set_text(text, &attrs, Shaping::Basic);
+                let mut bottom_pixel = *bottom.get_pixel(origin_bottom_x + x, origin_bottom_y + y);
+                bottom_pixel.blend(&top_pixel);
 
-        // Perform shaping as desired
-        buffer.shape_until_scroll(true);
-
-        // Create a default text color
-        let text_color = Color::rgb(0, 0, 0);
-
-        // Draw the buffer (for performance, instead use SwashCache directly)
-        buffer.draw(&mut self.swash_cache, text_color, |x, y, w, h, color| {
-            let x = rect.left + x;
-            let y = rect.top + y;
-
-            let image_width = img.width();
-            let image_height = img.height();
-
-            for dy in 0..h {
-                for dx in 0..w {
-                    let Some(px) = dx.checked_add_signed(x) else { continue };
-                    let Some(py) = dy.checked_add_signed(y) else { continue };
-
-                    // Skip if out of bounds
-                    if px >= image_width || py >= image_height {
-                        continue;
-                    }
-
-                    let pixel = img.get_pixel_mut(px, py);
-
-                    // Convert cosmic_text::Color (floats) into u8 RGBA
-                    let src = Rgba(color.as_rgba());
-
-                    // Alpha blend: src over dst
-                    let alpha = f32::from(src[3]) / 255.0;
-                    for i in 0..3 {
-                        let val = (1.0 - alpha) * f32::from(pixel[i]) + alpha * f32::from(src[i]);
-                        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        {
-                            pixel[i] = val as u8;
-                        }
-                    }
-                    // Update alpha too (optional, depending on use case)
-                    pixel[3] = 255;
-                }
+                bottom.put_pixel(origin_bottom_x + x, origin_bottom_y + y, bottom_pixel);
             }
-        });
+        }
+        self.image.clear();
     }
+}
+
+/// Calculate the region that can be copied from top to bottom.
+///
+/// Given image size of bottom and top image, and a point at which we want to place the top image
+/// onto the bottom image, how large can we be? Have to wary of the following issues:
+/// * Top might be larger than bottom
+/// * Overflows in the computation
+/// * Coordinates could be completely out of bounds
+///
+/// The returned value is of the form:
+///
+/// `(origin_bottom_x, origin_bottom_y, origin_top_x, origin_top_y, x_range, y_range)`
+///
+/// The main idea is to do computations on i64's and then clamp to image dimensions.
+/// In particular, we want to ensure that all these coordinate accesses are safe:
+/// 1. `bottom.get_pixel(origin_bottom_x + [0..x_range), origin_bottom_y + [0..y_range))`
+/// 2. `top.get_pixel(origin_top_y + [0..x_range), origin_top_y + [0..y_range))`
+fn overlay_bounds_ext(
+    (bottom_width, bottom_height): (u32, u32),
+    (top_width, top_height): (u32, u32),
+    x: i64,
+    y: i64,
+) -> (u32, u32, u32, u32, u32, u32) {
+    // Return a predictable value if the two images don't overlap at all.
+    if x > i64::from(bottom_width)
+        || y > i64::from(bottom_height)
+        || x.saturating_add(i64::from(top_width)) <= 0
+        || y.saturating_add(i64::from(top_height)) <= 0
+    {
+        return (0, 0, 0, 0, 0, 0);
+    }
+
+    // Find the maximum x and y coordinates in terms of the bottom image.
+    let max_x = x.saturating_add(i64::from(top_width));
+    let max_y = y.saturating_add(i64::from(top_height));
+
+    // Clip the origin and maximum coordinates to the bounds of the bottom image.
+    // Casting to a u32 is safe because both 0 and `bottom_{width,height}` fit
+    // into 32-bits.
+    let max_inbounds_x = max_x.clamp(0, i64::from(bottom_width)) as u32;
+    let max_inbounds_y = max_y.clamp(0, i64::from(bottom_height)) as u32;
+    let origin_bottom_x = x.clamp(0, i64::from(bottom_width)) as u32;
+    let origin_bottom_y = y.clamp(0, i64::from(bottom_height)) as u32;
+
+    // The range is the difference between the maximum inbounds coordinates and
+    // the clipped origin. Unchecked subtraction is safe here because both are
+    // always positive and `max_inbounds_{x,y}` >= `origin_{x,y}` due to
+    // `top_{width,height}` being >= 0.
+    let x_range = max_inbounds_x - origin_bottom_x;
+    let y_range = max_inbounds_y - origin_bottom_y;
+
+    // If x (or y) is negative, then the origin of the top image is shifted by -x (or -y).
+    let origin_top_x = x.saturating_mul(-1).clamp(0, i64::from(top_width)) as u32;
+    let origin_top_y = y.saturating_mul(-1).clamp(0, i64::from(top_height)) as u32;
+
+    (origin_bottom_x, origin_bottom_y, origin_top_x, origin_top_y, x_range, y_range)
 }

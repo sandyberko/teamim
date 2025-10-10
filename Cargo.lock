@@ -1264,7 +1264,6 @@ dependencies = [
 name = "editor"
 version = "0.1.0"
 dependencies = [
- "cosmic-text",
  "derive_setters",
  "eyre",
  "iced",
@@ -1272,6 +1271,7 @@ dependencies = [
  "lyon_algorithms",
  "num-traits",
  "rfd",
+ "swash",
  "teamim",
  "tokio",
 ]
