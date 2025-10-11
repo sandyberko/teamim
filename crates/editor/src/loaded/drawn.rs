@@ -10,7 +10,7 @@ use iced::{
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{bottom_right, button, container, mouse_area, row, stack, text},
+    widget::{bottom_right, button, canvas, container, mouse_area, row, stack, text},
 };
 use image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
 use num_traits::AsPrimitive;
@@ -328,5 +328,24 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect) {
         img.put_pixel(left, y, red);
 
         img.put_pixel(right - 1, y, red);
+    }
+}
+
+struct PosProg<'a> {
+    diacs: &'a [DiacPos],
+}
+
+impl canvas::Program for PosProg<'_> {
+    type State = ();
+
+    fn draw(
+        &self,
+        state: &Self::State,
+        renderer: &Renderer,
+        theme: &iced_renderer::core::Theme,
+        bounds: iced::Rectangle,
+        cursor: iced::advanced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry<Renderer>> {
+        todo!()
     }
 }
