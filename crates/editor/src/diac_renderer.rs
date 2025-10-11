@@ -33,8 +33,7 @@ impl Renderer {
         &mut self,
         bottom: &mut RgbaImage,
         c: char,
-        x: i64,
-        y: i64,
+        offset: Vector,
         px_size: f32,
     ) {
         let glyph_id = self.font.charmap().map(c);
@@ -48,10 +47,16 @@ impl Renderer {
             panic!("outline should exist for glyph {glyph_id}");
         }
 
-        let bitmap = &self.image;
+        let Image { placement, data, .. } = &self.image;
+
+        eprintln!("PLACEMENT: {placement:?}");
 
         let bottom_dims = bottom.dimensions();
-        let top_dims = (bitmap.placement.width as u32, bitmap.placement.height as u32);
+        let top_dims = (placement.width, placement.height);
+        let [x, y] = [
+            offset.x as i64 + i64::from(placement.left),
+            offset.y as i64 - i64::from(placement.top),
+        ];
 
         // Crop our top image if we're going out of bounds
         let (
@@ -66,7 +71,7 @@ impl Renderer {
         for y in 0..range_height {
             for x in 0..range_width {
                 let top_alpha =
-                    bitmap.data[(((origin_top_y + y) * top_dims.0) + (origin_top_x + x)) as usize];
+                    data[(((origin_top_y + y) * top_dims.0) + (origin_top_x + x)) as usize];
                 let top_pixel = Rgba([0xFF, 0, 0, top_alpha]);
 
                 let mut bottom_pixel = *bottom.get_pixel(origin_bottom_x + x, origin_bottom_y + y);

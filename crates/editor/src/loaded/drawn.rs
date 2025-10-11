@@ -10,12 +10,16 @@ use iced::{
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{button, container, mouse_area, row, stack, text},
+    widget::{bottom_right, button, container, mouse_area, row, stack, text},
 };
 use image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
-use teamim::{DiacMiss, DiacPos, glyph::SPACED, tesseract_ext::bounding_box::Rect};
+use teamim::{
+    DiacMiss, DiacPos,
+    glyph::{GLYPHS, Placement, SPACED},
+    tesseract_ext::bounding_box::Rect,
+};
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
@@ -287,18 +291,20 @@ async fn save(
 
 fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
     let mut renderer = diac_renderer::Renderer::new();
-    for pos in positions {
+    for diac in positions {
         // debug
-        draw_red_rectangle(img, pos.rect);
+        draw_red_rectangle(img, diac.rect);
+
+        let Rect { left, bottom, top, .. } = diac.rect;
+        // let pos = match GLYPHS[&diac.diacritic].placement {
+        //     Placement::Top => [left, top],
+        //     Placement::Bottom => [left, bottom],
+        //     // [TODO]
+        //     Placement::After => [left - FONT_SIZE as i32 / 2, top],
+        // };
 
         // [TODO] cache, optimize
-        renderer.draw_glyph(
-            img,
-            pos.diacritic,
-            pos.rect.left.into(),
-            pos.rect.top.into(),
-            FONT_SIZE * transform.zoom,
-        );
+        renderer.draw_glyph(img, diac.diacritic, [left, bottom].into(), FONT_SIZE * transform.zoom);
     }
 }
 
