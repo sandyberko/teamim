@@ -2,13 +2,11 @@ use std::iter::once;
 
 use editor::spinner::Spinner;
 use iced::{
-    advanced::{self, graphics::geometry},
     alignment::Vertical,
     theme::Base,
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
-use crate::FONT_SIZE;
 
 pub(crate) type TryPoll<Ready, Pending = ()> = Poll<Result<Ready, eyre::Report>, Pending>;
 

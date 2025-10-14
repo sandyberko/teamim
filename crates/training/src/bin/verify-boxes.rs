@@ -99,7 +99,7 @@ fn verify_file(path: &Path) -> Result<(), LocatedError> {
             };
 
             {
-                const MIN_WIDTH: i32 = 3;
+                const MIN_WIDTH: u32 = 3;
                 let width = bx.rect.right - bx.rect.left;
                 let height = bx.rect.top - bx.rect.bottom;
                 if !(width >= MIN_WIDTH && height >= MIN_WIDTH) {

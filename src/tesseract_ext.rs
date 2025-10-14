@@ -193,7 +193,7 @@ impl ResultIter {
         Text(cstr)
     }
     #[must_use]
-    pub fn rect(&self) -> Rect {
+    pub fn rect(&self) -> Rect<u32> {
         let mut rect = MaybeUninit::<Rect>::uninit();
         let ptr = rect.as_mut_ptr();
 
@@ -208,6 +208,7 @@ impl ResultIter {
             )
         };
         assert_eq!(succeed, 1);
-        unsafe { rect.assume_init() }
+        let rect = unsafe { rect.assume_init() };
+        rect.map(|coord| coord.try_into().unwrap())
     }
 }

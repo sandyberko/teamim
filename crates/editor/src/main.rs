@@ -1,23 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod diac_renderer;
+mod img;
 mod loaded;
 mod strs;
 mod task;
 
 use eyre::eyre;
 use iced::{
-    Element, Length, Settings, Subscription, Task,
-    advanced::image::Bytes,
+    Element, Length, Task,
     widget::{
         self, Column,
-        image::Handle,
         scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
         text::{Fragment, IntoFragment},
     },
 };
-use image::{ImageReader, RgbaImage, imageops::fast_blur};
-use num_traits::AsPrimitive;
+use image::ImageReader;
 use rfd::AsyncFileDialog;
 use std::{
     borrow::Cow,
@@ -26,13 +24,13 @@ use std::{
     mem,
     path::Path,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 
-use editor::{spinner::Spinner, stage};
+use editor::stage;
 use teamim::TeamimCtx;
 
 use crate::{
+    img::ImgHandle,
     loaded::Transform,
     task::{Poll, TryPoll},
 };
@@ -188,57 +186,15 @@ async fn select_image() -> eyre::Result<Option<loaded::LoadedImage>> {
 
 fn load_image(path: impl AsRef<Path>) -> eyre::Result<loaded::LoadedImage> {
     let path = path.as_ref().into();
-    let buf = ImageReader::open(&path)?.decode()?.into_rgba8();
-    let img = Img::from_rgba(buf);
-    let handle = Handle::from_rgba(img.width, img.height, img.pixels.clone());
-    let img = NamedImg { path, img, handle };
-    Ok(loaded::LoadedImage::new(img))
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Img {
-    width: u32,
-    height: u32,
-    pixels: Bytes,
-}
-
-impl Img {
-    pub(crate) fn to_rgba(&self) -> RgbaImage {
-        RgbaImage::from_raw(self.width, self.height, self.pixels.to_vec())
-            .expect("`data` to be big enough for width * height")
-    }
-    pub(crate) fn from_rgba(buf: RgbaImage) -> Self {
-        let width = buf.width();
-        let height = buf.height();
-        let pixels = Bytes::from_owner(buf.into_raw());
-        Self { width, height, pixels }
-    }
+    let img = ImageReader::open(&path)?.decode()?.into_rgba8().into();
+    Ok(loaded::LoadedImage::new(NamedImg { path, img }))
 }
 
 #[derive(Debug, Clone)]
 struct NamedImg {
     // [TODO] private
     pub(crate) path: Arc<Path>,
-    img: Img,
-    handle: Handle,
-}
-
-impl NamedImg {
-    fn view<'a, Message>(&self, zoom: f32) -> Element<'a, Message> {
-        widget::Image::new(&self.handle)
-            .height(AsPrimitive::<f32>::as_(self.img.height) * zoom)
-            .width(AsPrimitive::<f32>::as_(self.img.width) * zoom)
-            .into()
-    }
-
-    fn blur(&self) -> Self {
-        // [TODO] reduce clones
-        let buf = self.img.clone().to_rgba();
-        let blurred = fast_blur(&buf, 17.0);
-        let img = Img::from_rgba(blurred);
-        let handle = Handle::from_rgba(img.width, img.height, img.pixels.clone());
-        NamedImg { path: self.path.clone(), handle, img }
-    }
+    img: ImgHandle,
 }
 
 #[derive(Debug, Clone)]

@@ -37,25 +37,22 @@ static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
 
 #[derive(Debug, Clone)]
-pub struct DiacMiss {
+pub struct DiacResult {
     pub letter: char,
     pub diacritic: char,
-    pub char_idx: usize,
-    pub top: i32,
+    pub kind: DiacResultKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiacMiss {
+    pub top: u32,
     pub missing_text: Arc<str>,
 }
 
-impl DiacMiss {
-    #[must_use]
-    pub fn new(
-        letter: char,
-        diacritic: char,
-        char_idx: usize,
-        top: i32,
-        missing_text: impl Into<Arc<str>>,
-    ) -> Self {
-        Self { letter, diacritic, char_idx, top, missing_text: missing_text.into() }
-    }
+#[derive(Debug, Clone)]
+pub enum DiacResultKind {
+    Pos(Rect<u32>),
+    Miss(DiacMiss),
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -73,8 +70,6 @@ pub enum PositStatus {
 pub struct TeamimCtx {
     tess: Tess,
 }
-
-pub type DiacResults = (Vec<DiacPos>, Vec<DiacMiss>);
 
 impl TeamimCtx {
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
@@ -142,117 +137,11 @@ impl TeamimCtx {
         Ok((diff, w, h))
     }
 
-    // TODO return something like BufPNG
-    pub fn place_teamim(&mut self, img: &[u8], options: PlaceOptions) -> Result<Buf, PlaceError> {
-        let mut img = Pix::read_mem(img)?;
-        img = img.into_32()?;
-        self.place_teamim_pix(&mut img, options, |_| ())?;
-        Ok(img.copy_to_png()?)
-    }
-
-    pub fn place_teamim_pix(
-        &mut self,
-        img: &mut Pix,
-        options: PlaceOptions,
-        progress_callback: impl Fn(PositStatus),
-    ) -> Result<Vec<DiacMiss>, PlaceError> {
-        progress_callback(PositStatus::Recognizing);
-        self.tess.set_image(img);
-        self.tess.recognize()?;
-
-        let snippet = self.tess.get_text()?;
-        let snippet = snippet.as_str()?.replace(char::is_whitespace, "");
-        let boxes = self
-            .tess
-            .results_iter(PageIteratorLevel::Symbol)
-            .map(|BoundingBox { value, rect, page }| {
-                eyre::Ok(BoundingBox {
-                    value: value.as_str()?.chars().next().ok_or_eyre("empty box")?,
-                    rect,
-                    page,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        progress_callback(PositStatus::ImageEffects);
-        if options.blur != 0 {
-            *img = img.blur(options.blur)?;
-        }
-
-        if options.contrast != 0.0 {
-            img.contrast(options.contrast)?;
-        }
-
-        let options = options.estimate_scale(&boxes);
-
-        progress_callback(PositStatus::Searching);
-        let r#match = search::approx_match(&snippet).ok_or(PlaceError::NotFound)?;
-        let snip_char_offset = r#match.byte_pos / 2; // each hebrew letter is 2 bytes
-
-        // diff
-        progress_callback(PositStatus::Diffing);
-        // (ocr, ground_truth)
-        let (old, new) = (snippet.as_str(), r#match.text);
-        let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
-        let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
-        let mut ops = diff.ops().iter().peekable();
-
-        progress_callback(PositStatus::Placing);
-        let mut last_diacrit_top = 0;
-        let mut misses = Vec::new();
-
-        let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
-        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
-            let char_offset = char_idx - snip_char_offset;
-            let change = 'change: loop {
-                let Some(change) = ops.peek() else {
-                    break 'taam;
-                };
-                if change.new_range().start > char_offset {
-                    continue 'taam;
-                }
-                if change.new_range().end > char_offset {
-                    break 'change change;
-                }
-                ops.next();
-            };
-            match change.tag() {
-                DiffTag::Equal => {
-                    let char_offset_in_change = char_offset - change.new_range().start;
-                    let box_idx = change.old_range().start + char_offset_in_change;
-                    let bx = &boxes[box_idx];
-                    last_diacrit_top = bx.rect.top;
-                    place_taam(
-                        img,
-                        options,
-                        letter,
-                        &into_geometry(bx, OriginPos::TopLeft),
-                        diacritic,
-                    )?;
-                }
-                DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
-                DiffTag::Insert | DiffTag::Replace => {
-                    let range = change.new_range();
-                    let pre = remapper
-                        .slice_new(range.start.saturating_sub(6)..range.end)
-                        .ok_or_eyre("invalid range")?;
-                    let post = remapper
-                        .slice_new(range.end..new.len().min(range.end + 6))
-                        .ok_or_eyre("invalid range")?;
-                    let missing_text = format!("{pre}{diacritic}{post}").into();
-                    let top = last_diacrit_top;
-                    misses.push(DiacMiss { letter, diacritic, char_idx, top, missing_text });
-                }
-            }
-        }
-        Ok(misses)
-    }
-
     pub fn positions(
         &mut self,
         img: &mut Pix,
         progress_callback: impl Fn(PositStatus),
-    ) -> Result<DiacResults, PlaceError> {
+    ) -> Result<Vec<DiacResult>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
@@ -285,8 +174,7 @@ impl TeamimCtx {
 
         progress_callback(PositStatus::Placing);
         let mut last_diacrit_top = 0;
-        let mut positions = Vec::new();
-        let mut misses = Vec::new();
+        let mut res = Vec::new();
         let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
         'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
             let char_offset = char_idx - snip_char_offset;
@@ -302,15 +190,15 @@ impl TeamimCtx {
                 }
                 ops.next();
             };
-            match change.tag() {
+            let result = match change.tag() {
                 DiffTag::Equal => {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let rect = boxes[box_idx].rect/* .to_top_left(img.get_h()) */;
                     last_diacrit_top = rect.top;
-                    positions.push(DiacPos { letter, diacritic, rect });
+                    DiacResultKind::Pos(rect)
                 }
-                DiffTag::Delete => eprintln!("  > ⚠️ DELETED this should not happen"),
+                DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
                     let range = change.new_range();
                     let pre = remapper
@@ -321,11 +209,12 @@ impl TeamimCtx {
                         .ok_or_eyre("invalid range")?;
                     let missing_text = format!("{pre}{diacritic}{post}").into();
                     let top = last_diacrit_top;
-                    misses.push(DiacMiss { letter, diacritic, char_idx, top, missing_text });
+                    DiacResultKind::Miss(DiacMiss { top, missing_text })
                 }
-            }
+            };
+            res.push(DiacResult { letter, diacritic, kind: result });
         }
-        Ok((positions, misses))
+        Ok(res)
     }
     pub fn diff_boxes(
         &mut self,
@@ -386,16 +275,9 @@ impl TeamimCtx {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DiacPos {
-    pub letter: char,
-    pub diacritic: char,
-    pub rect: Rect,
-}
-
 #[derive(Debug, Clone)]
 pub enum BoxDiffOp {
-    Box(Rect),
+    Box(Rect<u32>),
     Miss(Arc<str>),
 }
 
@@ -689,24 +571,6 @@ pub fn place_taam(
     Ok(())
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum OriginPos {
-    BottomLeft { img_h: u32 },
-    TopLeft,
-}
-
-#[must_use]
-pub fn into_geometry<V>(bx: &BoundingBox<V>, origin_pos: OriginPos) -> BoxGeometry {
-    let Rect { left, bottom, right, top } = bx.rect;
-    match origin_pos {
-        OriginPos::BottomLeft { img_h } => {
-            let img_h: i32 = img_h.try_into().unwrap();
-            BoxGeometry { x: left, y: img_h - top, w: right - left, h: top - bottom }
-        }
-        OriginPos::TopLeft => BoxGeometry { x: left, y: top, w: right - left, h: bottom - top },
-    }
-}
-
 #[derive(Serialize)]
 pub enum DiffOp<'s> {
     Insert { new_index: usize, new_len: usize },
@@ -756,19 +620,6 @@ pub fn find_truth_text(ocr_text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_place_teamim() -> eyre::Result<()> {
-        color_eyre::install()?;
-
-        let mut ctx = TeamimCtx::new(DATAPATH)?;
-        let img = include_bytes!("../assets/images/N2/012.jpg");
-        let options =
-            PlaceOptions { debug_boxes: true, inline_diacs: true, ..PlaceOptions::default() };
-        let img = ctx.place_teamim(img, options)?;
-        fs::write(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/images/N2/012.png"), img)?;
-        Ok(())
-    }
 
     #[test]
     fn test_diactrit_map() -> eyre::Result<()> {

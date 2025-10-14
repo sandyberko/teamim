@@ -12,7 +12,7 @@ use maud::{DOCTYPE, Markup, html};
 use teamim::PlaceOptions;
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/", get(get_index).post(post_index))
+    Router::new().route("/", get(get_index))
 }
 
 fn page(title: Option<&str>, body: Markup) -> Markup {
@@ -87,25 +87,4 @@ impl DiacriticOptions {
 
         Ok(options)
     }
-}
-
-async fn post_index(
-    State(state): State<AppState>,
-    mut data: Multipart,
-) -> Result<impl IntoResponse, RenderTeamimError> {
-    let options =
-        DiacriticOptions::from_mutipart(&mut data).await.map_err(RenderTeamimError::BadRequest)?;
-
-    let image = state
-        .ctx
-        .lock()
-        .map_err(|err| eyre!("lock ctx: {err}"))?
-        .place_teamim(&options.image, options.place)?;
-
-    Ok(page(
-        Some("תוצאות"),
-        html! {
-            img src={"data:image/png;base64," (BASE64_STANDARD.encode(image))};
-        },
-    ))
 }

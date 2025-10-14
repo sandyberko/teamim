@@ -21,7 +21,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use teamim::{
-    DATAPATH, MismatchError, OriginPos, PlaceError, PlaceOptions, into_geometry, place_teamim,
+    DATAPATH, MismatchError, PlaceError, PlaceOptions, place_teamim,
     tesseract_ext::bounding_box::parse_char_box, training_diff::Div,
 };
 use teamim_markup::render_div;
@@ -66,7 +66,6 @@ async fn serve() -> eyre::Result<()> {
             Router::new()
                 .route("/recognize", post(post_recognize))
                 .route("/recognizeTraining", post(post_recognize_training))
-                .route("/renderTeamim", post(post_render_teamim))
                 .route("/diff", post(post_diff))
                 .route("/diffIndex", get(get_diff_index))
                 .route("/saveDiff", post(save_diff)),
@@ -268,20 +267,6 @@ impl RenderTeamimOptions {
 
         Ok(options)
     }
-}
-async fn post_render_teamim(mut data: Multipart) -> Result<impl IntoResponse, RenderTeamimError> {
-    let RenderTeamimOptions { image, boxes } = RenderTeamimOptions::from_mutipart(&mut data)
-        .await
-        .map_err(RenderTeamimError::BadRequest)?;
-
-    let text = boxes.lines().flat_map(|line| line.chars().next()).collect::<String>();
-    let boxes =
-        boxes.lines().map(|line| Ok(into_geometry(&parse_char_box(line)?, OriginPos::TopLeft)));
-    let image = place_teamim(&image, PlaceOptions::default(), &text, boxes)?;
-    let headers = [(header::CONTENT_TYPE, HeaderValue::from_static(mime::IMAGE_PNG.as_ref()))]
-        .into_iter()
-        .collect::<HeaderMap>();
-    Ok((headers, Bytes::from_owner(image)))
 }
 
 #[derive(Debug, Error)]

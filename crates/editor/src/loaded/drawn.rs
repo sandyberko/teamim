@@ -1,25 +1,21 @@
 #[cfg(test)]
 mod tests;
 
-use std::{iter::once, sync::Arc};
+use std::sync::Arc;
 
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Border, Color, Element, Font, Point, Subscription, Task, Vector,
+    Color, Element, Font, Point, Subscription, Task, Vector,
     futures::StreamExt,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{bottom_right, button, canvas, container, mouse_area, row, stack, text},
+    widget::{button, mouse_area, text},
 };
 use image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
-use teamim::{
-    DiacMiss, DiacPos,
-    glyph::{GLYPHS, Placement, SPACED},
-    tesseract_ext::bounding_box::Rect,
-};
+use teamim::{DiacResult, DiacResultKind, glyph::SPACED, tesseract_ext::bounding_box::Rect};
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
@@ -42,22 +38,21 @@ pub enum Message {
 }
 #[derive(Debug, Clone)]
 struct Place {
-    miss_idx: usize,
+    diac_idx: usize,
     diac: Arc<str>,
     position: Option<Point>,
 }
 
 #[derive(Debug)]
 pub struct Drawn {
-    positions: Vec<DiacPos>,
-    misses: Vec<DiacMiss>,
+    results: Vec<DiacResult>,
     saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
     place_diac: TryPoll<Option<Place>>,
 }
 
 impl Drawn {
-    pub fn new(positions: Vec<DiacPos>, misses: Vec<DiacMiss>) -> Self {
-        Self { positions, misses, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) }
+    pub fn new(results: Vec<DiacResult>) -> Self {
+        Self { results, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) }
     }
 
     pub fn update(&mut self, msg: Message) -> Task<Message> {
@@ -66,7 +61,7 @@ impl Drawn {
                 // trigger
                 Poll::Pending(SaveStatus::Trigger(img, transform)) => Task::stream(
                     channel(1, {
-                        let positions = self.positions.clone();
+                        let positions = self.results.clone();
                         async move |mut tx| {
                             let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
                             let result =
@@ -85,10 +80,10 @@ impl Drawn {
                     Task::none()
                 }
             },
-            Message::PlaceMode(miss_idx) => {
-                let diac = self.misses[miss_idx].diacritic.to_string().into();
+            Message::PlaceMode(diac_idx) => {
+                let diac = self.results[diac_idx].diacritic.to_string().into();
                 self.place_diac =
-                    TryPoll::Ready(Ok(Some(Place { miss_idx, diac, position: None })));
+                    TryPoll::Ready(Ok(Some(Place { diac_idx, diac, position: None })));
                 Task::none()
             }
             Message::Place(opts) => {
@@ -127,95 +122,68 @@ impl Drawn {
             .into()
     }
 
-    pub fn view(&self, opts: Transform, img: &NamedImg) -> Element<'_, Message> {
+    pub fn diac_view(&self, opts: Transform) -> Element<'_, Message> {
         let Transform { scroll_offset, zoom } = opts;
         let place = self.place_diac.as_ready_ok().and_then(Option::as_ref);
-        row([
-            // misses
-            stage(self.misses.iter().enumerate().map(|(miss_idx, miss)| {
-                (
-                    button(text(miss.missing_text.as_ref()).size(48.0 * zoom))
-                        .on_press_maybe(
-                            if let Some(place) =
-                                self.place_diac.as_ready_ok().and_then(Option::as_ref)
-                                && place.miss_idx == miss_idx
-                            {
-                                None
-                            } else {
-                                Some(Message::PlaceMode(miss_idx))
-                            },
-                        )
-                        .into(),
-                    Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
-                )
-            }))
-            .into(),
-            stack([
-                mouse_area(stage(
-                    Iterator::chain(
-                        // image
-                        once((img.view(zoom), Point::ORIGIN)),
-                        // place
-                        self.place_diac.as_ready_ok().and_then(Option::as_ref).and_then(|place| {
-                            let position = place.position?;
-                            Some((
-                                // [TODO] color(black)
-                                mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
-                                    .interaction(Interaction::Crosshair)
-                                    .on_move(move |offset| {
-                                        Message::PlaceMove(
-                                            position + Vector::new(offset.x, offset.y),
-                                        )
-                                    })
-                                    .on_press(Message::Place(Transform { scroll_offset, zoom }))
-                                    .into(),
-                                position,
-                            ))
-                        }),
-                    )
-                    // positioned diacs
-                    .chain(self.positions.iter().map(|pos| {
-                        let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
-                        (
-                            text(spaced)
-                                .color(Color::from_rgb(1., 0., 0.))
-                                .size(FONT_SIZE * zoom)
-                                .font(Font::with_name("Guttman Stam"))
-                                .into(),
-                            #[expect(clippy::cast_precision_loss)]
-                            [pos.rect.left, pos.rect.top].map(|coord| coord as f32 * zoom).into(),
-                        )
-                    })),
-                ))
-                .on_move(Message::PlaceMove)
-                .on_press(Message::Place(Transform { scroll_offset, zoom }))
-                .interaction(if place.is_some() {
-                    Interaction::Crosshair
-                } else {
-                    Interaction::default()
-                })
-                .into(),
-                // debug
-                stage(self.positions.iter().map(|pos| {
-                    (
-                        container("")
-                            .width(pos.rect.width())
-                            .height(pos.rect.height())
-                            .style(|_| container::Style {
-                                border: Border::default()
-                                    .width(2)
-                                    .color(Color::from_rgb8(255, 0, 0)),
-                                ..Default::default()
+        mouse_area(stage(Iterator::chain(
+            // place
+            self.place_diac
+                .as_ready_ok()
+                .and_then(Option::as_ref)
+                .and_then(|place| {
+                    let position = place.position?;
+                    Some((
+                        // [TODO] color(black)
+                        mouse_area(text(place.diac.as_ref()).size(FONT_SIZE))
+                            .interaction(Interaction::Crosshair)
+                            .on_move(move |offset| {
+                                Message::PlaceMove(position + Vector::new(offset.x, offset.y))
                             })
+                            .on_press(Message::Place(Transform { scroll_offset, zoom }))
                             .into(),
-                        #[expect(clippy::cast_precision_loss)]
-                        [pos.rect.left, pos.rect.top].map(|coord| coord as f32 * zoom).into(),
+                        position,
+                    ))
+                })
+                .into_iter(),
+            // positioned
+            self.results.iter().filter_map(|pos| {
+                let DiacResultKind::Pos(rect) = pos.kind else { return None };
+                let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
+                Some((
+                    text(spaced)
+                        .color(Color::from_rgb(1., 0., 0.))
+                        .size(FONT_SIZE * zoom)
+                        .font(Font::with_name("Guttman Stam"))
+                        .into(),
+                    #[expect(clippy::cast_precision_loss)]
+                    [rect.left, rect.top].map(|coord| coord as f32 * zoom).into(),
+                ))
+            }),
+        )))
+        .on_move(Message::PlaceMove)
+        .on_press(Message::Place(Transform { scroll_offset, zoom }))
+        .interaction(if place.is_some() { Interaction::Crosshair } else { Interaction::default() })
+        .into()
+    }
+
+    pub(crate) fn misses_view(&self, zoom: f32) -> Element<'_, Message> {
+        stage(self.results.iter().enumerate().filter_map(|(result_idx, result)| {
+            let DiacResultKind::Miss(miss) = &result.kind else { return None };
+            Some((
+                button(text(miss.missing_text.as_ref()).size(48.0 * zoom))
+                    .on_press_maybe(
+                        if let Some(place) = self.place_diac.as_ready_ok().and_then(Option::as_ref)
+                            && place.diac_idx == result_idx
+                        {
+                            None
+                        } else {
+                            Some(Message::PlaceMode(result_idx))
+                        },
                     )
-                }))
-                .into(),
-            ])
-            .into(),
-        ])
+                    .into(),
+                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
+            ))
+        }))
         .into()
     }
 
@@ -255,12 +223,12 @@ impl Drawn {
 
 async fn save(
     img: NamedImg,
-    positions: &[DiacPos],
+    positions: &[DiacResult],
     transform: Transform,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
     let path = img.path;
-    let mut img = img.img.to_rgba();
+    let mut img = img.img.img().to_rgba();
 
     progress(SaveStatus::SelectingFile);
     // [TODO]
@@ -289,13 +257,15 @@ async fn save(
     Ok(())
 }
 
-fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
+fn render(positions: &[DiacResult], transform: Transform, img: &mut RgbaImage) {
     let mut renderer = diac_renderer::Renderer::new();
     for diac in positions {
-        // debug
-        draw_red_rectangle(img, diac.rect);
+        let DiacResultKind::Pos(rect) = diac.kind else { continue };
 
-        let Rect { left, bottom, top, .. } = diac.rect;
+        // debug
+        draw_red_rectangle(img, rect);
+
+        let Rect { left, bottom, .. } = rect;
         // let pos = match GLYPHS[&diac.diacritic].placement {
         //     Placement::Top => [left, top],
         //     Placement::Bottom => [left, bottom],
@@ -304,17 +274,17 @@ fn render(positions: &[DiacPos], transform: Transform, img: &mut RgbaImage) {
         // };
 
         // [TODO] cache, optimize
-        renderer.draw_glyph(img, diac.diacritic, [left, bottom].into(), FONT_SIZE * transform.zoom);
+        renderer.draw_glyph(img, diac.diacritic, [left, bottom], FONT_SIZE * transform.zoom);
     }
 }
 
 /// Draws a red rectangle onto an RGBA image.
 ///
 /// Coordinates are inclusive on top/left and exclusive on bottom/right.
-pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect) {
+pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
     let red = Rgba([255, 0, 0, 255]);
 
-    let Rect { left, bottom, right, top } = rect.map(i32::unsigned_abs);
+    let Rect { left, bottom, right, top } = rect;
 
     // Draw horizontal edges
     for x in left..right {
@@ -328,24 +298,5 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect) {
         img.put_pixel(left, y, red);
 
         img.put_pixel(right - 1, y, red);
-    }
-}
-
-struct PosProg<'a> {
-    diacs: &'a [DiacPos],
-}
-
-impl canvas::Program for PosProg<'_> {
-    type State = ();
-
-    fn draw(
-        &self,
-        state: &Self::State,
-        renderer: &Renderer,
-        theme: &iced_renderer::core::Theme,
-        bounds: iced::Rectangle,
-        cursor: iced::advanced::mouse::Cursor,
-    ) -> Vec<canvas::Geometry<Renderer>> {
-        todo!()
     }
 }

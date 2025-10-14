@@ -61,11 +61,12 @@ macro_rules! impl_rect {
     };
 }
 impl_rect!(i32, u32);
+impl_rect!(u32, u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
     pub value: Value,
-    pub rect: Rect,
+    pub rect: Rect<u32>,
     pub page: usize,
 }
 
@@ -77,11 +78,11 @@ impl<V: Display> Display for BoundingBox<V> {
 }
 
 impl<V> BoundingBox<V> {
-    pub fn new_paged(value: V, rect: Rect, page: usize) -> Self {
+    pub fn new_paged(value: V, rect: Rect<u32>, page: usize) -> Self {
         Self { value, rect, page }
     }
 
-    pub fn new(value: V, left: i32, bottom: i32, right: i32, top: i32) -> Self {
+    pub fn new(value: V, left: u32, bottom: u32, right: u32, top: u32) -> Self {
         Self::new_paged(value, Rect::new(left, bottom, right, top), 0)
     }
 
@@ -96,7 +97,7 @@ impl<V> BoundingBox<V> {
     }
 
     #[must_use]
-    pub fn into_bottom_left(self, img_h: i32) -> Self {
+    pub fn into_bottom_left(self, img_h: u32) -> Self {
         Self {
             value: self.value,
             rect: Rect {
@@ -119,7 +120,7 @@ pub fn parse_char_box(line: &str) -> eyre::Result<BoundingBox<char>> {
     let mut parts = line.as_str().split(' ');
     let mut parse_part = || eyre::Ok(parts.next().ok_or_eyre("unexpected end")?.parse()?);
 
-    let rect = Rect::<i32> {
+    let rect = Rect::<u32> {
         left: parse_part().wrap_err("failed to parse left")?,
         bottom: parse_part().wrap_err("failed to parse bottom")?,
         right: parse_part().wrap_err("failed to parse right")?,

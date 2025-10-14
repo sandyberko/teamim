@@ -1,8 +1,11 @@
+use iced::widget::image::Handle;
 use std::{ffi::CStr, path::Path};
 use teamim::leptonica_ext::PixBox;
 
 use crate::{
-    App, Img, load_image,
+    App, FONT_SIZE, diac_renderer,
+    img::Img,
+    load_image,
     loaded::{LoadedImage, drawn::Drawn},
     run_app,
     task::Poll,
@@ -15,8 +18,8 @@ fn drawn_test() -> eyre::Result<()> {
     fn load() -> eyre::Result<LoadedImage> {
         let path = Path::new("../../assets/images/N5/007.jpg");
         let mut loaded = load_image(path)?;
-        let Img { width, height, pixels } = loaded.img.img.clone();
-        let (positions, misses) = PixBox::from_rgba8_with(
+        let Img { width, height, pixels } = loaded.img.img.img();
+        let results = PixBox::from_rgba8_with(
             &mut pixels.to_vec(),
             width.try_into()?,
             height.try_into()?,
@@ -24,7 +27,8 @@ fn drawn_test() -> eyre::Result<()> {
                 with_tctx(DATAPATH, |ctx| ctx.positions(img, |progress| eprintln!("{progress:?}")))
             },
         )???;
-        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(positions, misses))));
+
+        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
         Ok(loaded)
     }
     let boot_fn = || App { img: Poll::Ready(load().map(Some)), ..App::default() };

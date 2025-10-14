@@ -20,7 +20,6 @@ needless_continue = "allow"
 name = "teamim"
 version = "0.1.0"
 edition = "2024"
-default-run = "teamim"
 
 [dependencies]
 clap = { workspace = true }

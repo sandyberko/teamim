@@ -1,15 +1,11 @@
 #[cfg(test)]
 mod tests;
 
-use iced::wgpu::wgc::id::BindGroupLayoutId;
-use image::{
-    ImageBuffer, Luma, Pixel as _, Rgba, RgbaImage,
-    imageops::{overlay, overlay_bounds},
-};
+use image::{Pixel as _, Rgba, RgbaImage};
 use swash::{
     FontRef,
-    scale::{Render, ScaleContext, Source, StrikeWith, image::Image, outline::Outline},
-    zeno::{Format, Vector},
+    scale::{Render, ScaleContext, Source, image::Image},
+    zeno::Format,
 };
 
 const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
@@ -33,30 +29,17 @@ impl Renderer {
         &mut self,
         bottom: &mut RgbaImage,
         c: char,
-        offset: Vector,
+        offset: [u32; 2],
         px_size: f32,
     ) {
-        let glyph_id = self.font.charmap().map(c);
-        // Rasterize glyph
-        let mut scaler = self.ctx.builder(self.font).size(px_size).hint(true).build();
-        if !Render::new(&[Source::Outline]).format(Format::Alpha).render_into(
-            &mut scaler,
-            glyph_id,
-            &mut self.image,
-        ) {
-            panic!("outline should exist for glyph {glyph_id}");
-        }
+        self.render_into(c, px_size);
 
         let Image { placement, data, .. } = &self.image;
 
-        eprintln!("PLACEMENT: {placement:?}");
-
         let bottom_dims = bottom.dimensions();
         let top_dims = (placement.width, placement.height);
-        let [x, y] = [
-            offset.x as i64 + i64::from(placement.left),
-            offset.y as i64 - i64::from(placement.top),
-        ];
+        let [x, y] = offset.map(i64::from);
+        let [x, y] = [x + i64::from(placement.left), y - i64::from(placement.top)];
 
         // Crop our top image if we're going out of bounds
         let (
@@ -81,6 +64,30 @@ impl Renderer {
             }
         }
         self.image.clear();
+    }
+
+    fn render_into(&mut self, c: char, px_size: f32) {
+        let glyph_id = self.font.charmap().map(c);
+        // Rasterize glyph
+        let mut scaler = self.ctx.builder(self.font).size(px_size).hint(true).build();
+        if !Render::new(&[Source::Outline]).format(Format::Alpha).render_into(
+            &mut scaler,
+            glyph_id,
+            &mut self.image,
+        ) {
+            panic!("outline should exist for glyph {glyph_id}");
+        }
+    }
+    pub(crate) fn render(&mut self, c: char, px_size: f32) -> RgbaImage {
+        let glyph_id = self.font.charmap().map(c);
+        // Rasterize glyph
+        let mut scaler = self.ctx.builder(self.font).size(px_size).hint(true).build();
+        let Some(img) =
+            Render::new(&[Source::Outline]).format(Format::Subpixel).render(&mut scaler, glyph_id)
+        else {
+            panic!("outline should exist for glyph {glyph_id}");
+        };
+        RgbaImage::from_raw(img.placement.width, img.placement.height, img.data).unwrap()
     }
 }
 

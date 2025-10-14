@@ -144,7 +144,7 @@ fn generate(
 
         if let Some(last_rect) = pages.last_rect {
             // line terminator between pages
-            let rect = Rect::new(
+            let rect = Rect::<u32>::new(
                 last_rect.left,
                 last_rect.bottom,
                 last_rect.left + 1,
@@ -180,7 +180,7 @@ static WIDE_LETTERS: Map<char, char> = phf_map! {
 
 struct PageIter<'s, F, W> {
     text: &'s mut &'s str,
-    last_rect: Option<Rect>,
+    last_rect: Option<Rect<u32>>,
     margin: u32,
     xsize: u32,
     ysize: u32,
@@ -229,10 +229,10 @@ where
                     max: point(line_bounds.max.x + draw_x, line_bounds.max.y + draw_y),
                 };
                 let rect = Rect::new(
-                    line_bounds.min.x.floor() as i32,
-                    ysize as i32 - line_bounds.max.y.ceil() as i32,
-                    line_bounds.max.x.ceil() as i32,
-                    ysize as i32 - line_bounds.min.y.ceil() as i32,
+                    line_bounds.min.x.floor() as u32,
+                    ysize as u32 - line_bounds.max.y.ceil() as u32,
+                    line_bounds.max.x.ceil() as u32,
+                    ysize as u32 - line_bounds.min.y.ceil() as u32,
                 );
                 self.last_rect = Some(rect);
 

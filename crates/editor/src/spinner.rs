@@ -28,10 +28,12 @@ pub struct Easing {
 }
 
 impl Easing {
+    #[must_use] 
     pub fn builder() -> Builder {
         Builder::new()
     }
 
+    #[must_use] 
     pub fn y_at_x(&self, x: f32) -> f32 {
         let mut sampler = self
             .measurements
@@ -45,6 +47,7 @@ impl Easing {
 pub struct Builder(NoAttributes<BuilderImpl>);
 
 impl Builder {
+    #[must_use] 
     pub fn new() -> Self {
         let mut builder = Path::builder();
         builder.begin(lyon_algorithms::geom::point(0.0, 0.0));
@@ -78,6 +81,7 @@ impl Builder {
         self
     }
 
+    #[must_use] 
     pub fn build(mut self) -> Easing {
         self.0.line_to(lyon_algorithms::geom::point(1.0, 1.0));
         self.0.end(false);
@@ -122,6 +126,7 @@ where
     Theme: StyleSheet,
 {
     /// Creates a new [`Circular`] with the given content.
+    #[must_use] 
     pub fn new() -> Self {
         let style = <Theme as StyleSheet>::Style::default();
         Spinner {
@@ -206,7 +211,7 @@ impl Animation {
                 start: now,
                 progress: 0.0,
                 rotation: rotation.wrapping_add(BASE_ROTATION_SPEED.wrapping_add(
-                    (f64::from(WRAP_ANGLE / (2.0 * Radians::PI)) * u32::MAX as f64) as u32,
+                    (f64::from(WRAP_ANGLE / (2.0 * Radians::PI)) * f64::from(u32::MAX)) as u32,
                 )),
                 last: now,
             },
