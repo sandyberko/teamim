@@ -1,11 +1,8 @@
 mod drawn;
 
-#[cfg(test)]
-mod tests;
-
 use crate::{
-    FONT_SIZE, NamedImg, PADDING,
-    img::ImgHandle,
+    FONT_SIZE, NamedImg, PADDING, diac_renderer,
+    img::{Img, ImgHandle},
     strs,
     task::{Poll, TryPoll},
     with_tctx,
@@ -28,6 +25,7 @@ use std::{
     mem,
     sync::{Arc, Mutex},
 };
+use tap::prelude::*;
 use teamim::{DATAPATH, DiacResult, PositStatus, leptonica_ext::PixBox};
 use tokio::task::spawn_blocking;
 
@@ -55,11 +53,9 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
     }
 }
 
-type PollDraw = Poll<Arc<Mutex<eyre::Result<Vec<DiacResult>>>>, PositStatus>;
-
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Draw(PollDraw),
+    Draw(drawn::PollDraw),
     Drawn(drawn::Message),
     SetBlur(u32),
     Blur(Poll<ImgHandle, BlurStatus>),
@@ -71,7 +67,7 @@ pub(crate) struct LoadedImage {
     zoom: f32,
     blur: u32,
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
-    drawing: TryPoll<Option<Drawn>, PositStatus>,
+    drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
 }
 
 impl LoadedImage {
@@ -81,12 +77,12 @@ impl LoadedImage {
             img,
             zoom: 0.4,
             blur: 0,
-            drawing: TryPoll::Ready(Ok(None)),
+            drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),
         }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
-        if let TryPoll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
+        if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
     }
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
@@ -137,7 +133,7 @@ impl LoadedImage {
         self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img.img)
     }
 
-    fn posit_diacs(&mut self, msg: PollDraw) -> Task<Message> {
+    fn posit_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
         match msg {
             Poll::Pending(PositStatus::Pending) => {
                 self.drawing = Poll::Pending(PositStatus::Pending);
@@ -150,23 +146,11 @@ impl LoadedImage {
                         }
                     };
                     let result = spawn_blocking(move || {
-                        let img = &img;
-                        PixBox::from_rgba8_with(
-                            &mut img.pixels.to_vec(),
-                            img.width.try_into()?,
-                            img.height.try_into()?,
-                            |img| {
-                                with_tctx(DATAPATH, |ctx| {
-                                    ctx.positions(img, progress_callback).wrap_err("place error")
-                                })
-                            },
-                        )
-                        .flatten()
-                        .flatten()
+                        drawn::posit_diacs(&img, DATAPATH, progress_callback)
                     })
                     .await
                     .expect("blocking task to finish");
-                    _ = tx.try_send(Poll::Ready(Arc::new(Mutex::new(result))));
+                    _ = tx.try_send(Poll::Ready(result.map_err(Arc::new)));
                 }))
                 .map(Message::Draw)
             }
@@ -175,10 +159,7 @@ impl LoadedImage {
                 Task::none()
             }
             Poll::Ready(diac_res) => {
-                let mut drawn_res = diac_res.lock().unwrap();
-                let drawn_res = mem::replace(&mut *drawn_res, Err(eyre!("result taken")))
-                    .map(Drawn::new);
-                self.drawing = Poll::Ready(drawn_res.map(Some));
+                self.drawing = diac_res.map(Drawn::new).map(Some).pipe(Poll::Ready);
                 Task::none()
             }
         }

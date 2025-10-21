@@ -10,8 +10,9 @@ use eyre::eyre;
 use iced::{
     Element, Length, Task,
     widget::{
-        self, Column,
+        Column, column, row, scrollable,
         scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
+        text,
         text::{Fragment, IntoFragment},
     },
 };
@@ -29,11 +30,7 @@ use std::{
 use editor::stage;
 use teamim::TeamimCtx;
 
-use crate::{
-    img::ImgHandle,
-    loaded::Transform,
-    task::{Poll, TryPoll},
-};
+use crate::{img::ImgHandle, loaded::Transform, task::Poll};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -77,7 +74,7 @@ const FONT_SIZE: f32 = 72.0;
 #[derive(Default)]
 struct SelectProgress {}
 struct App {
-    img: TryPoll<Option<loaded::LoadedImage>, SelectProgress>,
+    img: Poll<Result<Option<loaded::LoadedImage>, String>, SelectProgress>,
     scroll_offset: AbsoluteOffset,
 }
 
@@ -99,22 +96,21 @@ impl App {
                 .map(|loaded| loaded.toolbar_view(self.scroll_offset).map(Message::Loaded)),
         ];
 
-        widget::row(children.into_iter().flatten())
-            .spacing(u32::from(PADDING))
-            .width(Length::Fill)
-            .into()
+        row(children.into_iter().flatten()).spacing(u32::from(PADDING)).width(Length::Fill).into()
     }
 
     fn content_view(&self) -> Element<'_, Message> {
-        let TryPoll::Ready(ready) = &self.img else {
-            return widget::text(strs::LOADING).into();
+        let Poll::Ready(ready) = &self.img else {
+            return text(strs::LOADING).into();
         };
-        let Ok(ready) = ready else {
-            // [TODO]
-            return widget::text(strs::ERROR).into();
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(msg) => {
+                return column([text(strs::ERROR).into(), text(msg).into()]).into();
+            }
         };
         let Some(loaded) = ready else {
-            return widget::text(strs::NO_IMG_SELECTED).into();
+            return text(strs::NO_IMG_SELECTED).into();
         };
 
         loaded.view(self.scroll_offset).map(Message::Loaded)
@@ -126,7 +122,7 @@ impl App {
             Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
         Column::with_children([
             self.toolbar(),
-            widget::scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
+            scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
         ])
         .spacing(u32::from(PADDING))
         .padding(PADDING)
@@ -136,7 +132,7 @@ impl App {
     fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::SelectImage => {
-                if let TryPoll::Pending(_) = self.img {
+                if let Poll::Pending(_) = self.img {
                     return Task::none();
                 }
 
@@ -149,7 +145,7 @@ impl App {
             Message::ImageLoaded(res) => {
                 let mut res = res.lock().unwrap();
                 let res = mem::replace(&mut *res, Err(eyre!("message taken")));
-                self.img = Poll::Ready(res);
+                self.img = Poll::Ready(res.map_err(|err| err.to_string()));
                 Task::none()
             }
             Message::Loaded(msg) => {

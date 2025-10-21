@@ -7,7 +7,6 @@ use iced::{
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
-
 pub(crate) type TryPoll<Ready, Pending = ()> = Poll<Result<Ready, eyre::Report>, Pending>;
 
 #[derive(Debug, Clone)]
@@ -36,12 +35,12 @@ impl<Ready: Default, Pending> Default for Poll<Ready, Pending> {
     }
 }
 
-impl<Ready, Pending> TryPoll<Ready, Pending> {
+impl<Ready, Err, Pending> Poll<Result<Ready, Err>, Pending> {
     pub(crate) fn as_ready_ok(&self) -> Option<&Ready> {
-        if let TryPoll::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
     pub(crate) fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
-        if let TryPoll::Ready(Ok(ready)) = self { Some(ready) } else { None }
+        if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
 }
 

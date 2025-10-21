@@ -79,15 +79,18 @@ impl Renderer {
         }
     }
     pub(crate) fn render(&mut self, c: char, px_size: f32) -> RgbaImage {
-        let glyph_id = self.font.charmap().map(c);
-        // Rasterize glyph
-        let mut scaler = self.ctx.builder(self.font).size(px_size).hint(true).build();
-        let Some(img) =
-            Render::new(&[Source::Outline]).format(Format::Subpixel).render(&mut scaler, glyph_id)
-        else {
-            panic!("outline should exist for glyph {glyph_id}");
-        };
-        RgbaImage::from_raw(img.placement.width, img.placement.height, img.data).unwrap()
+        self.render_into(c, px_size);
+        let width = self.image.placement.width;
+        let height = self.image.placement.height;
+        let mut rgba = RgbaImage::new(width, height);
+        let data = &self.image.data;
+
+        for (src, dst) in data.iter().zip(rgba.pixels_mut()) {
+            *dst = Rgba([0, 0, 0, *src]); // black text, alpha from coverage
+        }
+
+        self.image.clear();
+        rgba
     }
 }
 

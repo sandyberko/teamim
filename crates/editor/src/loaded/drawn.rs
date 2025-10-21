@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-
+use ::image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
+use ::tap::prelude::*;
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
     Color, Element, Font, Point, Subscription, Task, Vector,
@@ -10,19 +10,29 @@ use iced::{
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{button, mouse_area, text},
+    widget::{button, image, image::Handle, mouse_area, text},
 };
-use image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
-use teamim::{DiacResult, DiacResultKind, glyph::SPACED, tesseract_ext::bounding_box::Rect};
+use std::{
+    ffi::CStr,
+    sync::{Arc, Mutex},
+};
+use teamim::{
+    DATAPATH, DiacResult, DiacResultKind, PositStatus, leptonica_ext::PixBox,
+    tesseract_ext::bounding_box::Rect,
+};
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
+    img::Img,
     loaded::Transform,
     stage, strs,
     task::{Poll, TryPoll},
+    with_tctx,
 };
+
+pub type PollDraw = Poll<Result<Arc<[RenderedDiac]>, Arc<eyre::Report>>, PositStatus>;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -44,15 +54,29 @@ struct Place {
 }
 
 #[derive(Debug)]
+pub(super) struct RenderedDiac {
+    diac: char,
+    kind: DiacResultKind,
+    img: Handle,
+}
+
+impl RenderedDiac {
+    fn as_pos(&self) -> Option<(char, Rect<u32>)> {
+        let DiacResultKind::Pos(rect) = self.kind else { return None };
+        Some((self.diac, rect))
+    }
+}
+
+#[derive(Debug)]
 pub struct Drawn {
-    results: Vec<DiacResult>,
+    diacs: Arc<[RenderedDiac]>,
     saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
     place_diac: TryPoll<Option<Place>>,
 }
 
 impl Drawn {
-    pub fn new(results: Vec<DiacResult>) -> Self {
-        Self { results, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) }
+    pub fn new(diacs: Arc<[RenderedDiac]>) -> Self {
+        Self { diacs, saving: Poll::Ready(Ok(())), place_diac: Poll::Ready(Ok(None)) }
     }
 
     pub fn update(&mut self, msg: Message) -> Task<Message> {
@@ -61,11 +85,12 @@ impl Drawn {
                 // trigger
                 Poll::Pending(SaveStatus::Trigger(img, transform)) => Task::stream(
                     channel(1, {
-                        let positions = self.results.clone();
+                        let positions = Arc::clone(&self.diacs);
                         async move |mut tx| {
+                            let positions = positions.iter().filter_map(RenderedDiac::as_pos);
                             let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
                             let result =
-                                save(img, &positions, transform, report).await.map_err(Arc::new);
+                                save(img, positions, transform, report).await.map_err(Arc::new);
                             _ = tx.try_send(Poll::Ready(result));
                         }
                     })
@@ -81,7 +106,7 @@ impl Drawn {
                 }
             },
             Message::PlaceMode(diac_idx) => {
-                let diac = self.results[diac_idx].diacritic.to_string().into();
+                let diac = self.diacs[diac_idx].diac.to_string().into();
                 self.place_diac =
                     TryPoll::Ready(Ok(Some(Place { diac_idx, diac, position: None })));
                 Task::none()
@@ -146,15 +171,10 @@ impl Drawn {
                 })
                 .into_iter(),
             // positioned
-            self.results.iter().filter_map(|pos| {
+            self.diacs.iter().filter_map(|pos| {
                 let DiacResultKind::Pos(rect) = pos.kind else { return None };
-                let spaced = SPACED.get(&pos.diacritic).copied().unwrap_or("?");
                 Some((
-                    text(spaced)
-                        .color(Color::from_rgb(1., 0., 0.))
-                        .size(FONT_SIZE * zoom)
-                        .font(Font::with_name("Guttman Stam"))
-                        .into(),
+                    image(pos.img.clone()).into(),
                     #[expect(clippy::cast_precision_loss)]
                     [rect.left, rect.top].map(|coord| coord as f32 * zoom).into(),
                 ))
@@ -167,10 +187,12 @@ impl Drawn {
     }
 
     pub(crate) fn misses_view(&self, zoom: f32) -> Element<'_, Message> {
-        stage(self.results.iter().enumerate().filter_map(|(result_idx, result)| {
-            let DiacResultKind::Miss(miss) = &result.kind else { return None };
+        stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
+            let DiacResultKind::Miss(miss) = &result.kind else {
+                return None;
+            };
             Some((
-                button(text(miss.missing_text.as_ref()).size(48.0 * zoom))
+                button(text(&miss.missing_text).size(48.0 * zoom))
                     .on_press_maybe(
                         if let Some(place) = self.place_diac.as_ready_ok().and_then(Option::as_ref)
                             && place.diac_idx == result_idx
@@ -223,7 +245,7 @@ impl Drawn {
 
 async fn save(
     img: NamedImg,
-    positions: &[DiacResult],
+    positions: impl IntoIterator<Item = (char, Rect<u32>)>,
     transform: Transform,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
@@ -257,12 +279,14 @@ async fn save(
     Ok(())
 }
 
-fn render(positions: &[DiacResult], transform: Transform, img: &mut RgbaImage) {
+fn render(
+    positions: impl IntoIterator<Item = (char, Rect<u32>)>,
+    transform: Transform,
+    img: &mut RgbaImage,
+) {
     let mut renderer = diac_renderer::Renderer::new();
-    for diac in positions {
-        let DiacResultKind::Pos(rect) = diac.kind else { continue };
-
-        // debug
+    for (diac, rect) in positions {
+        // DEBUG
         draw_red_rectangle(img, rect);
 
         let Rect { left, bottom, .. } = rect;
@@ -274,7 +298,7 @@ fn render(positions: &[DiacResult], transform: Transform, img: &mut RgbaImage) {
         // };
 
         // [TODO] cache, optimize
-        renderer.draw_glyph(img, diac.diacritic, [left, bottom], FONT_SIZE * transform.zoom);
+        renderer.draw_glyph(img, diac, [left, bottom], FONT_SIZE * transform.zoom);
     }
 }
 
@@ -299,4 +323,29 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
 
         img.put_pixel(right - 1, y, red);
     }
+}
+pub(super) fn posit_diacs(
+    img: &Img,
+    datapath: &CStr,
+    progress_callback: impl Fn(PositStatus),
+) -> eyre::Result<Arc<[RenderedDiac]>> {
+    let mut renderer = diac_renderer::Renderer::new();
+    PixBox::from_rgba8_with(
+        &mut img.pixels.to_vec(),
+        img.width.try_into()?,
+        img.height.try_into()?,
+        |img| {
+            with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))
+        },
+    )???
+    .into_iter()
+    .map(|(diac, kind)| RenderedDiac {
+        diac,
+        kind,
+        img: renderer
+            .render(diac, FONT_SIZE)
+            .pipe(|img| Handle::from_rgba(img.width(), img.height(), img.into_raw())),
+    })
+    .collect::<Arc<[_]>>()
+    .pipe(Ok)
 }

@@ -36,20 +36,15 @@ const LANG: &CStr = c"stam";
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
 
-#[derive(Debug, Clone)]
-pub struct DiacResult {
-    pub letter: char,
-    pub diacritic: char,
-    pub kind: DiacResultKind,
-}
+pub type DiacResult = (char, DiacResultKind);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiacMiss {
     pub top: u32,
-    pub missing_text: Arc<str>,
+    pub missing_text: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum DiacResultKind {
     Pos(Rect<u32>),
     Miss(DiacMiss),
@@ -207,12 +202,12 @@ impl TeamimCtx {
                     let post = remapper
                         .slice_new(range.end..new.len().min(range.end + 6))
                         .ok_or_eyre("invalid range")?;
-                    let missing_text = format!("{pre}{diacritic}{post}").into();
+                    let missing_text = format!("{pre}{diacritic}{post}");
                     let top = last_diacrit_top;
                     DiacResultKind::Miss(DiacMiss { top, missing_text })
                 }
             };
-            res.push(DiacResult { letter, diacritic, kind: result });
+            res.push((diacritic, result));
         }
         Ok(res)
     }

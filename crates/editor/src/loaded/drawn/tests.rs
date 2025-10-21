@@ -1,22 +1,32 @@
-use std::io::Cursor;
+use std::{
+    ffi::CStr,
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
+use ::tap::prelude::*;
 use editor::stage;
 use iced::{
-    Element, Point, Task,
-    widget::{image::Handle, stack},
+    Border, Color, Element, Point, Task,
+    widget::{container, container::Style, image::Handle, scrollable, stack},
 };
-use image::{ImageFormat, ImageReader, RgbaImage};
-use teamim::leptonica_ext::PixBox;
+use image::{ImageBuffer, ImageFormat, ImageReader, Rgba, RgbaImage};
+use teamim::{DiacResultKind, leptonica_ext::PixBox};
 
 use crate::{
-    FONT_SIZE, diac_renderer,
+    App, FONT_SIZE, NamedImg, diac_renderer,
     img::ImgHandle,
+    load_image,
     loaded::{
-        self, Transform,
-        drawn::{Drawn, render},
+        self, LoadedImage, Transform,
+        drawn::{Drawn, RenderedDiac, render},
     },
+    run_app,
+    task::Poll,
     with_tctx,
 };
+const DATAPATH: &CStr = c"../../assets/tessdata/";
 
 #[test]
 fn save_test() -> eyre::Result<()> {
@@ -24,13 +34,24 @@ fn save_test() -> eyre::Result<()> {
     let width = buf.width().try_into()?;
     let height = buf.height().try_into()?;
     let results = PixBox::from_rgba8_with(&mut buf, width, height, |img| {
-        with_tctx(loaded::tests::DATAPATH, |ctx| {
-            ctx.positions(img, |status| eprintln!("{status:?}"))
-        })
+        with_tctx(DATAPATH, |ctx| ctx.positions(img, |status| eprintln!("{status:?}")))
     })???;
-    render(&results, Transform::default(), &mut buf);
+    render(
+        results.iter().filter_map(|(diac, res)| {
+            if let DiacResultKind::Pos(rect) = res { Some((*diac, *rect)) } else { None }
+        }),
+        Transform::default(),
+        &mut buf,
+    );
     buf.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
     Ok(())
+}
+fn red_frame<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content)
+        .style(|_| {
+            Style::default().border(Border::default().color(Color::from_rgb8(0xFF, 0, 0)).width(2))
+        })
+        .into()
 }
 
 #[test]
@@ -43,32 +64,65 @@ fn diac_view() -> eyre::Result<()> {
     }
     impl DiacState {
         fn view(&self) -> Element<'_, ()> {
-            stack([
+            scrollable(stack([
                 self.img.view(self.opts.zoom),
-                stage([(self.diac.view(self.opts.zoom), Point::new(50., 50.))]).into(),
-            ])
+                red_frame(stage([(
+                    red_frame(self.diac.view(self.opts.zoom)),
+                    Point::new(50., 50.),
+                )])),
+            ]))
             .into()
         }
+
         fn update(&mut self, (): ()) -> Task<()> {
             Task::none()
         }
 
         fn boot() -> Self {
             let buf = image().unwrap();
+            let img = buf.into();
+
             let mut renderer = diac_renderer::Renderer::new();
             let opts = Transform::default();
-            let diac = renderer.render('\u{0591}', FONT_SIZE * opts.zoom).into();
-            let img = buf.into();
+            let size = FONT_SIZE * opts.zoom;
+            let diac = renderer.render('\u{0591}', size).into();
             DiacState { img, diac, opts }
         }
     }
 
-    iced::application(DiacState::boot, DiacState::update, DiacState::view).run();
+    iced::application(DiacState::boot, DiacState::update, DiacState::view).run()?;
     Ok(())
 }
 
+macro_rules! img_path {
+    () => {
+        "../../../../../assets/images/N5/007.jpg"
+    };
+}
 fn image() -> eyre::Result<RgbaImage> {
-    let bytes = include_bytes!("../../../../../assets/images/N5/007.jpg");
+    let bytes = include_bytes!(img_path!());
     let buf = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Jpeg).decode()?.to_rgba8();
     Ok(buf)
+}
+
+#[test]
+fn view() -> eyre::Result<()> {
+    fn load() -> eyre::Result<LoadedImage> {
+        let mut loaded = LoadedImage::new(NamedImg {
+            path: img_path!().to_owned().conv::<PathBuf>().into(),
+            img: image()?.into(),
+        });
+        let results = super::posit_diacs(&loaded.img().img(), DATAPATH, |progress| {
+            eprintln!("{progress:?}")
+        })?;
+        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
+        Ok(loaded)
+    }
+    let boot_fn = || App {
+        img: Poll::Ready(load().map_err(|err| err.to_string()).map(Some)),
+        ..App::default()
+    };
+    run_app(boot_fn)?;
+
+    Ok(())
 }
