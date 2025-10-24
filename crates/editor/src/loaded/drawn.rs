@@ -327,6 +327,7 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
 pub(super) fn posit_diacs(
     img: &Img,
     datapath: &CStr,
+    zoom: f32,
     progress_callback: impl Fn(PositStatus),
 ) -> eyre::Result<Arc<[RenderedDiac]>> {
     let mut renderer = diac_renderer::Renderer::new();
@@ -343,7 +344,7 @@ pub(super) fn posit_diacs(
         diac,
         kind,
         img: renderer
-            .render(diac, FONT_SIZE)
+            .render(diac, FONT_SIZE * zoom)
             .pipe(|img| Handle::from_rgba(img.width(), img.height(), img.into_raw())),
     })
     .collect::<Arc<[_]>>()

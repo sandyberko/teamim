@@ -134,6 +134,7 @@ impl LoadedImage {
     }
 
     fn posit_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
+        let zoom = self.zoom;
         match msg {
             Poll::Pending(PositStatus::Pending) => {
                 self.drawing = Poll::Pending(PositStatus::Pending);
@@ -146,7 +147,7 @@ impl LoadedImage {
                         }
                     };
                     let result = spawn_blocking(move || {
-                        drawn::posit_diacs(&img, DATAPATH, progress_callback)
+                        drawn::posit_diacs(&img, DATAPATH, zoom, progress_callback)
                     })
                     .await
                     .expect("blocking task to finish");

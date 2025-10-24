@@ -112,7 +112,7 @@ fn view() -> eyre::Result<()> {
             path: img_path!().to_owned().conv::<PathBuf>().into(),
             img: image()?.into(),
         });
-        let results = super::posit_diacs(&loaded.img().img(), DATAPATH, |progress| {
+        let results = super::posit_diacs(&loaded.img().img(), DATAPATH, 0.4, |progress| {
             eprintln!("{progress:?}")
         })?;
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));

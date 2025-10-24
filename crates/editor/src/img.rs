@@ -42,8 +42,8 @@ impl ImgHandle {
 
     pub(crate) fn view<'a, Message>(&self, zoom: f32) -> Element<'a, Message> {
         widget::Image::new(&self.handle)
-            // .height(AsPrimitive::<f32>::as_(self.img.height) * zoom)
-            // .width(AsPrimitive::<f32>::as_(self.img.width) * zoom)
+            .height(AsPrimitive::<f32>::as_(self.img.height) * zoom)
+            .width(AsPrimitive::<f32>::as_(self.img.width) * zoom)
             .into()
     }
 }

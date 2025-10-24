@@ -86,7 +86,7 @@ impl Renderer {
         let data = &self.image.data;
 
         for (src, dst) in data.iter().zip(rgba.pixels_mut()) {
-            *dst = Rgba([0, 0, 0, *src]); // black text, alpha from coverage
+            *dst = Rgba([0xFF, 0, 0, *src]); // black text, alpha from coverage
         }
 
         self.image.clear();
