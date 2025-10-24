@@ -20,7 +20,7 @@ use crate::{
     load_image,
     loaded::{
         self, LoadedImage, Transform,
-        drawn::{Drawn, RenderedDiac, render},
+        drawn::{Drawn, RenderedDiac, overlay_diacs, render_diacs},
     },
     run_app,
     task::Poll,
@@ -31,15 +31,8 @@ const DATAPATH: &CStr = c"../../assets/tessdata/";
 #[test]
 fn save_test() -> eyre::Result<()> {
     let mut img = image()?;
-    let results =
-        with_tctx(DATAPATH, |ctx| ctx.positions(&img, |status| eprintln!("{status:?}")))??;
-    render(
-        results.iter().filter_map(|(diac, res)| {
-            if let DiacResultKind::Pos(rect) = res { Some((*diac, *rect)) } else { None }
-        }),
-        Transform::default(),
-        &mut img,
-    );
+    let results = render_diacs(&img, DATAPATH, |status| eprintln!("{status:?}"))?;
+    overlay_diacs(&results, Transform::default(), &mut img);
     img.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
     Ok(())
 }
@@ -109,10 +102,10 @@ fn view() -> eyre::Result<()> {
             path: img_path!().to_owned().conv::<PathBuf>().into(),
             img: image()?.into(),
         });
-        let results = super::posit_diacs(&loaded.img().img(), DATAPATH, 0.4, |progress| {
+        let results = super::render_diacs(&loaded.img().img(), DATAPATH, |progress| {
             eprintln!("{progress:?}")
         })?;
-        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
+        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results.into()))));
         Ok(loaded)
     }
     let boot_fn = || App {

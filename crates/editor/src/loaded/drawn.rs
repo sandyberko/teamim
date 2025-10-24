@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-use ::image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer};
+use ::image::{
+    ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer, imageops::overlay,
+};
 use ::tap::prelude::*;
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
@@ -15,6 +17,7 @@ use iced::{
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
 use std::{
+    borrow::Borrow,
     ffi::CStr,
     ops::Deref,
     sync::{Arc, Mutex},
@@ -25,6 +28,7 @@ use teamim::{
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
+    img::ImgHandle,
     loaded::Transform,
     stage, strs,
     task::{Poll, TryPoll},
@@ -56,7 +60,7 @@ struct Place {
 pub(super) struct RenderedDiac {
     diac: char,
     kind: DiacResultKind,
-    img: Handle,
+    img: ImgHandle,
 }
 
 impl RenderedDiac {
@@ -86,10 +90,9 @@ impl Drawn {
                     channel(1, {
                         let positions = Arc::clone(&self.diacs);
                         async move |mut tx| {
-                            let positions = positions.iter().filter_map(RenderedDiac::as_pos);
                             let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
                             let result =
-                                save(img, positions, transform, report).await.map_err(Arc::new);
+                                save(img, &*positions, transform, report).await.map_err(Arc::new);
                             _ = tx.try_send(Poll::Ready(result));
                         }
                     })
@@ -173,7 +176,7 @@ impl Drawn {
             self.diacs.iter().filter_map(|pos| {
                 let DiacResultKind::Pos(rect) = pos.kind else { return None };
                 Some((
-                    image(pos.img.clone()).into(),
+                    pos.img.view(zoom),
                     #[expect(clippy::cast_precision_loss)]
                     [rect.left, rect.top].map(|coord| coord as f32 * zoom).into(),
                 ))
@@ -242,9 +245,9 @@ impl Drawn {
     }
 }
 
-async fn save(
+async fn save<'d>(
     img: NamedImg,
-    positions: impl IntoIterator<Item = (char, Rect<u32>)>,
+    positions: impl IntoIterator<Item = &'d RenderedDiac>,
     transform: Transform,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
@@ -264,7 +267,7 @@ async fn save(
     let (width, height) = img.dimensions();
     // [TODO] try not to clone
     let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
-    render(positions, transform, &mut img);
+    overlay_diacs(positions, transform, &mut img);
 
     progress(SaveStatus::Writing);
     let format = ImageFormat::from_path(file.path())?;
@@ -279,26 +282,14 @@ async fn save(
     Ok(())
 }
 
-fn render(
-    positions: impl IntoIterator<Item = (char, Rect<u32>)>,
+fn overlay_diacs<'d>(
+    positions: impl IntoIterator<Item = &'d RenderedDiac>,
     transform: Transform,
     img: &mut RgbaImage,
 ) {
-    let mut renderer = diac_renderer::Renderer::new();
-    for (diac, rect) in positions {
-        // DEBUG
-        draw_red_rectangle(img, rect);
-
-        let Rect { left, bottom, .. } = rect;
-        // let pos = match GLYPHS[&diac.diacritic].placement {
-        //     Placement::Top => [left, top],
-        //     Placement::Bottom => [left, bottom],
-        //     // [TODO]
-        //     Placement::After => [left - FONT_SIZE as i32 / 2, top],
-        // };
-
-        // [TODO] cache, optimize
-        renderer.draw_glyph(img, diac, [left, bottom], FONT_SIZE * transform.zoom);
+    for diac in positions {
+        let DiacResultKind::Pos(rect) = diac.kind else { continue };
+        overlay(img, &diac.img.img(), rect.left.into(), rect.top.into());
     }
 }
 
@@ -324,22 +315,19 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
         img.put_pixel(right - 1, y, red);
     }
 }
-pub(super) fn posit_diacs(
+pub(super) fn render_diacs(
     img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
     datapath: &CStr,
-    zoom: f32,
     progress_callback: impl Fn(PositStatus),
-) -> eyre::Result<Arc<[RenderedDiac]>> {
+) -> eyre::Result<Vec<RenderedDiac>> {
     let mut renderer = diac_renderer::Renderer::new();
     with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))??
         .into_iter()
         .map(|(diac, kind)| RenderedDiac {
             diac,
             kind,
-            img: renderer
-                .render(diac, FONT_SIZE * zoom)
-                .pipe(|img| Handle::from_rgba(img.width(), img.height(), img.into_raw())),
+            img: renderer.render(diac, FONT_SIZE).into(),
         })
-        .collect::<Arc<[_]>>()
+        .collect::<Vec<_>>()
         .pipe(Ok)
 }

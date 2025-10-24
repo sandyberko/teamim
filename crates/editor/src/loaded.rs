@@ -87,7 +87,7 @@ impl LoadedImage {
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Draw(msg) => self.posit_diacs(msg),
+            Message::Draw(msg) => self.render_diacs(msg),
             Message::Drawn(msg) => {
                 self.drawn_mut().map_or(Task::none(), |drawn| drawn.update(msg)).map(Message::Drawn)
             }
@@ -133,8 +133,7 @@ impl LoadedImage {
         self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img.img)
     }
 
-    fn posit_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
-        let zoom = self.zoom;
+    fn render_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
         match msg {
             Poll::Pending(PositStatus::Pending) => {
                 self.drawing = Poll::Pending(PositStatus::Pending);
@@ -147,11 +146,11 @@ impl LoadedImage {
                         }
                     };
                     let result = spawn_blocking(move || {
-                        drawn::posit_diacs(&img, DATAPATH, zoom, progress_callback)
+                        drawn::render_diacs(&img, DATAPATH, progress_callback)
                     })
                     .await
                     .expect("blocking task to finish");
-                    _ = tx.try_send(Poll::Ready(result.map_err(Arc::new)));
+                    _ = tx.try_send(Poll::Ready(result.map(Arc::from).map_err(Arc::new)));
                 }))
                 .map(Message::Draw)
             }
