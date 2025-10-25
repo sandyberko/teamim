@@ -12,7 +12,7 @@ use iced::{
     widget::{container, container::Style, image::Handle, scrollable, stack},
 };
 use image::{ImageBuffer, ImageFormat, ImageReader, Rgba, RgbaImage};
-use teamim::{DiacResultKind, leptonica_ext::PixBox};
+use teamim::DiacResultKind;
 
 use crate::{
     App, FONT_SIZE, NamedImg, diac_renderer,
@@ -30,20 +30,17 @@ const DATAPATH: &CStr = c"../../assets/tessdata/";
 
 #[test]
 fn save_test() -> eyre::Result<()> {
-    let mut buf = image()?;
-    let width = buf.width().try_into()?;
-    let height = buf.height().try_into()?;
-    let results = PixBox::from_rgba8_with(&mut buf, width, height, |img| {
-        with_tctx(DATAPATH, |ctx| ctx.positions(img, |status| eprintln!("{status:?}")))
-    })???;
+    let mut img = image()?;
+    let results =
+        with_tctx(DATAPATH, |ctx| ctx.positions(&img, |status| eprintln!("{status:?}")))??;
     render(
         results.iter().filter_map(|(diac, res)| {
             if let DiacResultKind::Pos(rect) = res { Some((*diac, *rect)) } else { None }
         }),
         Transform::default(),
-        &mut buf,
+        &mut img,
     );
-    buf.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
+    img.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
     Ok(())
 }
 fn red_frame<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {

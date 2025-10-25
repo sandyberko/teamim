@@ -16,16 +16,15 @@ use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
 use std::{
     ffi::CStr,
+    ops::Deref,
     sync::{Arc, Mutex},
 };
 use teamim::{
-    DATAPATH, DiacResult, DiacResultKind, PositStatus, leptonica_ext::PixBox,
-    tesseract_ext::bounding_box::Rect,
+    DATAPATH, DiacResult, DiacResultKind, PositStatus, tesseract_ext::bounding_box::Rect,
 };
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
-    img::Img,
     loaded::Transform,
     stage, strs,
     task::{Poll, TryPoll},
@@ -249,21 +248,22 @@ async fn save(
     transform: Transform,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
-    let path = img.path;
-    let mut img = img.img.img().to_rgba();
-
     progress(SaveStatus::SelectingFile);
     // [TODO]
     let mut dialog = AsyncFileDialog::new().set_title(strs::SAVE).add_filter("image", IMG_EXTS);
-    if let Some(dir) = path.parent() {
+    if let Some(dir) = img.path.parent() {
         dialog = dialog.set_directory(dir);
     }
-    if let Some(file_name) = path.file_name() {
+    if let Some(file_name) = img.path.file_name() {
         dialog = dialog.set_file_name(file_name.to_str().ok_or_eyre("שם הקובץ לא תקין")?);
     }
     let file = dialog.save_file().await.ok_or_eyre("שמירה בוטלה")?;
 
     progress(SaveStatus::Rendering);
+    let img = img.img.img();
+    let (width, height) = img.dimensions();
+    // [TODO] try not to clone
+    let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
     render(positions, transform, &mut img);
 
     progress(SaveStatus::Writing);
@@ -325,28 +325,21 @@ pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
     }
 }
 pub(super) fn posit_diacs(
-    img: &Img,
+    img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
     datapath: &CStr,
     zoom: f32,
     progress_callback: impl Fn(PositStatus),
 ) -> eyre::Result<Arc<[RenderedDiac]>> {
     let mut renderer = diac_renderer::Renderer::new();
-    PixBox::from_rgba8_with(
-        &mut img.pixels.to_vec(),
-        img.width.try_into()?,
-        img.height.try_into()?,
-        |img| {
-            with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))
-        },
-    )???
-    .into_iter()
-    .map(|(diac, kind)| RenderedDiac {
-        diac,
-        kind,
-        img: renderer
-            .render(diac, FONT_SIZE * zoom)
-            .pipe(|img| Handle::from_rgba(img.width(), img.height(), img.into_raw())),
-    })
-    .collect::<Arc<[_]>>()
-    .pipe(Ok)
+    with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))??
+        .into_iter()
+        .map(|(diac, kind)| RenderedDiac {
+            diac,
+            kind,
+            img: renderer
+                .render(diac, FONT_SIZE * zoom)
+                .pipe(|img| Handle::from_rgba(img.width(), img.height(), img.into_raw())),
+        })
+        .collect::<Arc<[_]>>()
+        .pipe(Ok)
 }

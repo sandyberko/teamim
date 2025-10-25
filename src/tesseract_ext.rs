@@ -5,14 +5,14 @@ use std::{
     ffi::{CStr, c_char},
     fmt::{Debug, Display},
     mem::MaybeUninit,
+    ops::Deref,
     ptr::{self, NonNull},
 };
 
 use bounding_box::{BoundingBox, Rect};
 use eyre::{OptionExt, bail};
+use image::{GenericImage, ImageBuffer, Rgba};
 use tesseract_sys as capi;
-
-use crate::leptonica_ext::{Boxes, PixBox};
 
 #[derive(Copy, Clone)]
 #[cfg_attr(not(target_os = "windows"), repr(u32))]
@@ -83,8 +83,19 @@ impl Tess {
         ResultIter { raw: NonNull::new(iter_ptr).unwrap(), level, is_first: true }
     }
 
-    pub fn set_image(&mut self, img: &mut PixBox) {
-        unsafe { capi::TessBaseAPISetImage2(self.raw.as_ptr(), img.as_mut_ptr()) }
+    pub fn set_image(&mut self, img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>) {
+        let width = img.width().try_into().unwrap();
+        let height = img.height().try_into().unwrap();
+        unsafe {
+            capi::TessBaseAPISetImage(
+                self.raw.as_ptr(),
+                img.as_raw().as_ptr(),
+                width,
+                height,
+                4,
+                4 * width,
+            )
+        }
     }
 
     pub fn recognize(&mut self) -> eyre::Result<()> {
@@ -93,23 +104,6 @@ impl Tess {
             bail!("failed to recognize: {err:x}");
         }
         Ok(())
-    }
-
-    pub fn get_component_images(
-        &self,
-        level: PageIteratorLevel,
-        text_only: bool,
-    ) -> eyre::Result<Boxes> {
-        let ptr = unsafe {
-            capi::TessBaseAPIGetComponentImages(
-                self.raw.as_ptr(),
-                level as _,
-                text_only.into(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
-        };
-        NonNull::new(ptr).ok_or_eyre("failed to get component images").map(Boxes)
     }
 
     pub fn get_text(&self) -> eyre::Result<Text> {

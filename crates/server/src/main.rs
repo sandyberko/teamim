@@ -21,8 +21,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 use teamim::{
-    DATAPATH, MismatchError, PlaceError, PlaceOptions, place_teamim,
-    tesseract_ext::bounding_box::parse_char_box, training_diff::Div,
+    DATAPATH, MismatchError, PlaceError, PlaceOptions, tesseract_ext::bounding_box::parse_char_box,
+    training_diff::Div,
 };
 use teamim_markup::render_div;
 use thiserror::Error;
@@ -64,8 +64,6 @@ async fn serve() -> eyre::Result<()> {
         .nest(
             "/api",
             Router::new()
-                .route("/recognize", post(post_recognize))
-                .route("/recognizeTraining", post(post_recognize_training))
                 .route("/diff", post(post_diff))
                 .route("/diffIndex", get(get_diff_index))
                 .route("/saveDiff", post(save_diff)),
@@ -161,36 +159,6 @@ impl IntoResponse for RecognizeError {
             }
         }
     }
-}
-#[axum::debug_handler]
-async fn post_recognize(
-    State(state): State<AppState>,
-    image: Bytes,
-) -> Result<impl IntoResponse, RecognizeError> {
-    if image.is_empty() {
-        return Err(RecognizeError::EmptyImage);
-    }
-    let box_file = state.ctx.lock().map_err(|_| eyre!("lock ctx"))?.recognize(&image)?;
-
-    let headers = [(header::CONTENT_TYPE, HeaderValue::from_static("text/tesseract-lstm-box"))]
-        .into_iter()
-        .collect::<HeaderMap>();
-    Ok((headers, box_file))
-}
-
-#[axum::debug_handler]
-async fn post_recognize_training(
-    State(state): State<AppState>,
-    image: Bytes,
-) -> Result<Markup, RecognizeError> {
-    if image.is_empty() {
-        return Err(RecognizeError::EmptyImage);
-    }
-    let (tess_box, width, height) =
-        state.ctx.lock().map_err(|err| eyre!("lock error: {err}"))?.recognize_training(&image)?;
-    let width = width.try_into().unwrap();
-    let height = height.try_into().unwrap();
-    Ok(render_div(Div { width, height, tess_box }))
 }
 
 #[derive(Serialize)]

@@ -1,6 +1,6 @@
 pub mod fuzzy_find;
 pub mod glyph;
-pub mod leptonica_ext;
+
 pub mod tesseract_ext;
 pub mod training_diff;
 
@@ -9,13 +9,14 @@ use std::{
     ffi::{CStr, CString},
     fmt::Write as _,
     fs,
+    ops::Deref,
     path::Path,
     sync::{Arc, LazyLock},
 };
 
 use eyre::{OptionExt, WrapErr, bail, eyre};
 use glyph::{GLYPHS, Placement};
-use leptonica_ext::{Buf, PixBox as Pix};
+use image::{ImageBuffer, Rgba};
 use serde::Serialize;
 use similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper};
 use tesseract_ext::{
@@ -25,10 +26,7 @@ use tesseract_ext::{
 use thiserror::Error;
 use training_diff::BoundingBoxDiff;
 
-use crate::{
-    glyph::{MAQAF, SOF_PASUQ},
-    leptonica_ext::BoxGeometry,
-};
+use crate::glyph::{MAQAF, SOF_PASUQ};
 
 pub const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
@@ -83,58 +81,20 @@ impl TeamimCtx {
 
     pub fn file_boxes(
         &mut self,
-        img: impl AsRef<Path>,
+        img_path: impl AsRef<Path>,
     ) -> eyre::Result<(impl Iterator<Item = BoundingBox<Text>>, i32, i32)> {
-        let filename = CString::new(img.as_ref().to_str().ok_or_eyre("non-utf8 path")?)?;
-        let mut pix = Pix::read(&filename)?;
-        self.tess.set_image(&mut pix);
+        let img = image::open(img_path)?.to_rgba8();
+        let (width, height) = img.dimensions();
+        self.tess.set_image(&img);
         self.tess.recognize()?;
 
         let boxes = self.tess.results_iter(PageIteratorLevel::Textline);
-        Ok((boxes, pix.get_h(), pix.get_w()))
-    }
-
-    pub fn recognize(&mut self, img: &[u8]) -> eyre::Result<String> {
-        let mut pix = Pix::read_mem(img)?;
-        self.tess.set_image(&mut pix);
-        self.tess.recognize()?;
-
-        let mut w = String::new();
-        for result in self.tess.results_iter(PageIteratorLevel::Symbol) {
-            writeln!(&mut w, "{result}")?;
-        }
-        Ok(w)
-    }
-
-    pub fn recognize_training(
-        &mut self,
-        img: &[u8],
-    ) -> eyre::Result<(Vec<BoundingBoxDiff>, i32, i32)> {
-        let mut pix = Pix::read_mem(img)?;
-        self.tess.set_image(&mut pix);
-        self.tess.recognize()?;
-
-        // TODO is it already owned?
-        let ocr_text = self.tess.get_text()?;
-        let ocr_text = ocr_text.as_str()?.replace('\n', " ");
-
-        let truth_text = find_truth_text(&ocr_text).ok_or_eyre("not found")?;
-
-        let boxes = self.tess.results_iter(PageIteratorLevel::Textline).collect::<Vec<_>>();
-
-        let boxes =
-            boxes.iter().map(|bb| bb.with_value(bb.value.as_str().unwrap())).collect::<Vec<_>>();
-
-        let diff = training_diff::diff(boxes.as_ref(), &ocr_text, truth_text);
-
-        let w = pix.get_w();
-        let h = pix.get_h();
-        Ok((diff, w, h))
+        Ok((boxes, width.try_into().unwrap(), height.try_into().unwrap()))
     }
 
     pub fn positions(
         &mut self,
-        img: &mut Pix,
+        img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
     ) -> Result<Vec<DiacResult>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
@@ -213,7 +173,7 @@ impl TeamimCtx {
     }
     pub fn diff_boxes(
         &mut self,
-        img: &mut Pix,
+        img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
     ) -> Result<Vec<BoxDiffOp>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
@@ -408,162 +368,6 @@ pub enum PlaceError {
     Mismatch(MismatchError),
     #[error(transparent)]
     Other(#[from] eyre::Report),
-}
-
-pub fn place_teamim(
-    img: &[u8],
-    options: PlaceOptions,
-    text: &str,
-    boxes: impl IntoIterator<Item = eyre::Result<BoxGeometry>>,
-) -> Result<Buf, PlaceError> {
-    let mut img = Pix::read_mem(img)?;
-    img = img.into_32()?;
-
-    let consonants = fs::read_to_string("./assets/text/mam/consonants/torah.txt")
-        .wrap_err("failed to read consonants")?;
-    let text = text.trim();
-    let mut n = fuzzy_find::find(&consonants, text).ok_or(PlaceError::NotFound)?;
-
-    let mut chars_iter = text.chars().enumerate();
-    let mut cur_c: Option<(usize, char)> = None;
-    let mut cur_line = 0usize;
-    let mut cur_col = 0usize;
-    let mut boxes_iter = boxes.into_iter();
-    let mut cur_box: Option<BoxGeometry> = None;
-    let teamim = fs::read_to_string("./assets/text/mam/teamim/torah.txt")
-        .wrap_err("failed to read teamim")?;
-
-    'teamim: for (_, c_taam) in teamim.char_indices() {
-        match c_taam {
-            // Ta'am
-            '\u{0591}'..='\u{05AD}' | '\u{5bd}'..='\u{5bf}' | '\u{5c0}' | '\u{5c3}' | '\u{5c4}' => {
-                if n > 0 {
-                    continue;
-                }
-                // should be this, but doesn't work after skipping
-                // let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
-                let Some((_, cur_c)) = cur_c else {
-                    continue 'teamim;
-                };
-                let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                place_taam(&mut img, options, cur_c, cur_box, c_taam)?;
-            }
-            // text seems to mistakenly use tzinor instead of zarqa
-            '\u{05AE}' => {
-                if n > 0 {
-                    continue;
-                }
-                let (_, cur_c) = cur_c.ok_or_eyre("expected char")?;
-                let cur_box = cur_box.as_ref().ok_or_eyre("expected box")?;
-                place_taam(&mut img, options, cur_c, cur_box, '\u{0598}')?;
-            }
-            '\n' => {
-                cur_line += 1;
-                cur_col = 0;
-                continue;
-            }
-            // Niqqud
-            ('\u{05b0}'..='\u{05bc}') | '\u{05c1}' | '\u{05c2}' | '\u{05c7}' => continue,
-            _ if c_taam.is_whitespace() => continue,
-            // Letter - alef to tav
-            ('\u{05d0}'..='\u{05EA}') => {
-                cur_col += 1;
-                if n > 0 {
-                    n -= 1;
-                    continue;
-                }
-                cur_c = chars_iter.find(|(_, c)| !c.is_whitespace());
-                cur_box = boxes_iter.next().transpose()?;
-
-                let Some((box_number, cur_c)) = cur_c else {
-                    break 'teamim;
-                };
-                'mismatch: {
-                    if c_taam == cur_c {
-                        break 'mismatch;
-                    }
-
-                    return Err(PlaceError::Mismatch(MismatchError {
-                        box_number,
-                        expected: c_taam,
-                    }));
-                }
-            }
-            c => {
-                return Err(eyre!(
-                    "unexpected taaam_c: 0x{:x} {c:?} at {cur_line}:{cur_col}",
-                    c as u32
-                )
-                .into());
-            }
-        }
-    }
-    Ok(img.copy_to_png()?)
-}
-
-pub fn place_taam(
-    img: &mut Pix,
-    options: PlaceOptions,
-    cur_c: char,
-    cur_box: &BoxGeometry,
-    c_taam: char,
-) -> Result<(), eyre::Error> {
-    let Some(glyph) = GLYPHS.get(&c_taam) else {
-        bail!("no glyph for {c_taam:?} {:x}", c_taam as u32);
-    };
-
-    if !options.inline_diacs && glyph.placement == Placement::After {
-        return Ok(());
-    }
-
-    #[expect(clippy::cast_possible_truncation)]
-    glyph
-        .pix
-        .try_with(|pix| {
-            let mut scale_factor = options.scale;
-            if glyph.placement == Placement::After {
-                scale_factor *= 0.6;
-            }
-
-            // TODO don't clone
-            let pix = Pix::clone(pix).scale(scale_factor)?;
-
-            let g_margin_top = (6.0 * scale_factor) as i32;
-            let margin_top = (20.0 * scale_factor) as i32;
-            let (x, y) = {
-                let BoxGeometry { x, y, w, h } = *cur_box;
-                match glyph.placement {
-                    Placement::Top => (x, y - g_margin_top - margin_top),
-                    Placement::Bottom => (x, y + h - g_margin_top),
-                    Placement::After => {
-                        if glyph == &MAQAF {
-                            let lamed = if cur_c == 'ל' { h / 2 } else { 0 };
-                            (x - w - (5.0 * scale_factor) as i32, y + lamed - g_margin_top)
-                        } else if glyph == &SOF_PASUQ {
-                            (x - w - (3.0 * scale_factor) as i32, y - g_margin_top)
-                        } else {
-                            panic!("unexpected diacritic [א{c_taam}] placed after")
-                        }
-                    }
-                }
-            };
-
-            // debug
-            let w = pix.get_w();
-            let h = pix.get_h();
-            if options.debug_boxes {
-                img.render_box(&BoxGeometry { x, y, w, h }, 2, (0, 0, 255))?;
-            }
-
-            // + h ???
-            img.render_img(pix, x, y + h)
-        })?
-        .wrap_err("failed to render text")?;
-    if options.debug_boxes {
-        img.render_box(cur_box, 3, (0, 255, 0))
-            .wrap_err_with(|| format!("invalid box {cur_box:?} for {cur_c:?}"))?;
-    }
-    Ok(())
 }
 
 #[derive(Serialize)]

@@ -2,7 +2,7 @@ mod drawn;
 
 use crate::{
     FONT_SIZE, NamedImg, PADDING, diac_renderer,
-    img::{Img, ImgHandle},
+    img::ImgHandle,
     strs,
     task::{Poll, TryPoll},
     with_tctx,
@@ -26,7 +26,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tap::prelude::*;
-use teamim::{DATAPATH, DiacResult, PositStatus, leptonica_ext::PixBox};
+use teamim::{DATAPATH, DiacResult, PositStatus};
 use tokio::task::spawn_blocking;
 
 #[derive(Debug, Clone, Copy)]

@@ -30,8 +30,8 @@ thiserror = { workspace = true }
 similar = { version = "2.7.0", features = ["unicode"] }
 serde = { version = "1.0.217", features = ["derive"] }
 search = { version = "0.1.0", path = "crates/search" }
-leptonica-sys = "0.4.9"
 tesseract-sys = "0.6.3"
+image = { version = "0.25.8", default-features = false }
 
 
 [lints]
