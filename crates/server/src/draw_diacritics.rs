@@ -1,17 +1,9 @@
-use crate::{AppState, RenderTeamimError};
-use axum::{
-    Router,
-    extract::{Multipart, State},
-    response::IntoResponse,
-    routing::get,
+use {
+    axum::{Router, response::IntoResponse, routing::get},
+    maud::{DOCTYPE, Markup, html},
 };
-use base64::prelude::*;
-use bytes::Bytes;
-use eyre::{OptionExt, bail, eyre};
-use maud::{DOCTYPE, Markup, html};
-use teamim::PlaceOptions;
 
-pub(crate) fn router() -> Router<AppState> {
+pub(crate) fn router() -> Router {
     Router::new().route("/", get(get_index))
 }
 
@@ -62,29 +54,4 @@ async fn get_index() -> impl IntoResponse {
             }
         },
     )
-}
-
-#[derive(Default)]
-struct DiacriticOptions {
-    place: PlaceOptions,
-    image: Bytes,
-}
-
-impl DiacriticOptions {
-    async fn from_mutipart(data: &mut Multipart) -> eyre::Result<Self> {
-        let mut options = DiacriticOptions::default();
-
-        while let Some(field) = data.next_field().await? {
-            match field.name().ok_or_eyre("Missing field name")? {
-                "image" => options.image = field.bytes().await?,
-                "blur" => options.place.blur = field.text().await?.parse()?,
-                "contrast" => options.place.contrast = field.text().await?.parse()?,
-                "debug_boxes" => options.place.debug_boxes = field.text().await?.parse()?,
-                "inline_diacs" => options.place.inline_diacs = field.text().await?.parse()?,
-                name => bail!("Unexpected field: {name}"),
-            }
-        }
-
-        Ok(options)
-    }
 }

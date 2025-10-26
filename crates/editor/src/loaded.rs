@@ -1,14 +1,7 @@
 mod drawn;
 
-use crate::{
-    FONT_SIZE, NamedImg, PADDING, diac_renderer,
-    img::ImgHandle,
-    strs,
-    task::{Poll, TryPoll},
-    with_tctx,
-};
+use crate::{FONT_SIZE, NamedImg, PADDING, img::ImgHandle, strs, task::Poll};
 use drawn::Drawn;
-use eyre::{Context, eyre};
 use iced::{
     Element, Task,
     alignment::Vertical,
@@ -19,14 +12,9 @@ use iced::{
         text::{self, IntoFragment},
     },
 };
-use std::{
-    borrow::Cow,
-    iter::once,
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::{borrow::Cow, iter::once, sync::Arc};
 use tap::prelude::*;
-use teamim::{DATAPATH, DiacResult, PositStatus};
+use teamim::{DATAPATH, PositStatus};
 use tokio::task::spawn_blocking;
 
 #[derive(Debug, Clone, Copy)]
@@ -165,7 +153,7 @@ impl LoadedImage {
         }
     }
 
-    pub(crate) fn toolbar_view<'a>(&self, scroll_offset: AbsoluteOffset) -> Element<'a, Message> {
+    pub(crate) fn toolbar_view<'a>(&self) -> Element<'a, Message> {
         row([
             // blur
             slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0).into(),
@@ -184,10 +172,7 @@ impl LoadedImage {
             // drawn
             self.drawing.as_ready_ok().and_then(Option::as_ref).map(|drawn| {
                 drawn
-                    .toolbar_view(
-                        NamedImg { path: self.img.path.clone(), img: self.img().clone() },
-                        Transform { scroll_offset, zoom: self.zoom },
-                    )
+                    .toolbar_view(NamedImg { path: self.img.path.clone(), img: self.img().clone() })
                     .map(Message::Drawn)
             }),
         ))

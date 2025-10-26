@@ -1,14 +1,7 @@
-use std::{convert::identity, f32};
-
-use imageproc::{
-    definitions::{Clamp, Image},
-    drawing::Canvas,
-    image::{GenericImage, ImageBuffer, Pixel},
-    pixelops::weighted_sum,
+use {
+    ab_glyph::{Font, GlyphId, OutlinedGlyph, PxScale, Rect, ScaleFont, point},
+    imageproc::{definitions::Clamp, drawing::Canvas, image::Pixel, pixelops::weighted_sum},
 };
-
-use ab_glyph::{Font, GlyphId, OutlinedGlyph, PxScale, Rect, ScaleFont, point};
-
 fn layout_glyphs(
     scale: impl Into<PxScale> + Copy,
     font: &impl Font,
@@ -62,6 +55,12 @@ pub fn text_size(scale: impl Into<PxScale> + Copy, font: &impl Font, text: &str)
 /// `scale` is augmented font scaling on both the x and y axis (in pixels).
 ///
 /// Note that this function *does not* support newlines, you must do this manually.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 pub fn draw_text_mut<C>(
     canvas: &mut C,
     color: C::Pixel,
@@ -92,31 +91,6 @@ pub fn draw_text_mut<C>(
                 let weighted_color = weighted_sum(pixel, color, 1.0 - gv, gv);
                 canvas.draw_pixel(image_x, image_y, weighted_color);
             }
-        })
+        });
     });
-}
-
-/// Draws colored text on a new copy of an image.
-///
-/// `scale` is augmented font scaling on both the x and y axis (in pixels).
-///
-/// Note that this function *does not* support newlines, you must do this manually.
-#[must_use = "the function does not modify the original image"]
-pub fn draw_text<I>(
-    image: &I,
-    color: I::Pixel,
-    x: i32,
-    y: i32,
-    scale: impl Into<PxScale> + Copy,
-    font: &impl Font,
-    text: &str,
-) -> Image<I::Pixel>
-where
-    I: GenericImage,
-    <I::Pixel as Pixel>::Subpixel: Into<f32> + Clamp<f32>,
-{
-    let mut out = ImageBuffer::new(image.width(), image.height());
-    out.copy_from(image, 0, 0).unwrap();
-    draw_text_mut(&mut out, color, x, y, scale, font, text, identity);
-    out
 }

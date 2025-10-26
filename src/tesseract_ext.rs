@@ -11,7 +11,7 @@ use std::{
 
 use bounding_box::{BoundingBox, Rect};
 use eyre::{OptionExt, bail};
-use image::{GenericImage, ImageBuffer, Rgba};
+use image::{ImageBuffer, Rgba};
 use tesseract_sys as capi;
 
 #[derive(Copy, Clone)]
@@ -94,7 +94,7 @@ impl Tess {
                 height,
                 4,
                 4 * width,
-            )
+            );
         }
     }
 

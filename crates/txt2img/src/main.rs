@@ -209,7 +209,7 @@ where
         img.fill(u8::MAX);
 
         #[expect(
-            clippy::cast_possible_wrap,
+            clippy::cast_sign_loss,
             clippy::cast_possible_truncation,
             clippy::cast_precision_loss
         )]
@@ -230,9 +230,9 @@ where
                 };
                 let rect = Rect::new(
                     line_bounds.min.x.floor() as u32,
-                    ysize as u32 - line_bounds.max.y.ceil() as u32,
+                    ysize - line_bounds.max.y.ceil() as u32,
                     line_bounds.max.x.ceil() as u32,
-                    ysize as u32 - line_bounds.min.y.ceil() as u32,
+                    ysize - line_bounds.min.y.ceil() as u32,
                 );
                 self.last_rect = Some(rect);
 

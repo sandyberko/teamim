@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display, ops::Sub};
+use std::{collections::VecDeque, fmt::Display};
 
 use eyre::{OptionExt, WrapErr, ensure};
 
@@ -36,12 +36,6 @@ where
             right: Ord::max(self.right, other.right),
             top: Ord::max(self.top, other.top),
         }
-    }
-}
-impl<T: Sub<Output = T> + Copy> Rect<T> {
-    pub(crate) fn to_top_left(&self, h: T) -> Rect<T> {
-        let Rect { left, bottom, right, top } = *self;
-        Rect { left, bottom: h - bottom, right, top: h - top }
     }
 }
 

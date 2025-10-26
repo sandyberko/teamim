@@ -30,7 +30,7 @@ use std::{
 use editor::stage;
 use teamim::TeamimCtx;
 
-use crate::{img::ImgHandle, loaded::Transform, task::Poll};
+use crate::{img::ImgHandle, task::Poll};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -93,7 +93,7 @@ impl App {
             self.img
                 .as_ready_ok()
                 .and_then(Option::as_ref)
-                .map(|loaded| loaded.toolbar_view(self.scroll_offset).map(Message::Loaded)),
+                .map(|loaded| loaded.toolbar_view().map(Message::Loaded)),
         ];
 
         row(children.into_iter().flatten()).spacing(u32::from(PADDING)).width(Length::Fill).into()
@@ -195,7 +195,7 @@ struct NamedImg {
 
 #[derive(Debug, Clone)]
 pub(crate) enum SaveStatus {
-    Trigger(NamedImg, Transform),
+    Trigger(NamedImg),
     Rendering,
     SelectingFile,
     Writing,

@@ -3,7 +3,6 @@ use std::iter::once;
 use editor::spinner::Spinner;
 use iced::{
     alignment::Vertical,
-    theme::Base,
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
@@ -17,10 +16,6 @@ pub(crate) enum Poll<Ready, Pending = ()> {
 
 impl<Ready, Pending> Poll<Ready, Pending> {
     pub fn as_pending(&self) -> Option<&Pending> {
-        if let Self::Pending(pending) = self { Some(pending) } else { None }
-    }
-
-    pub fn as_mut_pending(&mut self) -> Option<&mut Pending> {
         if let Self::Pending(pending) = self { Some(pending) } else { None }
     }
 

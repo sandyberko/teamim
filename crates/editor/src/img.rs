@@ -1,7 +1,7 @@
 use iced::{
     Element,
     advanced::image::Bytes,
-    widget::{self, image::Handle, text::LineHeight},
+    widget::{self, image::Handle},
 };
 use image::{ImageBuffer, Rgba, RgbaImage, imageops::fast_blur};
 use num_traits::AsPrimitive;

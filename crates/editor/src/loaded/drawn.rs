@@ -7,24 +7,17 @@ use ::image::{
 use ::tap::prelude::*;
 use eyre::{OptionExt as _, WrapErr as _};
 use iced::{
-    Color, Element, Font, Point, Subscription, Task, Vector,
+    Element, Point, Subscription, Task, Vector,
     futures::StreamExt,
     keyboard::{Key, key::Named, on_key_press},
     mouse::Interaction,
     stream::channel,
-    widget::{button, image, image::Handle, mouse_area, text},
+    widget::{button, mouse_area, text},
 };
 use num_traits::AsPrimitive;
 use rfd::AsyncFileDialog;
-use std::{
-    borrow::Borrow,
-    ffi::CStr,
-    ops::Deref,
-    sync::{Arc, Mutex},
-};
-use teamim::{
-    DATAPATH, DiacResult, DiacResultKind, PositStatus, tesseract_ext::bounding_box::Rect,
-};
+use std::{ffi::CStr, ops::Deref, sync::Arc};
+use teamim::{DiacResultKind, PositStatus};
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer,
@@ -57,17 +50,10 @@ struct Place {
 }
 
 #[derive(Debug)]
-pub(super) struct RenderedDiac {
+pub(crate) struct RenderedDiac {
     diac: char,
     kind: DiacResultKind,
     img: ImgHandle,
-}
-
-impl RenderedDiac {
-    fn as_pos(&self) -> Option<(char, Rect<u32>)> {
-        let DiacResultKind::Pos(rect) = self.kind else { return None };
-        Some((self.diac, rect))
-    }
 }
 
 #[derive(Debug)]
@@ -86,13 +72,12 @@ impl Drawn {
         match msg {
             Message::Save(msg) => match msg {
                 // trigger
-                Poll::Pending(SaveStatus::Trigger(img, transform)) => Task::stream(
+                Poll::Pending(SaveStatus::Trigger(img)) => Task::stream(
                     channel(1, {
                         let positions = Arc::clone(&self.diacs);
                         async move |mut tx| {
                             let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
-                            let result =
-                                save(img, &*positions, transform, report).await.map_err(Arc::new);
+                            let result = save(img, &*positions, report).await.map_err(Arc::new);
                             _ = tx.try_send(Poll::Ready(result));
                         }
                     })
@@ -138,14 +123,10 @@ impl Drawn {
         on_key_press(|key, _| (key == Key::Named(Named::Escape)).then_some(Message::PlaceCancel))
     }
 
-    pub fn toolbar_view<'a>(
-        &self,
-        img_to_save: NamedImg,
-        transform: Transform,
-    ) -> Element<'a, Message> {
+    pub fn toolbar_view<'a>(&self, img_to_save: NamedImg) -> Element<'a, Message> {
         self.saving
             .loading_btn()
-            .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save, transform))))
+            .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save))))
             .into()
     }
 
@@ -248,7 +229,6 @@ impl Drawn {
 async fn save<'d>(
     img: NamedImg,
     positions: impl IntoIterator<Item = &'d RenderedDiac>,
-    transform: Transform,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
     progress(SaveStatus::SelectingFile);
@@ -267,7 +247,7 @@ async fn save<'d>(
     let (width, height) = img.dimensions();
     // [TODO] try not to clone
     let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
-    overlay_diacs(positions, transform, &mut img);
+    overlay_diacs(positions, &mut img);
 
     progress(SaveStatus::Writing);
     let format = ImageFormat::from_path(file.path())?;
@@ -282,39 +262,13 @@ async fn save<'d>(
     Ok(())
 }
 
-fn overlay_diacs<'d>(
-    positions: impl IntoIterator<Item = &'d RenderedDiac>,
-    transform: Transform,
-    img: &mut RgbaImage,
-) {
+fn overlay_diacs<'d>(positions: impl IntoIterator<Item = &'d RenderedDiac>, img: &mut RgbaImage) {
     for diac in positions {
         let DiacResultKind::Pos(rect) = diac.kind else { continue };
         overlay(img, &diac.img.img(), rect.left.into(), rect.top.into());
     }
 }
 
-/// Draws a red rectangle onto an RGBA image.
-///
-/// Coordinates are inclusive on top/left and exclusive on bottom/right.
-pub fn draw_red_rectangle(img: &mut RgbaImage, rect: Rect<u32>) {
-    let red = Rgba([255, 0, 0, 255]);
-
-    let Rect { left, bottom, right, top } = rect;
-
-    // Draw horizontal edges
-    for x in left..right {
-        img.put_pixel(x, top, red);
-
-        img.put_pixel(x, bottom - 1, red);
-    }
-
-    // Draw vertical edges
-    for y in top..bottom {
-        img.put_pixel(left, y, red);
-
-        img.put_pixel(right - 1, y, red);
-    }
-}
 pub(super) fn render_diacs(
     img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
     datapath: &CStr,

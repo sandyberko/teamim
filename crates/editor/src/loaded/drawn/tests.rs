@@ -1,38 +1,31 @@
-use std::{
-    ffi::CStr,
-    io::Cursor,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-
-use ::tap::prelude::*;
-use editor::stage;
-use iced::{
-    Border, Color, Element, Point, Task,
-    widget::{container, container::Style, image::Handle, scrollable, stack},
-};
-use image::{ImageBuffer, ImageFormat, ImageReader, Rgba, RgbaImage};
-use teamim::DiacResultKind;
-
 use crate::{
     App, FONT_SIZE, NamedImg, diac_renderer,
     img::ImgHandle,
-    load_image,
     loaded::{
-        self, LoadedImage, Transform,
-        drawn::{Drawn, RenderedDiac, overlay_diacs, render_diacs},
+        LoadedImage, Transform,
+        drawn::{Drawn, overlay_diacs, render_diacs},
     },
     run_app,
     task::Poll,
-    with_tctx,
 };
+use ::{
+    editor::stage,
+    iced::{
+        Border, Color, Element, Point, Task,
+        widget::{container, container::Style, scrollable, stack},
+    },
+    image::{ImageFormat, ImageReader, RgbaImage},
+    std::{ffi::CStr, io::Cursor, path::PathBuf},
+    tap::prelude::*,
+};
+
 const DATAPATH: &CStr = c"../../assets/tessdata/";
 
 #[test]
 fn save_test() -> eyre::Result<()> {
     let mut img = image()?;
     let results = render_diacs(&img, DATAPATH, |status| eprintln!("{status:?}"))?;
-    overlay_diacs(&results, Transform::default(), &mut img);
+    overlay_diacs(&results, &mut img);
     img.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
     Ok(())
 }
@@ -64,6 +57,7 @@ fn diac_view() -> eyre::Result<()> {
             .into()
         }
 
+        #[expect(clippy::unused_self)]
         fn update(&mut self, (): ()) -> Task<()> {
             Task::none()
         }
@@ -103,7 +97,7 @@ fn view() -> eyre::Result<()> {
             img: image()?.into(),
         });
         let results = super::render_diacs(&loaded.img().img(), DATAPATH, |progress| {
-            eprintln!("{progress:?}")
+            eprintln!("{progress:?}");
         })?;
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results.into()))));
         Ok(loaded)

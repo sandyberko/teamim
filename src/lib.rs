@@ -7,15 +7,12 @@ pub mod training_diff;
 use std::{
     collections::BTreeMap,
     ffi::{CStr, CString},
-    fmt::Write as _,
-    fs,
     ops::Deref,
     path::Path,
     sync::{Arc, LazyLock},
 };
 
-use eyre::{OptionExt, WrapErr, bail, eyre};
-use glyph::{GLYPHS, Placement};
+use eyre::{OptionExt, eyre};
 use image::{ImageBuffer, Rgba};
 use serde::Serialize;
 use similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper};
@@ -24,9 +21,6 @@ use tesseract_ext::{
     bounding_box::{BoundingBox, Rect},
 };
 use thiserror::Error;
-use training_diff::BoundingBoxDiff;
-
-use crate::glyph::{MAQAF, SOF_PASUQ};
 
 pub const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";
@@ -131,7 +125,7 @@ impl TeamimCtx {
         let mut last_diacrit_top = 0;
         let mut res = Vec::new();
         let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
-        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
+        'taam: for (&char_idx, &(diacritic, _)) in snip_diacs {
             let char_offset = char_idx - snip_char_offset;
             let change = 'change: loop {
                 let Some(change) = ops.peek() else {

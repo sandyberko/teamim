@@ -28,12 +28,12 @@ pub struct Easing {
 }
 
 impl Easing {
-    #[must_use] 
+    #[must_use]
     pub fn builder() -> Builder {
         Builder::new()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn y_at_x(&self, x: f32) -> f32 {
         let mut sampler = self
             .measurements
@@ -47,7 +47,7 @@ impl Easing {
 pub struct Builder(NoAttributes<BuilderImpl>);
 
 impl Builder {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let mut builder = Path::builder();
         builder.begin(lyon_algorithms::geom::point(0.0, 0.0));
@@ -56,6 +56,7 @@ impl Builder {
     }
 
     /// Adds a line segment. Points must be between 0,0 and 1,1
+    #[must_use]
     pub fn line_to(mut self, to: impl Into<Point>) -> Self {
         self.0.line_to(Self::point(to));
 
@@ -63,6 +64,7 @@ impl Builder {
     }
 
     /// Adds a quadratic bézier curve. Points must be between 0,0 and 1,1
+    #[must_use]
     pub fn quadratic_bezier_to(mut self, ctrl: impl Into<Point>, to: impl Into<Point>) -> Self {
         self.0.quadratic_bezier_to(Self::point(ctrl), Self::point(to));
 
@@ -70,6 +72,7 @@ impl Builder {
     }
 
     /// Adds a cubic bézier curve. Points must be between 0,0 and 1,1
+    #[must_use]
     pub fn cubic_bezier_to(
         mut self,
         ctrl1: impl Into<Point>,
@@ -81,7 +84,7 @@ impl Builder {
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn build(mut self) -> Easing {
         self.0.line_to(lyon_algorithms::geom::point(1.0, 1.0));
         self.0.end(false);
@@ -126,7 +129,7 @@ where
     Theme: StyleSheet,
 {
     /// Creates a new [`Circular`] with the given content.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let style = <Theme as StyleSheet>::Style::default();
         Spinner {
@@ -140,30 +143,35 @@ where
     }
 
     /// Sets the size of the [`Circular`].
+    #[must_use]
     pub fn size(mut self, size: impl Into<Length>) -> Self {
         self.size = size.into();
         self
     }
 
     /// Sets the bar height of the [`Circular`].
+    #[must_use]
     pub fn bar_height(mut self, bar_height: f32) -> Self {
         self.bar_height = bar_height;
         self
     }
 
     /// Sets the style variant of this [`Circular`].
+    #[must_use]
     pub fn style(mut self, style: <Theme as StyleSheet>::Style) -> Self {
         self.style = style;
         self
     }
 
     /// Sets the easing of this [`Circular`].
+    #[must_use]
     pub fn easing(mut self, easing: &'a Easing) -> Self {
         self.easing = easing;
         self
     }
 
     /// Sets the cycle duration of this [`Circular`].
+    #[must_use]
     pub fn cycle_duration(mut self, duration: Duration) -> Self {
         self.cycle_duration = duration / 2;
         self
@@ -171,6 +179,7 @@ where
 
     /// Sets the base rotation duration of this [`Circular`]. This is the duration that a full
     /// rotation would take if the cycle rotation were set to 0.0 (no expanding or contracting)
+    #[must_use]
     pub fn rotation_duration(mut self, duration: Duration) -> Self {
         self.rotation_duration = duration;
         self
@@ -207,6 +216,7 @@ impl Animation {
                 rotation: rotation.wrapping_add(additional_rotation),
                 last: now,
             },
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             Self::Contracting { rotation, .. } => Self::Expanding {
                 start: now,
                 progress: 0.0,
@@ -230,6 +240,7 @@ impl Animation {
         }
     }
 
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn timed_transition(
         &self,
         cycle_duration: Duration,
@@ -271,6 +282,7 @@ impl Animation {
         }
     }
 
+    #[expect(clippy::cast_precision_loss)]
     fn rotation(&self) -> f32 {
         match self {
             Self::Expanding { rotation, .. } | Self::Contracting { rotation, .. } => {
