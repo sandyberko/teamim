@@ -63,7 +63,8 @@ impl LoadedImage {
         // [TODO] zoom
         Self {
             img,
-            zoom: 0.4,
+            // zoom: 0.4,
+            zoom: 1.0,
             blur: 0,
             drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),
@@ -138,7 +139,7 @@ impl LoadedImage {
                     })
                     .await
                     .expect("blocking task to finish");
-                    _ = tx.try_send(Poll::Ready(result.map(Arc::from).map_err(Arc::new)));
+                    _ = tx.try_send(Poll::Ready(result.map_err(Arc::new)));
                 }))
                 .map(Message::Draw)
             }

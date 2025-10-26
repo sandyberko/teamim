@@ -13,7 +13,7 @@ use iced::{
         overlay, renderer,
         widget::{Operation, Tree},
     },
-    mouse,
+    mouse, touch,
 };
 
 /// Responsively generates rows and columns of widgets based on its dimmensions.
@@ -25,10 +25,13 @@ pub struct Stage<'a, Message, Theme, Renderer> {
     /// Where children shall be positioned.
     #[setters(skip)]
     positions: Vec<Point>,
-    /// Sets the width of the grid.
     width: Length,
-    /// Sets the height of the grid.
     height: Length,
+
+    #[setters(skip)]
+    on_press: Option<Box<dyn Fn(Point) -> Message + 'a>>,
+    #[setters(strip_option)]
+    interaction: Option<mouse::Interaction>,
 }
 
 impl<Message, Theme, Renderer> Default for Stage<'_, Message, Theme, Renderer> {
@@ -46,6 +49,9 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
             positions: Vec::new(),
             width: Length::Shrink,
             height: Length::Shrink,
+
+            on_press: None,
+            interaction: None,
         }
     }
 
@@ -65,6 +71,12 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
 
         self.positions.push(position.into());
 
+        self
+    }
+
+    /// The message to emit on a left button press.
+    pub fn on_press(mut self, on_press: impl Fn(Point) -> Message + 'a) -> Self {
+        self.on_press = Some(Box::new(on_press));
         self
     }
 }
@@ -150,6 +162,25 @@ where
                 .as_widget_mut()
                 .update(state, event, layout, cursor, renderer, clipboard, shell, viewport);
         }
+
+        if shell.is_event_captured() {
+            return;
+        }
+
+        if !cursor.is_over(layout.bounds()) {
+            return;
+        }
+
+        if let (
+            Some(on_press),
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerPressed { .. }),
+        ) = (self.on_press.as_ref(), event)
+        {
+            let Some(position) = cursor.position_in(layout.bounds()) else { return };
+            shell.publish((on_press)(position));
+            shell.capture_event();
+        }
     }
 
     fn mouse_interaction(
@@ -160,7 +191,8 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.children
+        let content_interaction = self
+            .children
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
@@ -168,7 +200,19 @@ where
                 child.as_widget().mouse_interaction(state, layout, cursor, viewport, renderer)
             })
             .max()
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        if content_interaction != mouse::Interaction::None {
+            return content_interaction;
+        }
+
+        if let Some(interaction) = self.interaction
+            && cursor.is_over(layout.bounds())
+        {
+            return interaction;
+        }
+
+        mouse::Interaction::None
     }
 
     fn draw(

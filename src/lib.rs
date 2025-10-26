@@ -30,13 +30,13 @@ static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
 
 pub type DiacResult = (char, DiacResultKind);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DiacMiss {
     pub top: u32,
     pub missing_text: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DiacResultKind {
     Pos(Rect<u32>),
     Miss(DiacMiss),
