@@ -7,7 +7,6 @@ use iced::{
     alignment::Vertical,
     stream::channel,
     widget::{
-        operation::AbsoluteOffset,
         row, slider, stack,
         text::{self, IntoFragment},
     },
@@ -16,18 +15,6 @@ use std::{borrow::Cow, iter::once, sync::Arc};
 use tap::prelude::*;
 use teamim::{DATAPATH, PositStatus};
 use tokio::task::spawn_blocking;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Transform {
-    scroll_offset: AbsoluteOffset,
-    zoom: f32,
-}
-
-impl Default for Transform {
-    fn default() -> Self {
-        Self { scroll_offset: AbsoluteOffset::default(), zoom: 1.0 }
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum BlurStatus {
@@ -104,14 +91,13 @@ impl LoadedImage {
             },
         }
     }
-    pub fn view(&'_ self, scroll_offset: AbsoluteOffset) -> Element<'_, Message> {
-        let opts = Transform { scroll_offset, zoom: self.zoom };
+    pub fn view(&'_ self) -> Element<'_, Message> {
         let drawn = self.drawing.as_ready_ok().and_then(Option::as_ref);
         row(Iterator::chain(
             drawn.iter().map(|drawn| drawn.misses_view(self.zoom).map(Message::Drawn)),
             [stack(Iterator::chain(
                 once(self.img().view(self.zoom)),
-                drawn.iter().map(|drawn| drawn.diac_view(opts).map(Message::Drawn)),
+                drawn.iter().map(|drawn| drawn.diac_view(self.zoom).map(Message::Drawn)),
             ))
             .into()],
         ))

@@ -113,7 +113,7 @@ impl App {
             return text(strs::NO_IMG_SELECTED).into();
         };
 
-        loaded.view(self.scroll_offset).map(Message::Loaded)
+        loaded.view().map(Message::Loaded)
     }
 
     fn view(&self) -> Element<'_, Message> {

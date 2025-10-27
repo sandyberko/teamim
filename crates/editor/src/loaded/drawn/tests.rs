@@ -2,7 +2,7 @@ use crate::{
     App, FONT_SIZE, NamedImg, diac_renderer,
     img::ImgHandle,
     loaded::{
-        LoadedImage, Transform,
+        LoadedImage,
         drawn::{Drawn, overlay_diacs, render_diacs},
     },
     run_app,
@@ -43,16 +43,13 @@ fn diac_view() -> eyre::Result<()> {
     struct DiacState {
         img: ImgHandle,
         diac: ImgHandle,
-        opts: Transform,
+        zoom: f32,
     }
     impl DiacState {
         fn view(&self) -> Element<'_, ()> {
             scrollable(stack([
-                self.img.view(self.opts.zoom),
-                red_frame(stage([(
-                    red_frame(self.diac.view(self.opts.zoom)),
-                    Point::new(50., 50.),
-                )])),
+                self.img.view(self.zoom),
+                red_frame(stage([(red_frame(self.diac.view(self.zoom)), Point::new(50., 50.))])),
             ]))
             .into()
         }
@@ -67,10 +64,10 @@ fn diac_view() -> eyre::Result<()> {
             let img = buf.into();
 
             let mut renderer = diac_renderer::Renderer::new();
-            let opts = Transform::default();
-            let size = FONT_SIZE * opts.zoom;
+            let zoom = 0.4;
+            let size = FONT_SIZE * zoom;
             let diac = renderer.render('\u{0591}', size).into();
-            DiacState { img, diac, opts }
+            DiacState { img, diac, zoom }
         }
     }
 
@@ -99,7 +96,7 @@ fn view() -> eyre::Result<()> {
         let results = super::render_diacs(&loaded.img().img(), DATAPATH, |progress| {
             eprintln!("{progress:?}");
         })?;
-        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results.into()))));
+        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
         Ok(loaded)
     }
     let boot_fn = || App {

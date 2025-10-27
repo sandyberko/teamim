@@ -6,8 +6,6 @@ use iced::{
     widget::{Button, button, row, text, text::IntoFragment},
 };
 
-pub(crate) type TryPoll<Ready, Pending = ()> = Poll<Result<Ready, eyre::Report>, Pending>;
-
 #[derive(Debug, Clone)]
 pub(crate) enum Poll<Ready, Pending = ()> {
     Ready(Ready),

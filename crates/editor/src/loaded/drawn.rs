@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests;
 
-use iced::widget::mouse_area;
+use iced::{Transformation, widget::mouse_area};
+use teamim::DiacMiss;
 
 use crate::{
-    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer, img::ImgHandle, loaded::Transform,
-    stage, strs, task::Poll, with_tctx,
+    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer, img::ImgHandle, stage, strs,
+    task::Poll, with_tctx,
 };
 use {
     eyre::{OptionExt as _, WrapErr as _},
@@ -24,7 +25,7 @@ use {
     rfd::AsyncFileDialog,
     std::{ffi::CStr, ops::Deref, sync::Arc},
     tap::prelude::*,
-    teamim::{DiacResultKind, PositStatus, tesseract_ext::bounding_box::Rect},
+    teamim::{DiacPos, PositStatus, tesseract_ext::bounding_box::Rect},
 };
 
 pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStatus>;
@@ -39,15 +40,43 @@ pub(crate) enum Message {
 pub(crate) enum PlaceMsg {
     /// enters placing mode with the given miss' diacritic
     StartMode(usize),
-    Commit(Point, Transform),
+    Commit(Point, f32),
     Cancel,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
     diac: char,
-    kind: DiacResultKind,
+    position: RenderedDiacPos,
     img: ImgHandle,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RenderedDiacPos {
+    Letter(Rect<u32>),
+    Exact(Point),
+    Miss(DiacMiss),
+}
+
+impl RenderedDiacPos {
+    fn pos_f(&self) -> Option<Point> {
+        #[expect(clippy::cast_precision_loss)]
+        match self {
+            RenderedDiacPos::Letter(rect) => {
+                Some([rect.left, rect.top].map(|coord| coord as f32).into())
+            }
+            RenderedDiacPos::Exact(point) => Some(*point),
+            RenderedDiacPos::Miss(_) => None,
+        }
+    }
+
+    fn pos_i(&self) -> Option<Point<u32>> {
+        match self {
+            RenderedDiacPos::Letter(rect) => Some([rect.left, rect.top].into()),
+            RenderedDiacPos::Exact(point) => Some(point.snap()),
+            RenderedDiacPos::Miss(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -91,16 +120,10 @@ impl Drawn {
                     self.placing = Some(diac_idx);
                     Task::none()
                 }
-                PlaceMsg::Commit(pos, transform) => {
+                PlaceMsg::Commit(pos, zoom) => {
                     if let Some(diac_idx) = self.placing.take() {
-                        self.diacs[diac_idx].kind = DiacResultKind::Pos(Rect {
-                            left: (pos.x / transform.zoom) as u32,
-                            // [TODO]
-                            bottom: 0,
-                            // [TODO]
-                            right: 0,
-                            top: (pos.y / transform.zoom) as u32,
-                        });
+                        let pos = Point::new(pos.x / zoom, pos.y / zoom);
+                        self.diacs[diac_idx].position = RenderedDiacPos::Exact(pos);
                     }
                     Task::none()
                 }
@@ -125,21 +148,16 @@ impl Drawn {
             .into()
     }
 
-    pub fn diac_view(&self, opts: Transform) -> Element<'_, Message> {
-        let Transform { scroll_offset, zoom } = opts;
+    pub fn diac_view(&self, zoom: f32) -> Element<'_, Message> {
         stage(self.diacs.iter().enumerate().filter_map(|(idx, pos)| {
-            let DiacResultKind::Pos(rect) = pos.kind else { return None };
             Some((
                 mouse_area(pos.img.view(zoom))
                     .on_press(Message::Place(PlaceMsg::StartMode(idx)))
                     .into(),
-                #[expect(clippy::cast_precision_loss)]
-                [rect.left, rect.top].map(|coord| coord as f32 * zoom).into(),
+                pos.position.pos_f()? * Transformation::scale(zoom),
             ))
         }))
-        .on_press(move |pos| {
-            Message::Place(PlaceMsg::Commit(pos, Transform { scroll_offset, zoom }))
-        })
+        .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos, zoom)))
         .interaction(if self.placing.is_some() {
             Interaction::Crosshair
         } else {
@@ -150,7 +168,7 @@ impl Drawn {
 
     pub(crate) fn misses_view(&self, zoom: f32) -> Element<'_, Message> {
         stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
-            let DiacResultKind::Miss(miss) = &result.kind else {
+            let RenderedDiacPos::Miss(miss) = &result.position else {
                 return None;
             };
             Some((
@@ -210,8 +228,8 @@ async fn save<'d>(
 
 fn overlay_diacs<'d>(positions: impl IntoIterator<Item = &'d RenderedDiac>, img: &mut RgbaImage) {
     for diac in positions {
-        let DiacResultKind::Pos(rect) = diac.kind else { continue };
-        overlay(img, &diac.img.img(), rect.left.into(), rect.top.into());
+        let Some(Point { x, y }) = diac.position.pos_i() else { continue };
+        overlay(img, &diac.img.img(), x.into(), y.into());
     }
 }
 
@@ -223,9 +241,12 @@ pub(super) fn render_diacs(
     let mut renderer = diac_renderer::Renderer::new();
     with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))??
         .into_iter()
-        .map(|(diac, kind)| RenderedDiac {
+        .map(|(diac, position)| RenderedDiac {
             diac,
-            kind,
+            position: match position {
+                DiacPos::Pos(rect) => RenderedDiacPos::Letter(rect),
+                DiacPos::Miss(diac_miss) => RenderedDiacPos::Miss(diac_miss),
+            },
             img: renderer.render(diac, FONT_SIZE).into(),
         })
         .collect::<Vec<_>>()

@@ -28,7 +28,7 @@ const LANG: &CStr = c"stam";
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
 
-pub type DiacResult = (char, DiacResultKind);
+pub type DiacResult = (char, DiacPos);
 
 #[derive(Debug, Clone)]
 pub struct DiacMiss {
@@ -37,7 +37,7 @@ pub struct DiacMiss {
 }
 
 #[derive(Debug, Clone)]
-pub enum DiacResultKind {
+pub enum DiacPos {
     Pos(Rect<u32>),
     Miss(DiacMiss),
 }
@@ -145,7 +145,7 @@ impl TeamimCtx {
                     let box_idx = change.old_range().start + char_offset_in_change;
                     let rect = boxes[box_idx].rect/* .to_top_left(img.get_h()) */;
                     last_diacrit_top = rect.top;
-                    DiacResultKind::Pos(rect)
+                    DiacPos::Pos(rect)
                 }
                 DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
@@ -158,7 +158,7 @@ impl TeamimCtx {
                         .ok_or_eyre("invalid range")?;
                     let missing_text = format!("{pre}{diacritic}{post}");
                     let top = last_diacrit_top;
-                    DiacResultKind::Miss(DiacMiss { top, missing_text })
+                    DiacPos::Miss(DiacMiss { top, missing_text })
                 }
             };
             res.push((diacritic, result));
