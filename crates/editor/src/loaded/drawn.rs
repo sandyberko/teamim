@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests;
 
+use iced::widget::mouse_area;
+
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer, img::ImgHandle, loaded::Transform,
     stage, strs, task::Poll, with_tctx,
@@ -92,12 +94,12 @@ impl Drawn {
                 PlaceMsg::Commit(pos, transform) => {
                     if let Some(diac_idx) = self.placing.take() {
                         self.diacs[diac_idx].kind = DiacResultKind::Pos(Rect {
-                            left: ((pos.x - transform.scroll_offset.x) / transform.zoom) as u32,
+                            left: (pos.x / transform.zoom) as u32,
                             // [TODO]
                             bottom: 0,
                             // [TODO]
                             right: 0,
-                            top: ((pos.y - transform.scroll_offset.y) / transform.zoom) as u32,
+                            top: (pos.y / transform.zoom) as u32,
                         });
                     }
                     Task::none()
@@ -125,10 +127,12 @@ impl Drawn {
 
     pub fn diac_view(&self, opts: Transform) -> Element<'_, Message> {
         let Transform { scroll_offset, zoom } = opts;
-        stage(self.diacs.iter().filter_map(|pos| {
+        stage(self.diacs.iter().enumerate().filter_map(|(idx, pos)| {
             let DiacResultKind::Pos(rect) = pos.kind else { return None };
             Some((
-                pos.img.view(zoom),
+                mouse_area(pos.img.view(zoom))
+                    .on_press(Message::Place(PlaceMsg::StartMode(idx)))
+                    .into(),
                 #[expect(clippy::cast_precision_loss)]
                 [rect.left, rect.top].map(|coord| coord as f32 * zoom).into(),
             ))
