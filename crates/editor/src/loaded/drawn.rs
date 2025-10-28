@@ -3,6 +3,7 @@ mod tests;
 
 use iced::{Transformation, widget::mouse_area};
 use teamim::DiacMiss;
+use tokio::task::spawn_blocking;
 
 use crate::{
     FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer, img::ImgHandle, stage, strs,
@@ -100,7 +101,7 @@ impl Drawn {
                         let positions = self.diacs.clone();
                         async move |mut tx| {
                             let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
-                            let result = save(img, &*positions, report).await.map_err(Arc::new);
+                            let result = save(img, positions, report).await.map_err(Arc::new);
                             _ = tx.try_send(Poll::Ready(result));
                         }
                     })
@@ -190,9 +191,9 @@ impl Drawn {
     }
 }
 
-async fn save<'d>(
+async fn save(
     img: NamedImg,
-    positions: impl IntoIterator<Item = &'d RenderedDiac>,
+    positions: Vec<RenderedDiac>,
     progress: impl Fn(SaveStatus),
 ) -> eyre::Result<()> {
     progress(SaveStatus::SelectingFile);
@@ -207,11 +208,16 @@ async fn save<'d>(
     let file = dialog.save_file().await.ok_or_eyre("שמירה בוטלה")?;
 
     progress(SaveStatus::Rendering);
-    let img = img.img.img();
-    let (width, height) = img.dimensions();
-    // [TODO] try not to clone
-    let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
-    overlay_diacs(positions, &mut img);
+    let img = spawn_blocking(move || {
+        let img = img.img.img();
+        let (width, height) = img.dimensions();
+        // [TODO] try not to clone
+        let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
+        overlay_diacs(&positions, &mut img);
+        img
+    })
+    .await
+    .expect("blocking task to finish");
 
     progress(SaveStatus::Writing);
     let format = ImageFormat::from_path(file.path())?;
