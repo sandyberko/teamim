@@ -1269,7 +1269,6 @@ dependencies = [
  "iced",
  "image",
  "lyon_algorithms",
- "num-traits",
  "rfd",
  "swash",
  "tap",

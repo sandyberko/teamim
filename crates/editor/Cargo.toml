@@ -9,7 +9,6 @@ eyre.workspace = true
 iced = { version = "0.14.0-dev", path = "../../../iced", features = ["advanced", "canvas", "image", "tokio", "wgpu"] }
 image = { version = "0.25.8", features = ["default-formats"] }
 lyon_algorithms = "1.0.16"
-num-traits = "0.2.19"
 rfd = "0.15.4"
 swash = "0.2.6"
 tap = "1.0.1"

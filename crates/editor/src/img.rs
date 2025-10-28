@@ -4,7 +4,6 @@ use iced::{
     widget::{self, image::Handle},
 };
 use image::{ImageBuffer, Rgba, RgbaImage, imageops::fast_blur};
-use num_traits::AsPrimitive;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImgHandle {
@@ -24,10 +23,16 @@ impl ImgHandle {
         fast_blur(&img, 17.0).into()
     }
 
-    pub(crate) fn view<'a, Message>(&self, zoom: f32) -> Element<'a, Message> {
+    pub(crate) fn view<'a, Message>(&self, scale: f32) -> Element<'a, Message> {
+        let (width, height) = self.img.dimensions();
+        #[expect(
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation
+        )]
         widget::Image::new(&self.handle)
-            .height(AsPrimitive::<f32>::as_(self.img.height()) * zoom)
-            .width(AsPrimitive::<f32>::as_(self.img.width()) * zoom)
+            .width((width as f32 * scale) as u32)
+            .height((height as f32 * scale) as u32)
             .into()
     }
 }

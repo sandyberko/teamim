@@ -11,10 +11,17 @@ use iced::{
         Clipboard, Layout, Shell, Widget,
         layout::{self, Node},
         overlay, renderer,
-        widget::{Operation, Tree},
+        widget::{Operation, Tree, tree},
     },
-    mouse, touch,
+    keyboard,
+    mouse::{self},
+    touch,
 };
+
+#[derive(Default)]
+struct State {
+    ctrl_pressed: bool,
+}
 
 /// Responsively generates rows and columns of widgets based on its dimmensions.
 #[must_use]
@@ -27,9 +34,12 @@ pub struct Stage<'a, Message, Theme, Renderer> {
     positions: Vec<Point>,
     width: Length,
     height: Length,
+    scale: f32,
 
     #[setters(skip)]
     on_press: Option<Box<dyn Fn(Point) -> Message + 'a>>,
+    #[setters(skip)]
+    on_zoom: Option<Box<dyn Fn(f32) -> Message + 'a>>,
     #[setters(strip_option)]
     interaction: Option<mouse::Interaction>,
 }
@@ -49,8 +59,10 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
             positions: Vec::new(),
             width: Length::Shrink,
             height: Length::Shrink,
+            scale: 1.0,
 
             on_press: None,
+            on_zoom: None,
             interaction: None,
         }
     }
@@ -79,6 +91,10 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
         self.on_press = Some(Box::new(on_press));
         self
     }
+    pub fn on_zoom(mut self, on_zoom: impl Fn(f32) -> Message + 'a) -> Self {
+        self.on_zoom = Some(Box::new(on_zoom));
+        self
+    }
 }
 
 impl<'a, Message, Theme, Renderer> FromIterator<StageItem<'a, Message, Theme, Renderer>>
@@ -94,6 +110,14 @@ impl<Message: 'static + Clone, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: iced::advanced::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::default())
+    }
+
     fn children(&self) -> Vec<Tree> {
         self.children.iter().map(Tree::new).collect()
     }
@@ -171,15 +195,31 @@ where
             return;
         }
 
-        if let (
-            Some(on_press),
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerPressed { .. }),
-        ) = (self.on_press.as_ref(), event)
+        // press
+        if let Some(on_press) = self.on_press.as_ref()
+            && let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerPressed { .. }) = event
         {
             let Some(position) = cursor.position_in(layout.bounds()) else { return };
             shell.publish((on_press)(position));
             shell.capture_event();
+        }
+
+        // zoom
+        if let Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) = event {
+            let state = tree.state.downcast_mut::<State>();
+            state.ctrl_pressed = mods.control();
+        }
+        if let Some(on_zoom) = self.on_zoom.as_ref()
+            && let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
+        {
+            let state = tree.state.downcast_ref::<State>();
+            if state.ctrl_pressed {
+                let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
+                    *delta;
+                shell.publish((on_zoom)(y));
+                shell.capture_event();
+            }
         }
     }
 

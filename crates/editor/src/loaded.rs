@@ -47,11 +47,9 @@ pub(crate) struct LoadedImage {
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
-        // [TODO] zoom
         Self {
             img,
-            // zoom: 0.4,
-            zoom: 1.0,
+            zoom: 0.4,
             blur: 0,
             drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),

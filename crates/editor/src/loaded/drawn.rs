@@ -22,7 +22,6 @@ use {
     image::{
         ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer, imageops::overlay,
     },
-    num_traits::AsPrimitive,
     rfd::AsyncFileDialog,
     std::{ffi::CStr, ops::Deref, sync::Arc},
     tap::prelude::*,
@@ -167,13 +166,13 @@ impl Drawn {
         .into()
     }
 
-    pub(crate) fn misses_view(&self, zoom: f32) -> Element<'_, Message> {
+    pub(crate) fn misses_view(&self, scale: f32) -> Element<'_, Message> {
         stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
             let RenderedDiacPos::Miss(miss) = &result.position else {
                 return None;
             };
             Some((
-                button(text(&miss.missing_text).size(48.0 * zoom))
+                button(text(&miss.missing_text).size(48.0 * scale))
                     .on_press_maybe(
                         if let Some(diac_idx) = self.placing
                             && diac_idx == result_idx
@@ -184,7 +183,8 @@ impl Drawn {
                         },
                     )
                     .into(),
-                Point::new(0.0, AsPrimitive::<f32>::as_(miss.top) * zoom),
+                #[expect(clippy::cast_precision_loss)]
+                Point::new(0.0, miss.top as f32 * scale),
             ))
         }))
         .into()
