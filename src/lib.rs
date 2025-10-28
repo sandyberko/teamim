@@ -1,10 +1,17 @@
+pub mod diac;
 pub mod fuzzy_find;
 pub mod glyph;
-
 pub mod tesseract_ext;
 pub mod training_diff;
 
+#[cfg(any(feature = "test_utils", test))]
+pub mod test_utils;
+
+#[cfg(test)]
+mod tests;
+
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     ffi::{CStr, CString},
     ops::Deref,
@@ -27,20 +34,6 @@ const LANG: &CStr = c"stam";
 
 static DIACRIT_MAP: LazyLock<eyre::Result<BTreeMap<usize, (char, char)>>> =
     LazyLock::new(build_diacrit_map);
-
-pub type DiacResult = (char, DiacPos);
-
-#[derive(Debug, Clone)]
-pub struct DiacMiss {
-    pub top: u32,
-    pub missing_text: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum DiacPos {
-    Pos(Rect<u32>),
-    Miss(DiacMiss),
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PositStatus {
@@ -90,7 +83,7 @@ impl TeamimCtx {
         &mut self,
         img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
-    ) -> Result<Vec<DiacResult>, PlaceError> {
+    ) -> Result<Vec<(char, diac::Result)>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
@@ -143,9 +136,9 @@ impl TeamimCtx {
                 DiffTag::Equal => {
                     let char_offset_in_change = char_offset - change.new_range().start;
                     let box_idx = change.old_range().start + char_offset_in_change;
-                    let rect = boxes[box_idx].rect/* .to_top_left(img.get_h()) */;
+                    let rect = boxes[box_idx].rect;
                     last_diacrit_top = rect.top;
-                    DiacPos::Pos(rect)
+                    Ok(rect)
                 }
                 DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
                 DiffTag::Insert | DiffTag::Replace => {
@@ -156,9 +149,9 @@ impl TeamimCtx {
                     let post = remapper
                         .slice_new(range.end..new.len().min(range.end + 6))
                         .ok_or_eyre("invalid range")?;
-                    let missing_text = format!("{pre}{diacritic}{post}");
+                    let missing_text = Cow::Owned(format!("{pre}{diacritic}{post}"));
                     let top = last_diacrit_top;
-                    DiacPos::Miss(DiacMiss { top, missing_text })
+                    Err(diac::DiacMiss { top, missing_text })
                 }
             };
             res.push((diacritic, result));
@@ -408,26 +401,4 @@ pub fn find_truth_text(ocr_text: &str) -> Option<&str> {
         end += 1;
     }
     Some(&old[..end])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_diactrit_map() -> eyre::Result<()> {
-        color_eyre::install()?;
-
-        let map = build_diacrit_map()?;
-        for (i, char) in search::text().chars().enumerate().take(100) {
-            eprint!("{i}:\t{char}\t");
-            if let Some((diacritic, letter)) = map.get(&i) {
-                eprint!("[{letter}{diacritic}]");
-            } else {
-                eprint!("[ ]");
-            }
-            eprintln!();
-        }
-        Ok(())
-    }
 }

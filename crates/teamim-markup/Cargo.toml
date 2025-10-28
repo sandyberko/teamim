@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+teamim.workspace = true
 maud = "0.27.0"
-teamim = { version = "0.1.0", path = "../.." }
 
 [lints]
 workspace = true

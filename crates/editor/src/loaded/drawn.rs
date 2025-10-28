@@ -2,7 +2,8 @@
 mod tests;
 
 use iced::{Transformation, widget::mouse_area};
-use teamim::DiacMiss;
+use image::imageops::overlay;
+use teamim::diac::{self, DiacMiss};
 use tokio::task::spawn_blocking;
 
 use crate::{
@@ -19,13 +20,11 @@ use {
         stream::channel,
         widget::{button, text},
     },
-    image::{
-        ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer, imageops::overlay,
-    },
+    image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer},
     rfd::AsyncFileDialog,
     std::{ffi::CStr, ops::Deref, sync::Arc},
     tap::prelude::*,
-    teamim::{DiacPos, PositStatus, tesseract_ext::bounding_box::Rect},
+    teamim::{PositStatus, tesseract_ext::bounding_box::Rect},
 };
 
 pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStatus>;
@@ -212,9 +211,12 @@ async fn save(
         let img = img.img.img();
         let (width, height) = img.dimensions();
         // [TODO] try not to clone
-        let mut img = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
-        overlay_diacs(&positions, &mut img);
-        img
+        let mut bottom = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
+        for diac in positions {
+            let Some(Point { x, y }) = diac.position.pos_i() else { continue };
+            overlay(&mut bottom, &diac.img.img(), x.into(), y.into());
+        }
+        bottom
     })
     .await
     .expect("blocking task to finish");
@@ -232,26 +234,27 @@ async fn save(
     Ok(())
 }
 
-fn overlay_diacs<'d>(positions: impl IntoIterator<Item = &'d RenderedDiac>, img: &mut RgbaImage) {
-    for diac in positions {
-        let Some(Point { x, y }) = diac.position.pos_i() else { continue };
-        overlay(img, &diac.img.img(), x.into(), y.into());
-    }
-}
-
-pub(super) fn render_diacs(
+pub(super) fn position_diacs(
     img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
     datapath: &CStr,
     progress_callback: impl Fn(PositStatus),
 ) -> eyre::Result<Vec<RenderedDiac>> {
+    with_tctx(datapath, |ctx| {
+        let positions = ctx.positions(img, progress_callback).wrap_err("place error")?;
+        render_diacs(positions)
+    })?
+}
+
+// [TODO] DRY
+fn render_diacs(positions: Vec<(char, diac::Result)>) -> Result<Vec<RenderedDiac>, eyre::Error> {
     let mut renderer = diac_renderer::Renderer::new();
-    with_tctx(datapath, |ctx| ctx.positions(img, progress_callback).wrap_err("place error"))??
+    positions
         .into_iter()
         .map(|(diac, position)| RenderedDiac {
             diac,
             position: match position {
-                DiacPos::Pos(rect) => RenderedDiacPos::Letter(rect),
-                DiacPos::Miss(diac_miss) => RenderedDiacPos::Miss(diac_miss),
+                Ok(rect) => RenderedDiacPos::Letter(rect),
+                Err(diac_miss) => RenderedDiacPos::Miss(diac_miss),
             },
             img: renderer.render(diac, FONT_SIZE).into(),
         })

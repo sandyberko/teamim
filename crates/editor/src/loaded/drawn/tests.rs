@@ -1,34 +1,40 @@
+use image::imageops::overlay;
+
 use crate::{
     App, FONT_SIZE, NamedImg, diac_renderer,
     img::ImgHandle,
     loaded::{
         LoadedImage,
-        drawn::{Drawn, overlay_diacs, render_diacs},
+        drawn::{Drawn, RenderedDiac, RenderedDiacPos},
     },
     run_app,
     task::Poll,
 };
-use ::{
+use {
     editor::stage,
     iced::{
         Border, Color, Element, Point, Task,
         widget::{container, container::Style, scrollable, stack},
     },
-    image::{ImageFormat, ImageReader, RgbaImage},
-    std::{ffi::CStr, io::Cursor, path::PathBuf},
+    image::ImageFormat,
+    std::path::PathBuf,
     tap::prelude::*,
+    teamim::test_utils,
 };
 
-const DATAPATH: &CStr = c"../../assets/tessdata/";
-
 #[test]
-fn save_test() -> eyre::Result<()> {
-    let mut img = image()?;
-    let results = render_diacs(&img, DATAPATH, |status| eprintln!("{status:?}"))?;
-    overlay_diacs(&results, &mut img);
-    img.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
+fn save() -> eyre::Result<()> {
+    let mut renderer = diac_renderer::Renderer::new();
+    let mut bottom = test_utils::IMAGE.clone();
+    for (diac, pos) in test_utils::POSITIONS {
+        let Ok(rect) = pos else { continue };
+        let top = renderer.render(*diac, FONT_SIZE);
+        overlay(&mut bottom, &top, rect.left.into(), rect.top.into());
+    }
+    bottom.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
     Ok(())
 }
+
 fn red_frame<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(content)
         .style(|_| {
@@ -60,9 +66,7 @@ fn diac_view() -> eyre::Result<()> {
         }
 
         fn boot() -> Self {
-            let buf = image().unwrap();
-            let img = buf.into();
-
+            let img = test_utils::IMAGE.clone().into();
             let mut renderer = diac_renderer::Renderer::new();
             let zoom = 0.4;
             let size = FONT_SIZE * zoom;
@@ -75,34 +79,30 @@ fn diac_view() -> eyre::Result<()> {
     Ok(())
 }
 
-macro_rules! img_path {
-    () => {
-        "../../../../../assets/images/N5/007.jpg"
-    };
-}
-fn image() -> eyre::Result<RgbaImage> {
-    let bytes = include_bytes!(img_path!());
-    let buf = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Jpeg).decode()?.to_rgba8();
-    Ok(buf)
-}
-
 #[test]
 fn view() -> eyre::Result<()> {
-    fn load() -> eyre::Result<LoadedImage> {
+    fn load() -> LoadedImage {
         let mut loaded = LoadedImage::new(NamedImg {
-            path: img_path!().to_owned().conv::<PathBuf>().into(),
-            img: image()?.into(),
+            path: test_utils::img_path!().to_owned().conv::<PathBuf>().into(),
+            img: test_utils::IMAGE.clone().into(),
         });
-        let results = super::render_diacs(&loaded.img().img(), DATAPATH, |progress| {
-            eprintln!("{progress:?}");
-        })?;
+        let mut renderer = diac_renderer::Renderer::new();
+        let results = test_utils::POSITIONS
+            .iter()
+            .cloned()
+            .map(|(diac, pos)| RenderedDiac {
+                diac,
+                position: match pos {
+                    Ok(rect) => RenderedDiacPos::Letter(rect),
+                    Err(miss) => RenderedDiacPos::Miss(miss),
+                },
+                img: renderer.render(diac, FONT_SIZE).into(),
+            })
+            .collect();
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
-        Ok(loaded)
+        loaded
     }
-    let boot_fn = || App {
-        img: Poll::Ready(load().map_err(|err| err.to_string()).map(Some)),
-        ..App::default()
-    };
+    let boot_fn = || App { img: Poll::Ready(Ok(Some(load()))), ..App::default() };
     run_app(boot_fn)?;
 
     Ok(())

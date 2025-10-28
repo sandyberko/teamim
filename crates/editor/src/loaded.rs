@@ -119,7 +119,7 @@ impl LoadedImage {
                         }
                     };
                     let result = spawn_blocking(move || {
-                        drawn::render_diacs(&img, DATAPATH, progress_callback)
+                        drawn::position_diacs(&img, DATAPATH, progress_callback)
                     })
                     .await
                     .expect("blocking task to finish");
