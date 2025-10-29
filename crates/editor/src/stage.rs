@@ -6,27 +6,43 @@ mod tests;
 
 use derive_setters::Setters;
 use iced::{
-    Element, Event, Length, Point, Rectangle, Size, Vector,
+    Element, Event, Length, Point, Radians, Rectangle, Size, Transformation, Vector,
     advanced::{
-        Clipboard, Layout, Shell, Widget,
+        self, Clipboard, Layout, Shell, Widget,
         layout::{self, Node},
         overlay, renderer,
         widget::{Operation, Tree, tree},
     },
-    keyboard,
+    border, keyboard,
     mouse::{self},
     touch,
+    widget::image::FilterMethod,
 };
 
-#[derive(Default)]
 struct State {
     ctrl_pressed: bool,
+    scale: f32,
+    starting_offset: Vector,
+    current_offset: Vector,
+    cursor_grabbed_at: Option<Point>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            ctrl_pressed: Default::default(),
+            scale: 1.0,
+            starting_offset: Vector::default(),
+            current_offset: Vector::default(),
+            cursor_grabbed_at: Option::default(),
+        }
+    }
 }
 
 /// Responsively generates rows and columns of widgets based on its dimmensions.
 #[must_use]
 #[derive(Setters)]
-pub struct Stage<'a, Message, Theme, Renderer> {
+pub struct Stage<'a, Message, Theme, Renderer, Handle> {
     #[setters(skip)]
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     /// Where children shall be positioned.
@@ -34,35 +50,37 @@ pub struct Stage<'a, Message, Theme, Renderer> {
     positions: Vec<Point>,
     width: Length,
     height: Length,
-    scale: f32,
 
+    // <viewer>
+    min_scale: f32,
+    max_scale: f32,
+    scale_step: f32,
+    #[setters(strip_option)]
+    handle: Option<Handle>,
+    // </viewer>
+    //
     #[setters(skip)]
     on_press: Option<Box<dyn Fn(Point) -> Message + 'a>>,
-    #[setters(skip)]
-    on_zoom: Option<Box<dyn Fn(f32) -> Message + 'a>>,
     #[setters(strip_option)]
     interaction: Option<mouse::Interaction>,
 }
 
-impl<Message, Theme, Renderer> Default for Stage<'_, Message, Theme, Renderer> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 type StageItem<'a, Message, Theme, Renderer> = (Element<'a, Message, Theme, Renderer>, Point);
 
-impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
-    pub const fn new() -> Self {
+impl<'a, Message, Theme, Renderer, Handle> Stage<'a, Message, Theme, Renderer, Handle> {
+    pub fn new() -> Self {
         Self {
             children: Vec::new(),
             positions: Vec::new(),
             width: Length::Shrink,
             height: Length::Shrink,
-            scale: 1.0,
+
+            min_scale: 0.25,
+            max_scale: 10.0,
+            scale_step: 0.10,
+            handle: None,
 
             on_press: None,
-            on_zoom: None,
             interaction: None,
         }
     }
@@ -91,24 +109,101 @@ impl<'a, Message, Theme, Renderer> Stage<'a, Message, Theme, Renderer> {
         self.on_press = Some(Box::new(on_press));
         self
     }
-    pub fn on_zoom(mut self, on_zoom: impl Fn(f32) -> Message + 'a) -> Self {
-        self.on_zoom = Some(Box::new(on_zoom));
-        self
-    }
 }
 
-impl<'a, Message, Theme, Renderer> FromIterator<StageItem<'a, Message, Theme, Renderer>>
-    for Stage<'a, Message, Theme, Renderer>
-{
-    fn from_iter<T: IntoIterator<Item = StageItem<'a, Message, Theme, Renderer>>>(iter: T) -> Self {
-        Self::with_children(iter)
-    }
-}
-
-impl<Message: 'static + Clone, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Stage<'_, Message, Theme, Renderer>
+impl<Message, Theme, Renderer> Stage<'_, Message, Theme, Renderer, Renderer::Handle>
 where
-    Renderer: iced::advanced::Renderer,
+    Renderer: advanced::image::Renderer,
+{
+    fn zoom(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+        y: f32,
+    ) {
+        let bounds = layout.bounds();
+        let Some(cursor_position) = cursor.position_over(bounds) else {
+            return;
+        };
+
+        let state = tree.state.downcast_mut::<State>();
+        let previous_scale = state.scale;
+
+        if y < 0.0 && previous_scale > self.min_scale || y > 0.0 && previous_scale < self.max_scale
+        {
+            state.scale = (if y > 0.0 {
+                state.scale * (1.0 + self.scale_step)
+            } else {
+                state.scale / (1.0 + self.scale_step)
+            })
+            .clamp(self.min_scale, self.max_scale);
+
+            let scaled_size = {
+                let size = if let Some(handle) = &self.handle
+                    && let Some(Size { width, height }) = renderer.measure_image(handle)
+                {
+                    #[expect(clippy::cast_precision_loss)]
+                    Size::new(width as f32, height as f32)
+                } else {
+                    let width = self
+                        .positions
+                        .iter()
+                        .map(|v| v.x)
+                        .max_by(f32::total_cmp)
+                        .unwrap_or_default();
+                    let height = self
+                        .positions
+                        .iter()
+                        .map(|v| v.y)
+                        .max_by(f32::total_cmp)
+                        .unwrap_or_default();
+                    Size::new(width, height)
+                };
+                size * state.scale
+            };
+
+            let factor = state.scale / previous_scale - 1.0;
+
+            let cursor_to_center = cursor_position - bounds.center();
+
+            let adjustment = cursor_to_center * factor + state.current_offset * factor;
+
+            state.current_offset = Vector::new(
+                if scaled_size.width > bounds.width {
+                    state.current_offset.x + adjustment.x
+                } else {
+                    0.0
+                },
+                if scaled_size.height > bounds.height {
+                    state.current_offset.y + adjustment.y
+                } else {
+                    0.0
+                },
+            );
+        }
+    }
+
+    fn size(&mut self, renderer: &Renderer, children_size: Size) -> Size {
+        self.handle
+            .as_ref()
+            .and_then(|handle| {
+                renderer
+                    .measure_image(handle)
+                    .map(|Size { width, height }| Size::new(width as f32, height as f32))
+            })
+            .unwrap_or(children_size)
+    }
+}
+impl<Message: Clone, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Stage<'_, Message, Theme, Renderer, Renderer::Handle>
+where
+    Renderer: advanced::Renderer + advanced::image::Renderer,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -136,19 +231,28 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let mut bounds = Rectangle::with_size(Size::ZERO);
+        let state = tree.state.downcast_ref::<State>();
+        eprintln!("LAYOUT {}", state.scale);
+        let scale = Transformation::scale(state.scale);
+
+        let mut children_size = Size::ZERO;
+
         let children = self
             .children
             .iter_mut()
             .zip(&mut tree.children)
             .zip(&self.positions)
             .map(|((child, tree), pos)| {
-                let c_layout = child.as_widget_mut().layout(tree, renderer, limits).move_to(*pos);
-                bounds = bounds.union(&c_layout.bounds());
+                let c_layout =
+                    child.as_widget_mut().layout(tree, renderer, limits).move_to(*pos * scale);
+
+                let Rectangle { x, y, width, height } = c_layout.bounds();
+                children_size = children_size.max(Size::new(x + width, y + height));
+
                 c_layout
             })
-            .collect();
-        Node::with_children(bounds.size(), children)
+            .collect::<Vec<_>>();
+        Node::with_children(self.size(renderer, children_size), children)
     }
 
     fn operate(
@@ -209,16 +313,18 @@ where
         if let Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) = event {
             let state = tree.state.downcast_mut::<State>();
             state.ctrl_pressed = mods.control();
+            eprintln!("CONTROL {}", state.ctrl_pressed);
         }
-        if let Some(on_zoom) = self.on_zoom.as_ref()
-            && let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
-        {
+        if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
             let state = tree.state.downcast_ref::<State>();
+            eprintln!("SCROLL {}", state.ctrl_pressed);
             if state.ctrl_pressed {
                 let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
                     *delta;
-                shell.publish((on_zoom)(y));
+                self.zoom(tree, event, layout, cursor, renderer, clipboard, shell, viewport, y);
                 shell.capture_event();
+                shell.invalidate_layout();
+                shell.request_redraw();
             }
         }
     }
@@ -266,13 +372,33 @@ where
         viewport: &Rectangle,
     ) {
         let Some(viewport) = layout.bounds().intersection(viewport) else { return };
-        for ((child, state), layout) in self
-            .children
-            .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .filter(|(_, layout)| layout.bounds().intersects(&viewport))
+        let bounds = layout.bounds();
+        let state = tree.state.downcast_ref::<State>();
+        let scale = Transformation::scale(state.scale);
+
+        // image
+        if let Some(handle) = self.handle.clone()
+            && let Some(img_size) = renderer.measure_image(&handle)
         {
+            let image = advanced::image::Image {
+                handle,
+                filter_method: FilterMethod::default(),
+                rotation: Radians(0.0),
+                border_radius: border::Radius::default(),
+                opacity: 1.0,
+                snap: true,
+            };
+            #[expect(clippy::cast_precision_loss)]
+            let img_size = Size::new(img_size.width as f32, img_size.height as f32);
+            let bounds = Rectangle::new(bounds.position(), img_size * scale);
+            renderer.draw_image(image, bounds, viewport);
+        }
+
+        // children
+        for ((child, state), layout) in
+            self.children.iter().zip(&tree.children).zip(layout.children())
+        {
+            let Some(viewport) = bounds.intersection(&viewport) else { continue };
             child.as_widget().draw(state, renderer, theme, style, layout, cursor, &viewport);
         }
     }
@@ -289,14 +415,14 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<Stage<'a, Message, Theme, Renderer>>
+impl<'a, Message, Theme, Renderer> From<Stage<'a, Message, Theme, Renderer, Renderer::Handle>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Message: Clone + 'static,
+    Message: Clone + 'a,
     Theme: 'a,
-    Renderer: iced::advanced::Renderer + 'a,
+    Renderer: advanced::Renderer + advanced::image::Renderer + 'a,
 {
-    fn from(flex_row: Stage<'a, Message, Theme, Renderer>) -> Self {
+    fn from(flex_row: Stage<'a, Message, Theme, Renderer, Renderer::Handle>) -> Self {
         Self::new(flex_row)
     }
 }

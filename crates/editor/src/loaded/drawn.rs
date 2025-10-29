@@ -39,7 +39,7 @@ pub(crate) enum Message {
 pub(crate) enum PlaceMsg {
     /// enters placing mode with the given miss' diacritic
     StartMode(usize),
-    Commit(Point, f32),
+    Commit(Point),
     Cancel,
 }
 
@@ -94,44 +94,43 @@ impl Drawn {
         match msg {
             Message::Save(msg) => match msg {
                 // trigger
-                Poll::Pending(SaveStatus::Trigger(img)) => Task::stream(
-                    channel(1, {
-                        let positions = self.diacs.clone();
-                        async move |mut tx| {
-                            let report = |status| _ = tx.clone().try_send(Poll::Pending(status));
-                            let result = save(img, positions, report).await.map_err(Arc::new);
-                            _ = tx.try_send(Poll::Ready(result));
-                        }
-                    })
-                    .map(Message::Save),
-                ),
+                Poll::Pending(SaveStatus::Trigger(img)) => {
+                    return Task::stream(
+                        channel(1, {
+                            let positions = self.diacs.clone();
+                            async move |mut tx| {
+                                let report =
+                                    |status| _ = tx.clone().try_send(Poll::Pending(status));
+                                let result = save(img, positions, report).await.map_err(Arc::new);
+                                _ = tx.try_send(Poll::Ready(result));
+                            }
+                        })
+                        .map(Message::Save),
+                    );
+                }
                 Poll::Pending(status) => {
                     self.saving = Poll::Pending(status);
-                    Task::none()
                 }
                 Poll::Ready(msg) => {
                     self.saving = Poll::Ready(msg);
-                    Task::none()
                 }
             },
             Message::Place(msg) => match msg {
                 PlaceMsg::StartMode(diac_idx) => {
                     self.placing = Some(diac_idx);
-                    Task::none()
                 }
-                PlaceMsg::Commit(pos, zoom) => {
+                PlaceMsg::Commit(pos) => {
                     if let Some(diac_idx) = self.placing.take() {
-                        let pos = Point::new(pos.x / zoom, pos.y / zoom);
+                        let pos = Point::new(pos.x, pos.y);
                         self.diacs[diac_idx].position = RenderedDiacPos::Exact(pos);
                     }
-                    Task::none()
                 }
                 PlaceMsg::Cancel => {
                     self.placing = None;
-                    Task::none()
                 }
             },
         }
+        Task::none()
     }
 
     pub fn subscription() -> Subscription<Message> {
@@ -147,16 +146,17 @@ impl Drawn {
             .into()
     }
 
-    pub fn diac_view(&self, zoom: f32) -> Element<'_, Message> {
+    pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
         stage(self.diacs.iter().enumerate().filter_map(|(idx, pos)| {
             Some((
-                mouse_area(pos.img.view(zoom))
+                mouse_area(pos.img.view())
                     .on_press(Message::Place(PlaceMsg::StartMode(idx)))
                     .into(),
-                pos.position.pos_f()? * Transformation::scale(zoom),
+                pos.position.pos_f()?,
             ))
         }))
-        .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos, zoom)))
+        .handle(img.handle().clone())
+        .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
         .interaction(if self.placing.is_some() {
             Interaction::Crosshair
         } else {
@@ -165,13 +165,13 @@ impl Drawn {
         .into()
     }
 
-    pub(crate) fn misses_view(&self, scale: f32) -> Element<'_, Message> {
+    pub(crate) fn misses_view(&self) -> Element<'_, Message> {
         stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
             let RenderedDiacPos::Miss(miss) = &result.position else {
                 return None;
             };
             Some((
-                button(text(&miss.missing_text).size(48.0 * scale))
+                button(text(&miss.missing_text).size(16))
                     .on_press_maybe(
                         if let Some(diac_idx) = self.placing
                             && diac_idx == result_idx
@@ -183,7 +183,7 @@ impl Drawn {
                     )
                     .into(),
                 #[expect(clippy::cast_precision_loss)]
-                Point::new(0.0, miss.top as f32 * scale),
+                Point::new(0.0, miss.top as f32),
             ))
         }))
         .into()

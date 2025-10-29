@@ -49,13 +49,15 @@ fn diac_view() -> eyre::Result<()> {
     struct DiacState {
         img: ImgHandle,
         diac: ImgHandle,
-        zoom: f32,
     }
     impl DiacState {
         fn view(&self) -> Element<'_, ()> {
             scrollable(stack([
-                self.img.view(self.zoom),
-                red_frame(stage([(red_frame(self.diac.view(self.zoom)), Point::new(50., 50.))])),
+                self.img.view(),
+                red_frame(
+                    stage([(red_frame(self.diac.view()), Point::new(50., 50.))])
+                        .handle(self.img.handle().clone()),
+                ),
             ]))
             .into()
         }
@@ -68,10 +70,8 @@ fn diac_view() -> eyre::Result<()> {
         fn boot() -> Self {
             let img = test_utils::IMAGE.clone().into();
             let mut renderer = diac_renderer::Renderer::new();
-            let zoom = 0.4;
-            let size = FONT_SIZE * zoom;
-            let diac = renderer.render('\u{0591}', size).into();
-            DiacState { img, diac, zoom }
+            let diac = renderer.render('\u{0591}', FONT_SIZE).into();
+            DiacState { img, diac }
         }
     }
 

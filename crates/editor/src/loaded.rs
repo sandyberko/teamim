@@ -11,7 +11,7 @@ use iced::{
         text::{self, IntoFragment},
     },
 };
-use std::{borrow::Cow, iter::once, sync::Arc};
+use std::{borrow::Cow, iter::chain, sync::Arc};
 use tap::prelude::*;
 use teamim::{DATAPATH, PositStatus};
 use tokio::task::spawn_blocking;
@@ -39,7 +39,6 @@ pub(crate) enum Message {
 #[derive(Debug)]
 pub(crate) struct LoadedImage {
     img: NamedImg,
-    zoom: f32,
     blur: u32,
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
     drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
@@ -47,13 +46,7 @@ pub(crate) struct LoadedImage {
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
-        Self {
-            img,
-            zoom: 0.4,
-            blur: 0,
-            drawing: Poll::Ready(Ok(None)),
-            blurring: Poll::Ready(None),
-        }
+        Self { img, blur: 0, drawing: Poll::Ready(Ok(None)), blurring: Poll::Ready(None) }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
@@ -61,43 +54,38 @@ impl LoadedImage {
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Draw(msg) => self.render_diacs(msg),
+            Message::Draw(msg) => return self.render_diacs(msg),
             Message::Drawn(msg) => {
-                self.drawn_mut().map_or(Task::none(), |drawn| drawn.update(msg)).map(Message::Drawn)
+                return self
+                    .drawn_mut()
+                    .map_or(Task::none(), |drawn| drawn.update(msg))
+                    .map(Message::Drawn);
             }
-            Message::SetBlur(blur) => {
-                self.blur = blur;
-                Task::none()
-            }
+            Message::SetBlur(blur) => self.blur = blur,
             Message::Blur(msg) => match msg {
                 Poll::Pending(BlurStatus::Blurring) => {
                     self.blurring = Poll::Pending(BlurStatus::Blurring);
                     let img = self.img.img.clone();
-                    Task::future(async move {
+                    return Task::future(async move {
                         spawn_blocking(move || {
                             let blurred = img.blur();
                             Message::Blur(Poll::Ready(blurred))
                         })
                         .await
                         .expect("blocking task to finish")
-                    })
+                    });
                 }
-                Poll::Ready(blurred) => {
-                    self.blurring = Poll::Ready(Some(blurred.clone()));
-                    Task::none()
-                }
+                Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
         }
+        Task::none()
     }
     pub fn view(&'_ self) -> Element<'_, Message> {
         let drawn = self.drawing.as_ready_ok().and_then(Option::as_ref);
-        row(Iterator::chain(
-            drawn.iter().map(|drawn| drawn.misses_view(self.zoom).map(Message::Drawn)),
-            [stack(Iterator::chain(
-                once(self.img().view(self.zoom)),
-                drawn.iter().map(|drawn| drawn.diac_view(self.zoom).map(Message::Drawn)),
-            ))
-            .into()],
+        row(chain(
+            drawn.iter().map(|drawn| drawn.misses_view().map(Message::Drawn)),
+            [stack(drawn.iter().map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)))
+                .into()],
         ))
         .into()
     }

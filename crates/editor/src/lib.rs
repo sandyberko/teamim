@@ -1,10 +1,13 @@
-use iced::{Element, Point};
+use iced::{Element, Point, advanced};
 
 pub mod spinner;
 pub mod stage;
 
 pub fn stage<'a, Message, Theme, Renderer>(
     children: impl IntoIterator<Item = (Element<'a, Message, Theme, Renderer>, Point)>,
-) -> stage::Stage<'a, Message, Theme, Renderer> {
+) -> stage::Stage<'a, Message, Theme, Renderer, Renderer::Handle>
+where
+    Renderer: advanced::image::Renderer,
+{
     stage::Stage::with_children(children)
 }

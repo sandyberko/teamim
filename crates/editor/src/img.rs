@@ -16,6 +16,10 @@ impl ImgHandle {
         self.img.clone()
     }
 
+    pub(crate) fn handle(&self) -> &Handle {
+        &self.handle
+    }
+
     pub(crate) fn blur(&self) -> Self {
         let (width, height) = self.img.dimensions();
         // [TODO] don't clone
@@ -23,7 +27,7 @@ impl ImgHandle {
         fast_blur(&img, 17.0).into()
     }
 
-    pub(crate) fn view<'a, Message>(&self, scale: f32) -> Element<'a, Message> {
+    pub(crate) fn view<'a, Message>(&self) -> Element<'a, Message> {
         let (width, height) = self.img.dimensions();
         #[expect(
             clippy::cast_precision_loss,
@@ -31,8 +35,8 @@ impl ImgHandle {
             clippy::cast_possible_truncation
         )]
         widget::Image::new(&self.handle)
-            .width((width as f32 * scale) as u32)
-            .height((height as f32 * scale) as u32)
+            .width((width as f32) as u32)
+            .height((height as f32) as u32)
             .into()
     }
 }
