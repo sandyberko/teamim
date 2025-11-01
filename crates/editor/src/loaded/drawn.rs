@@ -147,14 +147,12 @@ impl Drawn {
     }
 
     pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
-        stage(self.diacs.iter().enumerate().filter_map(|(idx, pos)| {
-            Some((
-                mouse_area(pos.img.view())
-                    .on_press(Message::Place(PlaceMsg::StartMode(idx)))
-                    .into(),
-                pos.position.pos_f()?,
-            ))
-        }))
+        stage(
+            self.diacs
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, pos)| Some((pos.position.pos_f()?, pos.img.handle().clone()))),
+        )
         .handle(img.handle().clone())
         // .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
         // .interaction(if self.placing.is_some() {
@@ -162,7 +160,7 @@ impl Drawn {
         // } else {
         //     Interaction::default()
         // })
-        .content_fit(ContentFit::Cover)
+        .content_fit(ContentFit::None)
         .into()
     }
 

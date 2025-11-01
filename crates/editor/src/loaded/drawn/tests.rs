@@ -1,22 +1,14 @@
-use image::imageops::overlay;
-
-use crate::{
-    App, FONT_SIZE, NamedImg, diac_renderer,
-    img::ImgHandle,
-    loaded::{
-        LoadedImage,
-        drawn::{Drawn, RenderedDiac, RenderedDiacPos},
-    },
-    run_app,
-    task::Poll,
-};
 use {
-    editor::stage,
-    iced::{
-        Border, Color, Element, Point, Task,
-        widget::{container, container::Style, scrollable, stack},
+    crate::{
+        App, FONT_SIZE, NamedImg, diac_renderer,
+        loaded::{
+            LoadedImage,
+            drawn::{Drawn, RenderedDiac, RenderedDiacPos},
+        },
+        run_app,
+        task::Poll,
     },
-    image::ImageFormat,
+    image::{ImageFormat, imageops::overlay},
     std::path::PathBuf,
     tap::prelude::*,
     teamim::test_utils,
@@ -32,50 +24,6 @@ fn save() -> eyre::Result<()> {
         overlay(&mut bottom, &top, rect.left.into(), rect.top.into());
     }
     bottom.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
-    Ok(())
-}
-
-fn red_frame<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    container(content)
-        .style(|_| {
-            Style::default().border(Border::default().color(Color::from_rgb8(0xFF, 0, 0)).width(2))
-        })
-        .into()
-}
-
-#[test]
-fn diac_view() -> eyre::Result<()> {
-    #[derive(Clone)]
-    struct DiacState {
-        img: ImgHandle,
-        diac: ImgHandle,
-    }
-    impl DiacState {
-        fn view(&self) -> Element<'_, ()> {
-            scrollable(stack([
-                self.img.view(),
-                red_frame(
-                    stage([(red_frame(self.diac.view::<()>()), Point::new(50., 50.))])
-                        .handle(self.img.handle().clone()),
-                ),
-            ]))
-            .into()
-        }
-
-        #[expect(clippy::unused_self)]
-        fn update(&mut self, (): ()) -> Task<()> {
-            Task::none()
-        }
-
-        fn boot() -> Self {
-            let img = test_utils::IMAGE.clone().into();
-            let mut renderer = diac_renderer::Renderer::new();
-            let diac = renderer.render('\u{0591}', FONT_SIZE).into();
-            DiacState { img, diac }
-        }
-    }
-
-    iced::application(DiacState::boot, DiacState::update, DiacState::view).run()?;
     Ok(())
 }
 

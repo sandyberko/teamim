@@ -1,25 +1,19 @@
 mod drawn;
 
-use crate::{FONT_SIZE, NamedImg, PADDING, img::ImgHandle, strs, task::Poll};
-use drawn::Drawn;
-use iced::{
-    Color, ContentFit, Element, Length, Task,
-    alignment::Vertical,
-    futures::stream::futures_unordered::Iter,
-    stream::channel,
-    widget::{
-        row, slider, stack,
-        text::{self, IntoFragment},
+use {
+    crate::{FONT_SIZE, NamedImg, PADDING, img::ImgHandle, strs, task::Poll},
+    drawn::Drawn,
+    iced::{
+        Element, Task,
+        alignment::Vertical,
+        stream::channel,
+        widget::{row, slider, text, text::IntoFragment},
     },
+    std::{borrow::Cow, sync::Arc},
+    tap::prelude::*,
+    teamim::{DATAPATH, PositStatus},
+    tokio::task::spawn_blocking,
 };
-use std::{
-    borrow::Cow,
-    iter::{self, chain},
-    sync::Arc,
-};
-use tap::prelude::*;
-use teamim::{DATAPATH, PositStatus};
-use tokio::task::spawn_blocking;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum BlurStatus {
@@ -87,14 +81,15 @@ impl LoadedImage {
     }
     pub fn view(&'_ self) -> Element<'_, Message> {
         let drawn = self.drawing.as_ready_ok().and_then(Option::as_ref);
-        Element::from(row(iter::chain(
-            drawn.iter().map(|drawn| drawn.misses_view().map(Message::Drawn)),
-            iter::once(
-                stack(drawn.iter().map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)))
-                    .into(),
-            ),
-        )))
-        .explain([1.0, 0.0, 0.0])
+        drawn.map_or_else(
+            || text("...").into(),
+            |drawn| drawn.diac_view(self.img()).map(Message::Drawn),
+        )
+        // Element::from(row(iter::chain(
+        //     drawn.map(|drawn| drawn.misses_view().map(Message::Drawn)),
+        //     drawn.map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)),
+        // )))
+        // .explain([1.0, 0.0, 0.0])
     }
 
     fn img(&self) -> &ImgHandle {

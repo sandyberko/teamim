@@ -1,6 +1,10 @@
 //! Zoom and pan on an image.
+#[cfg(test)]
+mod tests;
+
 use iced::{
-    ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size, Vector,
+    ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size, Transformation,
+    Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget,
         image::{self, FilterMethod, Image},
@@ -20,11 +24,13 @@ pub struct Stage<Handle> {
     handle: Option<Handle>,
     filter_method: FilterMethod,
     content_fit: ContentFit,
+
+    diacs: Vec<(Point, Handle)>,
 }
 
 impl<Handle> Stage<Handle> {
     /// Creates a new [`Viewer`] with the given [`State`].
-    pub fn new<T: Into<Handle>>() -> Self {
+    pub fn new(diacs: Vec<(Point, Handle)>) -> Self {
         Stage {
             handle: None,
             padding: 0.0,
@@ -35,6 +41,8 @@ impl<Handle> Stage<Handle> {
             scale_step: 0.10,
             filter_method: FilterMethod::default(),
             content_fit: ContentFit::default(),
+
+            diacs,
         }
     }
 
@@ -167,52 +175,14 @@ where
                 let Some(cursor_position) = cursor.position_over(bounds) else {
                     return;
                 };
+                let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
+                    *delta;
+                let State { scale, current_offset, .. } = tree.state.downcast_mut::<State>();
 
-                match *delta {
-                    mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => {
-                        let state = tree.state.downcast_mut::<State>();
-                        let previous_scale = state.scale;
-
-                        if y < 0.0 && previous_scale > self.min_scale
-                            || y > 0.0 && previous_scale < self.max_scale
-                        {
-                            state.scale = (if y > 0.0 {
-                                state.scale * (1.0 + self.scale_step)
-                            } else {
-                                state.scale / (1.0 + self.scale_step)
-                            })
-                            .clamp(self.min_scale, self.max_scale);
-
-                            let scaled_size = scaled_image_size(
-                                renderer,
-                                self.handle.as_ref().expect("image"),
-                                state,
-                                bounds.size(),
-                                self.content_fit,
-                            );
-
-                            let factor = state.scale / previous_scale - 1.0;
-
-                            let cursor_to_center = cursor_position - bounds.center();
-
-                            let adjustment =
-                                cursor_to_center * factor + state.current_offset * factor;
-
-                            state.current_offset = Vector::new(
-                                if scaled_size.width > bounds.width {
-                                    state.current_offset.x + adjustment.x
-                                } else {
-                                    0.0
-                                },
-                                if scaled_size.height > bounds.height {
-                                    state.current_offset.y + adjustment.y
-                                } else {
-                                    0.0
-                                },
-                            );
-                        }
-                    }
-                }
+                let factor = (1.0 + self.scale_step).powf(y);
+                *scale *= factor;
+                *current_offset = cursor_position
+                    - (cursor_position - *current_offset) * Transformation::scale(factor);
 
                 shell.request_redraw();
                 shell.capture_event();
@@ -308,49 +278,55 @@ where
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let state = tree.state.downcast_ref::<State>();
+        let State { current_offset, scale, .. } = *tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
 
-        let final_size = scaled_image_size(
-            renderer,
-            self.handle.as_ref().expect("image"),
-            state,
-            bounds.size(),
-            self.content_fit,
-        );
-
-        let translation = {
-            let diff_w = bounds.width - final_size.width;
-            let diff_h = bounds.height - final_size.height;
-
-            let image_top_left = match self.content_fit {
-                ContentFit::None => Vector::new(diff_w.max(0.0) / 2.0, diff_h.max(0.0) / 2.0),
-                _ => Vector::new(diff_w / 2.0, diff_h / 2.0),
-            };
-
-            image_top_left - state.offset(bounds, final_size)
-        };
-
-        let drawing_bounds = Rectangle::new(bounds.position(), final_size);
+        let handle = self.handle.as_ref().expect("image");
+        let Size { width, height } = renderer.measure_image(handle).unwrap_or_default();
+        #[expect(clippy::cast_precision_loss)]
+        let orig_size = Size::new(width as f32, height as f32);
+        let img_bounds = Rectangle::new(bounds.position() + current_offset, orig_size * scale);
 
         let render = |renderer: &mut Renderer| {
-            renderer.with_translation(translation, |renderer| {
+            // background
+            renderer.draw_image(
+                Image {
+                    handle: self.handle.clone().expect("image"),
+                    border_radius: border::Radius::default(),
+                    filter_method: self.filter_method,
+                    rotation: Radians(0.0),
+                    opacity: 1.0,
+                    snap: true,
+                },
+                img_bounds,
+                *viewport,
+            );
+
+            // overlays
+            for (pos, diac) in self.diacs.iter().cloned() {
+                let diac_offset = pos - Point::ORIGIN;
+                let Size { width, height } = renderer.measure_image(&diac).unwrap_or_default();
+                #[expect(clippy::cast_precision_loss)]
+                let orig_size = Size::new(width as f32, height as f32);
+                let bounds =
+                    Rectangle::new(img_bounds.position() + diac_offset * scale, orig_size * scale);
+
                 renderer.draw_image(
                     Image {
-                        handle: self.handle.clone().expect("image"),
+                        handle: diac,
                         border_radius: border::Radius::default(),
                         filter_method: self.filter_method,
                         rotation: Radians(0.0),
                         opacity: 1.0,
                         snap: true,
                     },
-                    drawing_bounds,
+                    bounds,
                     *viewport,
                 );
-            });
+            }
         };
 
-        renderer.with_layer(bounds, render);
+        renderer.with_layer(img_bounds, render);
     }
 }
 
