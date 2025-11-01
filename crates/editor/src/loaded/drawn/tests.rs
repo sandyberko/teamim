@@ -55,7 +55,7 @@ fn diac_view() -> eyre::Result<()> {
             scrollable(stack([
                 self.img.view(),
                 red_frame(
-                    stage([(red_frame(self.diac.view()), Point::new(50., 50.))])
+                    stage([(red_frame(self.diac.view::<()>()), Point::new(50., 50.))])
                         .handle(self.img.handle().clone()),
                 ),
             ]))

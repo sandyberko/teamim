@@ -10,23 +10,23 @@ use iced::{
     border,
 };
 /// A frame that displays an image with the ability to zoom in/out and pan.
-pub struct Viewer<Handle> {
+pub struct Stage<Handle> {
     padding: f32,
     width: Length,
     height: Length,
     min_scale: f32,
     max_scale: f32,
     scale_step: f32,
-    handle: Handle,
+    handle: Option<Handle>,
     filter_method: FilterMethod,
     content_fit: ContentFit,
 }
 
-impl<Handle> Viewer<Handle> {
+impl<Handle> Stage<Handle> {
     /// Creates a new [`Viewer`] with the given [`State`].
-    pub fn new<T: Into<Handle>>(handle: T) -> Self {
-        Viewer {
-            handle: handle.into(),
+    pub fn new<T: Into<Handle>>() -> Self {
+        Stage {
+            handle: None,
             padding: 0.0,
             width: Length::Shrink,
             height: Length::Shrink,
@@ -92,9 +92,14 @@ impl<Handle> Viewer<Handle> {
         self.scale_step = scale_step;
         self
     }
+
+    pub fn handle(mut self, handle: Handle) -> Self {
+        self.handle = Some(handle);
+        self
+    }
 }
 
-impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Viewer<Handle>
+impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Stage<Handle>
 where
     Renderer: image::Renderer<Handle = Handle>,
     Handle: Clone,
@@ -118,7 +123,8 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         // The raw w/h of the underlying image
-        let image_size = renderer.measure_image(&self.handle).unwrap_or_default();
+        let image_size =
+            renderer.measure_image(self.handle.as_ref().expect("image")).unwrap_or_default();
 
         let image_size = Size::new(image_size.width as f32, image_size.height as f32);
 
@@ -179,7 +185,7 @@ where
 
                             let scaled_size = scaled_image_size(
                                 renderer,
-                                &self.handle,
+                                self.handle.as_ref().expect("image"),
                                 state,
                                 bounds.size(),
                                 self.content_fit,
@@ -239,7 +245,7 @@ where
                 if let Some(origin) = state.cursor_grabbed_at {
                     let scaled_size = scaled_image_size(
                         renderer,
-                        &self.handle,
+                        self.handle.as_ref().expect("image"),
                         state,
                         bounds.size(),
                         self.content_fit,
@@ -305,8 +311,13 @@ where
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
 
-        let final_size =
-            scaled_image_size(renderer, &self.handle, state, bounds.size(), self.content_fit);
+        let final_size = scaled_image_size(
+            renderer,
+            self.handle.as_ref().expect("image"),
+            state,
+            bounds.size(),
+            self.content_fit,
+        );
 
         let translation = {
             let diff_w = bounds.width - final_size.width;
@@ -326,7 +337,7 @@ where
             renderer.with_translation(translation, |renderer| {
                 renderer.draw_image(
                     Image {
-                        handle: self.handle.clone(),
+                        handle: self.handle.clone().expect("image"),
                         border_radius: border::Radius::default(),
                         filter_method: self.filter_method,
                         rotation: Radians(0.0),
@@ -388,14 +399,14 @@ impl State {
     }
 }
 
-impl<'a, Message, Theme, Renderer, Handle> From<Viewer<Handle>>
+impl<'a, Message, Theme, Renderer, Handle> From<Stage<Handle>>
     for Element<'a, Message, Theme, Renderer>
 where
     Renderer: 'a + image::Renderer<Handle = Handle>,
     Message: 'a,
     Handle: Clone + 'a,
 {
-    fn from(viewer: Viewer<Handle>) -> Element<'a, Message, Theme, Renderer> {
+    fn from(viewer: Stage<Handle>) -> Element<'a, Message, Theme, Renderer> {
         Element::new(viewer)
     }
 }

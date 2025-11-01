@@ -3,15 +3,20 @@ mod drawn;
 use crate::{FONT_SIZE, NamedImg, PADDING, img::ImgHandle, strs, task::Poll};
 use drawn::Drawn;
 use iced::{
-    Element, Task,
+    Color, ContentFit, Element, Length, Task,
     alignment::Vertical,
+    futures::stream::futures_unordered::Iter,
     stream::channel,
     widget::{
         row, slider, stack,
         text::{self, IntoFragment},
     },
 };
-use std::{borrow::Cow, iter::chain, sync::Arc};
+use std::{
+    borrow::Cow,
+    iter::{self, chain},
+    sync::Arc,
+};
 use tap::prelude::*;
 use teamim::{DATAPATH, PositStatus};
 use tokio::task::spawn_blocking;
@@ -82,12 +87,14 @@ impl LoadedImage {
     }
     pub fn view(&'_ self) -> Element<'_, Message> {
         let drawn = self.drawing.as_ready_ok().and_then(Option::as_ref);
-        row(chain(
+        Element::from(row(iter::chain(
             drawn.iter().map(|drawn| drawn.misses_view().map(Message::Drawn)),
-            [stack(drawn.iter().map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)))
-                .into()],
-        ))
-        .into()
+            iter::once(
+                stack(drawn.iter().map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)))
+                    .into(),
+            ),
+        )))
+        .explain([1.0, 0.0, 0.0])
     }
 
     fn img(&self) -> &ImgHandle {

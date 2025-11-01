@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-use iced::{Transformation, widget::mouse_area};
+use iced::{ContentFit, Transformation, widget::mouse_area};
 use image::imageops::overlay;
 use teamim::diac::{self, DiacMiss};
 use tokio::task::spawn_blocking;
@@ -156,37 +156,39 @@ impl Drawn {
             ))
         }))
         .handle(img.handle().clone())
-        .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
-        .interaction(if self.placing.is_some() {
-            Interaction::Crosshair
-        } else {
-            Interaction::default()
-        })
+        // .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
+        // .interaction(if self.placing.is_some() {
+        //     Interaction::Crosshair
+        // } else {
+        //     Interaction::default()
+        // })
+        .content_fit(ContentFit::Cover)
         .into()
     }
 
     pub(crate) fn misses_view(&self) -> Element<'_, Message> {
-        stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
-            let RenderedDiacPos::Miss(miss) = &result.position else {
-                return None;
-            };
-            Some((
-                button(text(&miss.missing_text).size(16))
-                    .on_press_maybe(
-                        if let Some(diac_idx) = self.placing
-                            && diac_idx == result_idx
-                        {
-                            None
-                        } else {
-                            Some(Message::Place(PlaceMsg::StartMode(result_idx)))
-                        },
-                    )
-                    .into(),
-                #[expect(clippy::cast_precision_loss)]
-                Point::new(0.0, miss.top as f32),
-            ))
-        }))
-        .into()
+        // stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
+        //     let RenderedDiacPos::Miss(miss) = &result.position else {
+        //         return None;
+        //     };
+        //     Some((
+        //         button(text(&miss.missing_text).size(16))
+        //             .on_press_maybe(
+        //                 if let Some(diac_idx) = self.placing
+        //                     && diac_idx == result_idx
+        //                 {
+        //                     None
+        //                 } else {
+        //                     Some(Message::Place(PlaceMsg::StartMode(result_idx)))
+        //                 },
+        //             )
+        //             .into(),
+        //         #[expect(clippy::cast_precision_loss)]
+        //         Point::new(0.0, miss.top as f32),
+        //     ))
+        // }))
+        // .into()
+        text("TODO").into()
     }
 }
 

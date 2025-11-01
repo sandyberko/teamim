@@ -117,16 +117,10 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let img = self.content_view();
-        let scroll_dir =
-            Direction::Both { vertical: Scrollbar::new(), horizontal: Scrollbar::new() };
-        Column::with_children([
-            self.toolbar(),
-            scrollable(img).on_scroll(Message::Scroll).direction(scroll_dir).into(),
-        ])
-        .spacing(u32::from(PADDING))
-        .padding(PADDING)
-        .into()
+        column([self.toolbar(), self.content_view()])
+            .spacing(u32::from(PADDING))
+            .padding(PADDING)
+            .into()
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
