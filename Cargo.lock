@@ -2207,7 +2207,6 @@ version = "0.14.0-dev"
 dependencies = [
  "bytes",
  "iced_core",
- "iced_debug",
  "iced_futures",
  "raw-window-handle",
  "thiserror 2.0.17",

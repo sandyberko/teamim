@@ -8,16 +8,24 @@ teamim.workspace = true
 eyre.workspace = true
 image = { workspace = true, default-features = true }
 derive_setters = "0.1.8"
-iced = { version = "0.14.0-dev", path = "../../../iced", features = ["advanced", "canvas", "image", "tokio", "wgpu"] }
 lyon_algorithms = "1.0.16"
 rfd = "0.15.4"
 swash = "0.2.6"
 tap = "1.0.1"
 tokio = { version = "1.47.1", features = ["macros", "rt"] }
 
+[dependencies.iced]
+version = "0.14.0-dev"
+path = "../../../third-party/iced"
+features = ["advanced", "canvas", "image", "tokio", "wgpu"]
+
 [dev-dependencies]
-iced = { version = "0.14.0-dev", path = "../../../iced", features = ["debug"] }
 teamim = { workspace = true, features = ["test_utils"] }
+
+[dev-dependencies.iced]
+version = "0.14.0-dev"
+path = "../../../third-party/iced"
+features = ["debug"]
 
 [lints]
 workspace = true
