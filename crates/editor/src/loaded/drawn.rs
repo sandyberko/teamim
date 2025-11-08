@@ -32,15 +32,7 @@ pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStat
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
     Save(Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>),
-    Place(PlaceMsg),
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum PlaceMsg {
-    /// enters placing mode with the given miss' diacritic
-    StartMode(usize),
-    Commit(Point),
-    Cancel,
+    Reposition(usize, Point),
 }
 
 #[derive(Debug, Clone)]
@@ -87,28 +79,9 @@ impl Drawn {
                     self.saving = Poll::Ready(msg);
                 }
             },
-            Message::Place(msg) => match msg {
-                PlaceMsg::StartMode(diac_idx) => {
-                    self.placing = Some(diac_idx);
-                }
-                PlaceMsg::Commit(pos) => {
-                    if let Some(diac_idx) = self.placing.take() {
-                        let pos = Point::new(pos.x, pos.y);
-                        self.diacs[diac_idx].position = Ok(pos);
-                    }
-                }
-                PlaceMsg::Cancel => {
-                    self.placing = None;
-                }
-            },
+            Message::Reposition(diac_idx, pos) => self.diacs[diac_idx].position = Ok(pos),
         }
         Task::none()
-    }
-
-    pub fn subscription() -> Subscription<Message> {
-        on_key_press(|key, _| {
-            (key == Key::Named(Named::Escape)).then_some(Message::Place(PlaceMsg::Cancel))
-        })
     }
 
     pub fn toolbar_view<'a>(&self, img_to_save: NamedImg) -> Element<'a, Message> {
@@ -123,7 +96,7 @@ impl Drawn {
             Some((pos.position.as_ref().ok().copied()?, pos.img.handle().clone()))
         }))
         .handle(img.handle().clone())
-        // .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
+        .on_repos(Message::Reposition)
         // .interaction(if self.placing.is_some() {
         //     Interaction::Crosshair
         // } else {

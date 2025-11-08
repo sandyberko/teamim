@@ -14,7 +14,7 @@ use iced::{
     border,
 };
 /// A frame that displays an image with the ability to zoom in/out and pan.
-pub struct Stage<Handle> {
+pub struct Stage<Message, Handle> {
     padding: f32,
     width: Length,
     height: Length,
@@ -25,10 +25,12 @@ pub struct Stage<Handle> {
     filter_method: FilterMethod,
     content_fit: ContentFit,
 
+    on_repos: Option<Box<dyn Fn(usize, Point) -> Message>>,
+
     diacs: Vec<(Point, Handle)>,
 }
 
-impl<Handle> Stage<Handle> {
+impl<Message, Handle> Stage<Message, Handle> {
     /// Creates a new [`Viewer`] with the given [`State`].
     pub fn new(diacs: Vec<(Point, Handle)>) -> Self {
         Stage {
@@ -41,6 +43,8 @@ impl<Handle> Stage<Handle> {
             scale_step: 0.10,
             filter_method: FilterMethod::default(),
             content_fit: ContentFit::default(),
+
+            on_repos: None,
 
             diacs,
         }
@@ -105,9 +109,14 @@ impl<Handle> Stage<Handle> {
         self.handle = Some(handle);
         self
     }
+
+    pub fn on_repos(mut self, on_repos: impl Fn(usize, Point) -> Message + 'static) -> Self {
+        self.on_repos = Some(Box::new(on_repos));
+        self
+    }
 }
 
-impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Stage<Handle>
+impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Stage<Message, Handle>
 where
     Renderer: image::Renderer<Handle = Handle>,
     Handle: Clone,
@@ -191,8 +200,43 @@ where
                 let Some(cursor_position) = cursor.position_over(bounds) else {
                     return;
                 };
-
+                eprintln!("STAGE CLICK!");
                 let state = tree.state.downcast_mut::<State>();
+                let scale = Transformation::scale(state.scale);
+
+                if let Some(on_repos) = &self.on_repos {
+                    let stage_offset = bounds.position() - Point::ORIGIN;
+
+                    if let Some((diac_idx, diac_offset)) = state.repos.take() {
+                        eprintln!("COMMITING REPOS {diac_idx} with offset {diac_offset:?}");
+                        let message =
+                            on_repos(diac_idx, cursor_position - diac_offset - stage_offset);
+                        shell.publish(message);
+                        shell.capture_event();
+                        return;
+                    }
+
+                    eprintln!("INTERSECTING {cursor_position}");
+                    let over_diac =
+                        self.diacs.iter().enumerate().find_map(|(idx, (pos, handle))| {
+                            let size = renderer.measure_image(handle)?;
+                            #[expect(clippy::cast_precision_loss)]
+                            let size = Size::new(size.width as f32, size.height as f32) * scale;
+                            let diac_bounds = Rectangle::new(*pos * scale + stage_offset, size);
+                            if !diac_bounds.expand(3.0).contains(cursor_position) {
+                                return None;
+                            }
+                            eprintln!("OVER A THING!");
+                            Some((idx, cursor_position - diac_bounds.position()))
+                        });
+
+                    if over_diac.is_some() {
+                        state.repos = over_diac;
+                        shell.request_redraw();
+                        shell.capture_event();
+                        return;
+                    }
+                }
 
                 state.cursor_grabbed_at = Some(cursor_position);
                 state.starting_offset = state.current_offset;
@@ -278,7 +322,7 @@ where
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let State { current_offset, scale, .. } = *tree.state.downcast_ref::<State>();
+        let State { current_offset, scale, repos, .. } = *tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
 
         let handle = self.handle.as_ref().expect("image");
@@ -303,7 +347,7 @@ where
             );
 
             // overlays
-            for (pos, diac) in self.diacs.iter().cloned() {
+            for (idx, (pos, diac)) in self.diacs.iter().cloned().enumerate() {
                 let diac_offset = pos - Point::ORIGIN;
                 let Size { width, height } = renderer.measure_image(&diac).unwrap_or_default();
                 #[expect(clippy::cast_precision_loss)]
@@ -311,13 +355,20 @@ where
                 let bounds =
                     Rectangle::new(img_bounds.position() + diac_offset * scale, orig_size * scale);
 
+                let opacity = if let Some((repos_idx, _)) = repos
+                    && repos_idx == idx
+                {
+                    0.5
+                } else {
+                    1.0
+                };
                 renderer.draw_image(
                     Image {
                         handle: diac,
                         border_radius: border::Radius::default(),
                         filter_method: self.filter_method,
                         rotation: Radians(0.0),
-                        opacity: 1.0,
+                        opacity,
                         snap: true,
                     },
                     bounds,
@@ -337,6 +388,8 @@ pub struct State {
     starting_offset: Vector,
     current_offset: Vector,
     cursor_grabbed_at: Option<Point>,
+
+    repos: Option<(usize, Vector)>,
 }
 
 impl Default for State {
@@ -346,6 +399,8 @@ impl Default for State {
             starting_offset: Vector::default(),
             current_offset: Vector::default(),
             cursor_grabbed_at: None,
+
+            repos: None,
         }
     }
 }
@@ -375,14 +430,14 @@ impl State {
     }
 }
 
-impl<'a, Message, Theme, Renderer, Handle> From<Stage<Handle>>
+impl<'a, Message, Theme, Renderer, Handle> From<Stage<Message, Handle>>
     for Element<'a, Message, Theme, Renderer>
 where
     Renderer: 'a + image::Renderer<Handle = Handle>,
     Message: 'a,
     Handle: Clone + 'a,
 {
-    fn from(viewer: Stage<Handle>) -> Element<'a, Message, Theme, Renderer> {
+    fn from(viewer: Stage<Message, Handle>) -> Element<'a, Message, Theme, Renderer> {
         Element::new(viewer)
     }
 }
