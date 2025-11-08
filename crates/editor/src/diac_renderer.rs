@@ -1,3 +1,6 @@
+use std::{cell::LazyCell, sync::LazyLock};
+
+use editor::FONT;
 use iced::Point;
 use image::{Rgba, RgbaImage};
 use swash::{
@@ -11,8 +14,6 @@ use teamim::{
     tesseract_ext::bounding_box::Rect,
 };
 
-const GUTTMAN: &[u8] = include_bytes!("../../../assets/fonts/Guttman_Stam.ttf");
-
 pub(crate) struct Renderer {
     font: FontRef<'static>,
     ctx: ScaleContext,
@@ -21,11 +22,7 @@ pub(crate) struct Renderer {
 
 impl Renderer {
     pub(crate) fn new() -> Self {
-        Self {
-            font: FontRef::from_index(GUTTMAN, 0).expect("invalid font data"),
-            ctx: ScaleContext::new(),
-            image: Image::new(),
-        }
+        Self { font: *FONT, ctx: ScaleContext::new(), image: Image::new() }
     }
 
     #[must_use]

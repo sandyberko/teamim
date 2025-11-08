@@ -10,24 +10,25 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 
-use std::{
-    borrow::Cow,
-    collections::BTreeMap,
-    ffi::{CStr, CString},
-    ops::Deref,
-    path::Path,
-    sync::{Arc, LazyLock},
+use {
+    eyre::{OptionExt, eyre},
+    image::{ImageBuffer, Rgba},
+    serde::Serialize,
+    similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper},
+    std::{
+        borrow::Cow,
+        collections::BTreeMap,
+        ffi::{CStr, CString},
+        ops::Deref,
+        path::Path,
+        sync::{Arc, LazyLock},
+    },
+    tesseract_ext::{
+        PageIteratorLevel, PageSegMode, Tess, Text,
+        bounding_box::{BoundingBox, Rect},
+    },
+    thiserror::Error,
 };
-
-use eyre::{OptionExt, eyre};
-use image::{ImageBuffer, Rgba};
-use serde::Serialize;
-use similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper};
-use tesseract_ext::{
-    PageIteratorLevel, PageSegMode, Tess, Text,
-    bounding_box::{BoundingBox, Rect},
-};
-use thiserror::Error;
 
 pub const DATAPATH: &CStr = c"./assets/tessdata";
 const LANG: &CStr = c"stam";

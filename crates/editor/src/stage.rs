@@ -2,42 +2,68 @@
 #[cfg(test)]
 mod tests;
 
+use std::{borrow::Cow, iter};
+
 use iced::{
-    ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size, Transformation,
-    Vector,
+    Color, ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size,
+    Transformation, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget,
         image::{self, FilterMethod, Image},
         layout, mouse, renderer,
+        text::{self, Alignment, LineHeight, Paragraph, Shaping, paragraph},
         widget::tree::{self, Tree},
     },
+    alignment::Vertical,
     border,
 };
+
+#[derive(Debug, Clone)]
+pub struct Overlay<Handle> {
+    position: Point,
+    handle: Handle,
+    text: Option<Cow<'static, str>>,
+}
+
+impl<Handle> Overlay<Handle> {
+    pub fn new(position: Point, handle: Handle, text: Option<Cow<'static, str>>) -> Self {
+        Self { position, handle, text }
+    }
+}
+
 /// A frame that displays an image with the ability to zoom in/out and pan.
-pub struct Stage<Message, Handle> {
+pub struct Stage<Message, Renderer>
+where
+    Renderer: image::Renderer + text::Renderer,
+{
     padding: f32,
     width: Length,
     height: Length,
     min_scale: f32,
     max_scale: f32,
     scale_step: f32,
-    handle: Option<Handle>,
+    handle: Option<Renderer::Handle>,
     filter_method: FilterMethod,
     content_fit: ContentFit,
 
     on_repos: Option<Box<dyn Fn(usize, Point) -> Message>>,
 
-    diacs: Vec<(Point, Handle)>,
+    font: Option<Renderer::Font>,
+    overlays: Box<[Overlay<Renderer::Handle>]>,
 }
 
-impl<Message, Handle> Stage<Message, Handle> {
+impl<Message, Renderer> Stage<Message, Renderer>
+where
+    Renderer: image::Renderer + text::Renderer,
+{
     /// Creates a new [`Viewer`] with the given [`State`].
-    pub fn new(diacs: Vec<(Point, Handle)>) -> Self {
+    pub fn new(overlays: Box<[Overlay<Renderer::Handle>]>) -> Self {
         Stage {
             handle: None,
             padding: 0.0,
             width: Length::Shrink,
             height: Length::Shrink,
+
             min_scale: 0.25,
             max_scale: 10.0,
             scale_step: 0.10,
@@ -46,7 +72,8 @@ impl<Message, Handle> Stage<Message, Handle> {
 
             on_repos: None,
 
-            diacs,
+            font: None,
+            overlays,
         }
     }
 
@@ -105,7 +132,7 @@ impl<Message, Handle> Stage<Message, Handle> {
         self
     }
 
-    pub fn handle(mut self, handle: Handle) -> Self {
+    pub fn handle(mut self, handle: Renderer::Handle) -> Self {
         self.handle = Some(handle);
         self
     }
@@ -114,19 +141,61 @@ impl<Message, Handle> Stage<Message, Handle> {
         self.on_repos = Some(Box::new(on_repos));
         self
     }
+
+    pub fn font(mut self, font: Renderer::Font) -> Self {
+        self.font = Some(font);
+        self
+    }
 }
 
-impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Stage<Message, Handle>
+const MISS_CHAR_COUNT: f32 = 20.0;
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Stage<Message, Renderer>
 where
-    Renderer: image::Renderer<Handle = Handle>,
-    Handle: Clone,
+    Renderer: image::Renderer + text::Renderer,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<State>()
+        tree::Tag::of::<State<Renderer::Paragraph>>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::new())
+        let paragraphs = self
+            .overlays
+            .iter()
+            .map(|overlay| {
+                if let Some(font) = self.font
+                    && let Some(content) = &overlay.text
+                {
+                    // TODO customize
+                    let font_size = 32.0;
+                    let line_height = font_size * 1.5;
+                    Renderer::Paragraph::with_text(text::Text {
+                        content,
+                        bounds: Size::new(font_size * MISS_CHAR_COUNT, line_height),
+                        size: font_size.into(),
+                        line_height: LineHeight::Absolute(line_height.into()),
+                        font,
+                        align_x: Alignment::Right,
+                        align_y: Vertical::Top,
+                        shaping: Shaping::Advanced,
+                        wrapping: text::Wrapping::None,
+                    })
+                } else {
+                    Renderer::Paragraph::default()
+                }
+            })
+            .collect();
+        let state = State {
+            scale: 1.0,
+            starting_offset: Vector::default(),
+            current_offset: Vector::default(),
+            cursor_grabbed_at: None,
+
+            repos: None,
+
+            paragraphs,
+        };
+        tree::State::new(state)
     }
 
     fn size(&self) -> Size<Length> {
@@ -135,10 +204,12 @@ where
 
     fn layout(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
+        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+
         // The raw w/h of the underlying image
         let image_size =
             renderer.measure_image(self.handle.as_ref().expect("image")).unwrap_or_default();
@@ -186,7 +257,8 @@ where
                 };
                 let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
                     *delta;
-                let State { scale, current_offset, .. } = tree.state.downcast_mut::<State>();
+                let State { scale, current_offset, .. } =
+                    tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
                 let factor = (1.0 + self.scale_step).powf(y);
                 *scale *= factor;
@@ -201,7 +273,7 @@ where
                     return;
                 };
                 eprintln!("STAGE CLICK!");
-                let state = tree.state.downcast_mut::<State>();
+                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
                 let scale = Transformation::scale(state.scale);
 
                 if let Some(on_repos) = &self.on_repos {
@@ -217,18 +289,18 @@ where
                     }
 
                     eprintln!("INTERSECTING {cursor_position}");
-                    let over_diac =
-                        self.diacs.iter().enumerate().find_map(|(idx, (pos, handle))| {
-                            let size = renderer.measure_image(handle)?;
-                            #[expect(clippy::cast_precision_loss)]
-                            let size = Size::new(size.width as f32, size.height as f32) * scale;
-                            let diac_bounds = Rectangle::new(*pos * scale + stage_offset, size);
-                            if !diac_bounds.expand(3.0).contains(cursor_position) {
-                                return None;
-                            }
-                            eprintln!("OVER A THING!");
-                            Some((idx, cursor_position - diac_bounds.position()))
-                        });
+                    let over_diac = self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
+                        let size = renderer.measure_image(&overlay.handle)?;
+                        #[expect(clippy::cast_precision_loss)]
+                        let size = Size::new(size.width as f32, size.height as f32) * scale;
+                        let diac_bounds =
+                            Rectangle::new(overlay.position * scale + stage_offset, size);
+                        if !diac_bounds.expand(3.0).contains(cursor_position) {
+                            return None;
+                        }
+                        eprintln!("OVER A THING!");
+                        Some((idx, cursor_position - diac_bounds.position()))
+                    });
 
                     if over_diac.is_some() {
                         state.repos = over_diac;
@@ -245,7 +317,7 @@ where
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                let state = tree.state.downcast_mut::<State>();
+                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
                 if state.cursor_grabbed_at.is_some() {
                     state.cursor_grabbed_at = None;
@@ -254,7 +326,7 @@ where
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                let state = tree.state.downcast_mut::<State>();
+                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
                 if let Some(origin) = state.cursor_grabbed_at {
                     let scaled_size = scaled_image_size(
@@ -299,7 +371,7 @@ where
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        let state = tree.state.downcast_ref::<State>();
+        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
         let bounds = layout.bounds();
         let is_mouse_over = cursor.is_over(bounds);
 
@@ -322,14 +394,15 @@ where
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let State { current_offset, scale, repos, .. } = *tree.state.downcast_ref::<State>();
-        let bounds = layout.bounds();
+        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+        let stage_bounds = layout.bounds();
 
         let handle = self.handle.as_ref().expect("image");
         let Size { width, height } = renderer.measure_image(handle).unwrap_or_default();
         #[expect(clippy::cast_precision_loss)]
         let orig_size = Size::new(width as f32, height as f32);
-        let img_bounds = Rectangle::new(bounds.position() + current_offset, orig_size * scale);
+        let img_bounds =
+            Rectangle::new(stage_bounds.position() + state.current_offset, orig_size * state.scale);
 
         let render = |renderer: &mut Renderer| {
             // background
@@ -347,15 +420,28 @@ where
             );
 
             // overlays
-            for (idx, (pos, diac)) in self.diacs.iter().cloned().enumerate() {
-                let diac_offset = pos - Point::ORIGIN;
-                let Size { width, height } = renderer.measure_image(&diac).unwrap_or_default();
+            for (idx, (overlay, paragraph)) in
+                self.overlays.iter().zip(&state.paragraphs).enumerate()
+            {
+                let overlay_offset = overlay.position - Point::ORIGIN;
+                let overlay_position = img_bounds.position() + overlay_offset * state.scale;
+
+                if overlay.text.is_some() {
+                    renderer.fill_paragraph(
+                        paragraph,
+                        overlay_position,
+                        Color::from_rgb8(0xff, 0, 0),
+                        stage_bounds,
+                    );
+                }
+
+                let Size { width, height } =
+                    renderer.measure_image(&overlay.handle).unwrap_or_default();
                 #[expect(clippy::cast_precision_loss)]
                 let orig_size = Size::new(width as f32, height as f32);
-                let bounds =
-                    Rectangle::new(img_bounds.position() + diac_offset * scale, orig_size * scale);
+                let bounds = Rectangle::new(overlay_position, orig_size * state.scale);
 
-                let opacity = if let Some((repos_idx, _)) = repos
+                let opacity = if let Some((repos_idx, _)) = state.repos
                     && repos_idx == idx
                 {
                     0.5
@@ -364,7 +450,7 @@ where
                 };
                 renderer.draw_image(
                     Image {
-                        handle: diac,
+                        handle: overlay.handle.clone(),
                         border_radius: border::Radius::default(),
                         filter_method: self.filter_method,
                         rotation: Radians(0.0),
@@ -382,35 +468,18 @@ where
 }
 
 /// The local state of a [`Viewer`].
-#[derive(Debug, Clone, Copy)]
-pub struct State {
+#[derive(Debug, Clone)]
+pub struct State<Paragraph> {
     scale: f32,
     starting_offset: Vector,
     current_offset: Vector,
     cursor_grabbed_at: Option<Point>,
 
     repos: Option<(usize, Vector)>,
+    paragraphs: Box<[Paragraph]>,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            scale: 1.0,
-            starting_offset: Vector::default(),
-            current_offset: Vector::default(),
-            cursor_grabbed_at: None,
-
-            repos: None,
-        }
-    }
-}
-
-impl State {
-    /// Creates a new [`State`].
-    pub fn new() -> Self {
-        State::default()
-    }
-
+impl<Paragraph> State<Paragraph> {
     /// Returns the current offset of the [`State`], given the bounds
     /// of the [`Viewer`] and its image.
     fn offset(&self, bounds: Rectangle, image_size: Size) -> Vector {
@@ -430,14 +499,13 @@ impl State {
     }
 }
 
-impl<'a, Message, Theme, Renderer, Handle> From<Stage<Message, Handle>>
+impl<'a, Message, Theme, Renderer> From<Stage<Message, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Renderer: 'a + image::Renderer<Handle = Handle>,
+    Renderer: 'a + image::Renderer + text::Renderer,
     Message: 'a,
-    Handle: Clone + 'a,
 {
-    fn from(viewer: Stage<Message, Handle>) -> Element<'a, Message, Theme, Renderer> {
+    fn from(viewer: Stage<Message, Renderer>) -> Element<'a, Message, Theme, Renderer> {
         Element::new(viewer)
     }
 }
@@ -448,12 +516,12 @@ where
 pub fn scaled_image_size<Renderer>(
     renderer: &Renderer,
     handle: &<Renderer as image::Renderer>::Handle,
-    state: &State,
+    state: &State<Renderer::Paragraph>,
     bounds: Size,
     content_fit: ContentFit,
 ) -> Size
 where
-    Renderer: image::Renderer,
+    Renderer: image::Renderer + text::Renderer,
 {
     let Size { width, height } = renderer.measure_image(handle).unwrap_or_default();
 

@@ -1,4 +1,5 @@
 use {
+    crate::stage::Overlay,
     iced::{ContentFit, Element, Point, Task, widget::image::Handle},
     image::{Rgba, RgbaImage},
     teamim::test_utils,
@@ -8,7 +9,7 @@ use {
 fn run() -> eyre::Result<()> {
     struct State {
         background: Handle,
-        overlays: Vec<(Point, Handle)>,
+        overlays: Box<[Overlay<Handle>]>,
     }
     type Message = ();
 
@@ -23,7 +24,7 @@ fn run() -> eyre::Result<()> {
         #[expect(clippy::cast_precision_loss)]
         let overlays = (0..100)
             .flat_map(|x| (0..100).map(move |y| Point::new(100.0 * x as f32, 100.0 * y as f32)))
-            .map(|pos| (pos, overlay.clone()))
+            .map(|pos| Overlay::new(pos, overlay.clone(), None))
             .collect();
         State { background, overlays }
     }

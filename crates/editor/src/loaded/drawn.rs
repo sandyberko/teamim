@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests;
 
-use iced::{ContentFit, Transformation, widget::mouse_area};
+use editor::{FONT, stage::Overlay};
+use iced::{ContentFit, Font, Transformation, widget::mouse_area};
 use image::imageops::overlay;
 use teamim::diac::{self, DiacMiss};
 use tokio::task::spawn_blocking;
@@ -92,8 +93,16 @@ impl Drawn {
     }
 
     pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
-        stage(self.diacs.iter().filter_map(|pos| {
-            Some((pos.position.as_ref().ok().copied()?, pos.img.handle().clone()))
+        stage(self.diacs.iter().map(|pos| {
+            #[expect(clippy::cast_precision_loss)]
+            let position = pos
+                .position
+                .as_ref()
+                .copied()
+                .unwrap_or_else(|miss| Point::new(-200.0, miss.top as f32));
+            let handle = pos.img.handle().clone();
+            let text = pos.position.as_ref().err().map(|miss| miss.missing_text.clone());
+            Overlay::new(position, handle, text)
         }))
         .handle(img.handle().clone())
         .on_repos(Message::Reposition)
@@ -103,6 +112,7 @@ impl Drawn {
         //     Interaction::default()
         // })
         .content_fit(ContentFit::None)
+        .font(Font::with_name("Guttman Stam"))
         .into()
     }
 
