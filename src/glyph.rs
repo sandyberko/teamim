@@ -1,9 +1,8 @@
-
 use phf::{Map, phf_map};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Placement {
-    Top,
+pub enum CombiningClass {
+    Above,
     Bottom,
     After,
 }
@@ -12,12 +11,12 @@ pub enum Placement {
 pub struct Glyph {
     pub diac: char,
     pub name: &'static str,
-    pub placement: Placement,
+    pub combining_class: CombiningClass,
 }
 
 impl Glyph {
-    const fn new(diac: char, name: &'static str, placement: Placement) -> Self {
-        Self { diac, name, placement }
+    const fn new(diac: char, name: &'static str, placement: CombiningClass) -> Self {
+        Self { diac, name, combining_class: placement }
     }
 }
 
@@ -27,80 +26,82 @@ macro_rules! glyph {
     };
 }
 
-// keisarim
-// sof_pasuq is meteg
-pub static ETNAHTA: Glyph = glyph!('\u{0591}', "etnahta", Placement::Bottom);
+pub mod diacs {
+    use {super::Glyph, crate::glyph::CombiningClass};
 
-// melakim
-pub static SEGOL: Glyph = glyph!('\u{0592}', "segol", Placement::Top);
-pub static SHALSHELET: Glyph = glyph!('\u{0593}', "shalshelet", Placement::Top);
-pub static ZAQUEF_QATAN: Glyph = glyph!('\u{0594}', "zaquef_qatan", Placement::Top);
-pub static ZAQUEF_GADOL: Glyph = glyph!('\u{0595}', "zaquef_gadol", Placement::Top);
-pub static TIPEHA: Glyph = glyph!('\u{0596}', "tipeha", Placement::Bottom);
+    // keisarim
+    // sof_pasuq is meteg
+    pub const ETNAHTA: Glyph = glyph!('\u{0591}', "etnahta", CombiningClass::Bottom);
 
-// sheni'im
-pub static REVIA: Glyph = glyph!('\u{0597}', "revia", Placement::Top);
-pub static PASHTA: Glyph = glyph!('\u{0598}', "pashta", Placement::Top);
-pub static ZARQA: Glyph = glyph!('\u{0599}', "zarqa", Placement::Top);
-pub static YETIV: Glyph = glyph!('\u{059A}', "yetiv", Placement::Bottom);
-pub static TEVIR: Glyph = glyph!('\u{059B}', "tevir", Placement::Bottom);
+    // melakim
+    pub const SEGOL: Glyph = glyph!('\u{0592}', "segol", CombiningClass::Above);
+    pub const SHALSHELET: Glyph = glyph!('\u{0593}', "shalshelet", CombiningClass::Above);
+    pub const ZAQUEF_QATAN: Glyph = glyph!('\u{0594}', "zaquef_qatan", CombiningClass::Above);
+    pub const ZAQUEF_GADOL: Glyph = glyph!('\u{0595}', "zaquef_gadol", CombiningClass::Above);
+    pub const TIPEHA: Glyph = glyph!('\u{0596}', "tipeha", CombiningClass::Bottom);
 
-// shalishim
-pub static PAZER: Glyph = glyph!('\u{059C}', "pazer", Placement::Top);
-pub static QARNEY_PARA: Glyph = glyph!('\u{059D}', "qarney_para", Placement::Top);
-pub static TELISHA_GEDOLA: Glyph = glyph!('\u{059E}', "telisha_gedola", Placement::Top);
-pub static GERESH: Glyph = glyph!('\u{059F}', "geresh", Placement::Top);
-pub static GERESH_MUQDAM: Glyph = glyph!('\u{05A0}', "geresh_muqdam", Placement::Top);
-pub static GERSHAYIM: Glyph = glyph!('\u{05A1}', "gershayim", Placement::Top);
+    // sheni'im
+    pub const REVIA: Glyph = glyph!('\u{0597}', "revia", CombiningClass::Above);
+    pub const PASHTA: Glyph = glyph!('\u{0598}', "pashta", CombiningClass::Above);
+    pub const ZARQA: Glyph = glyph!('\u{0599}', "zarqa", CombiningClass::Above);
+    pub const YETIV: Glyph = glyph!('\u{059A}', "yetiv", CombiningClass::Bottom);
+    pub const TEVIR: Glyph = glyph!('\u{059B}', "tevir", CombiningClass::Bottom);
 
-// meshartim
-pub static MUNAH: Glyph = glyph!('\u{05A3}', "munah", Placement::Bottom);
-pub static MERKHA: Glyph = glyph!('\u{05A4}', "merkha", Placement::Bottom);
-pub static MAHAPAKH: Glyph = glyph!('\u{05A5}', "mahapakh", Placement::Bottom);
-pub static DARGA: Glyph = glyph!('\u{05A6}', "darga", Placement::Bottom);
-pub static QADMA: Glyph = glyph!('\u{05A7}', "qadma", Placement::Top);
-pub static TELISHA_KETANA: Glyph = glyph!('\u{05A8}', "telisha_ketana", Placement::Top);
-pub static MERKHA_KEFULA: Glyph = glyph!('\u{05A9}', "merkha_kefula", Placement::Bottom);
-pub static YERAH_BEN_YOMO: Glyph = glyph!('\u{05AA}', "yerah_ben_yomo", Placement::Bottom);
+    // shalishim
+    pub const PAZER: Glyph = glyph!('\u{059C}', "pazer", CombiningClass::Above);
+    pub const QARNEY_PARA: Glyph = glyph!('\u{059D}', "qarney_para", CombiningClass::Above);
+    pub const TELISHA_GEDOLA: Glyph = glyph!('\u{059E}', "telisha_gedola", CombiningClass::Above);
+    pub const GERESH: Glyph = glyph!('\u{059F}', "geresh", CombiningClass::Above);
+    pub const GERESH_MUQDAM: Glyph = glyph!('\u{05A0}', "geresh_muqdam", CombiningClass::Above);
+    pub const GERSHAYIM: Glyph = glyph!('\u{05A1}', "gershayim", CombiningClass::Above);
 
-pub static METEG: Glyph = glyph!('\u{05BD}', "meteg", Placement::Bottom);
-pub static MAQAF: Glyph = glyph!('\u{05BE}', "maqaf", Placement::After);
-pub static PASEQ: Glyph = glyph!('\u{05C0}', "paseq", Placement::After);
-
-pub static SOF_PASUQ: Glyph = glyph!('\u{05C3}', "sof_pasuq", Placement::After);
+    // meshartim
+    pub const MUNAH: Glyph = glyph!('\u{05A3}', "munah", CombiningClass::Bottom);
+    pub const MERKHA: Glyph = glyph!('\u{05A4}', "merkha", CombiningClass::Bottom);
+    pub const MAHAPAKH: Glyph = glyph!('\u{05A5}', "mahapakh", CombiningClass::Bottom);
+    pub const DARGA: Glyph = glyph!('\u{05A6}', "darga", CombiningClass::Bottom);
+    pub const QADMA: Glyph = glyph!('\u{05A7}', "qadma", CombiningClass::Above);
+    pub const TELISHA_KETANA: Glyph = glyph!('\u{05A8}', "telisha_ketana", CombiningClass::Above);
+    pub const MERKHA_KEFULA: Glyph = glyph!('\u{05A9}', "merkha_kefula", CombiningClass::Bottom);
+    pub const YERAH_BEN_YOMO: Glyph = glyph!('\u{05AA}', "yerah_ben_yomo", CombiningClass::Bottom);
+    pub const METEG: Glyph = glyph!('\u{05BD}', "meteg", CombiningClass::Bottom);
+    pub const MAQAF: Glyph = glyph!('\u{05BE}', "maqaf", CombiningClass::After);
+    pub const PASEQ: Glyph = glyph!('\u{05C0}', "paseq", CombiningClass::After);
+    pub const SOF_PASUQ: Glyph = glyph!('\u{05C3}', "sof_pasuq", CombiningClass::After);
+}
 
 pub static GLYPHS: Map<char, Glyph> = phf_map! {
-    '\u{0591}' => ETNAHTA,
-    '\u{0592}' => SEGOL,
-    '\u{0593}' => SHALSHELET,
-    '\u{0594}' => ZAQUEF_QATAN,
-    '\u{0595}' => ZAQUEF_GADOL,
-    '\u{0596}' => TIPEHA,
-    '\u{0597}' => REVIA,
-    '\u{0598}' => ZARQA,
-    '\u{0599}' => PASHTA,
-    '\u{059A}' => YETIV,
-    '\u{059B}' => TEVIR,
-    '\u{059C}' => GERESH,
-    '\u{059D}' => GERESH_MUQDAM,
-    '\u{059E}' => GERSHAYIM,
-    '\u{059F}' => QARNEY_PARA,
-    '\u{05A0}' => TELISHA_GEDOLA,
-    '\u{05A1}' => PAZER,
+    '\u{0591}' => diacs::ETNAHTA,
+    '\u{0592}' => diacs::SEGOL,
+    '\u{0593}' => diacs::SHALSHELET,
+    '\u{0594}' => diacs::ZAQUEF_QATAN,
+    '\u{0595}' => diacs::ZAQUEF_GADOL,
+    '\u{0596}' => diacs::TIPEHA,
+    '\u{0597}' => diacs::REVIA,
+    '\u{0598}' => diacs::ZARQA,
+    '\u{0599}' => diacs::PASHTA,
+    '\u{059A}' => diacs::YETIV,
+    '\u{059B}' => diacs::TEVIR,
+    '\u{059C}' => diacs::GERESH,
+    '\u{059D}' => diacs::GERESH_MUQDAM,
+    '\u{059E}' => diacs::GERSHAYIM,
+    '\u{059F}' => diacs::QARNEY_PARA,
+    '\u{05A0}' => diacs::TELISHA_GEDOLA,
+    '\u{05A1}' => diacs::PAZER,
     // ---
-    '\u{05A3}' => MUNAH,
-    '\u{05A4}' => MAHAPAKH,
-    '\u{05A5}' => MERKHA,
-    '\u{05A6}' => MERKHA_KEFULA,
-    '\u{05A7}' => DARGA,
-    '\u{05A8}' => QADMA,
-    '\u{05A9}' => TELISHA_KETANA,
-    '\u{05AA}' => YERAH_BEN_YOMO,
+    '\u{05A3}' => diacs::MUNAH,
+    '\u{05A4}' => diacs::MAHAPAKH,
+    '\u{05A5}' => diacs::MERKHA,
+    '\u{05A6}' => diacs::MERKHA_KEFULA,
+    '\u{05A7}' => diacs::DARGA,
+    '\u{05A8}' => diacs::QADMA,
+    '\u{05A9}' => diacs::TELISHA_KETANA,
+    '\u{05AA}' => diacs::YERAH_BEN_YOMO,
     // ---
-    '\u{05BD}' => METEG,
-    '\u{05BE}' => MAQAF,
+    '\u{05BD}' => diacs::METEG,
+    '\u{05BE}' => diacs::MAQAF,
     // ---
-    '\u{05C0}' => PASEQ,
-    '\u{05C3}' => SOF_PASUQ,
+    '\u{05C0}' => diacs::PASEQ,
+    '\u{05C3}' => diacs::SOF_PASUQ,
 
 };

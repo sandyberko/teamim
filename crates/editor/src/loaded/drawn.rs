@@ -46,36 +46,8 @@ pub(crate) enum PlaceMsg {
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
     diac: char,
-    position: RenderedDiacPos,
+    position: Result<Point, DiacMiss>,
     img: ImgHandle,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum RenderedDiacPos {
-    Letter(Rect<u32>),
-    Exact(Point),
-    Miss(DiacMiss),
-}
-
-impl RenderedDiacPos {
-    fn pos_f(&self) -> Option<Point> {
-        #[expect(clippy::cast_precision_loss)]
-        match self {
-            RenderedDiacPos::Letter(rect) => {
-                Some([rect.left, rect.top].map(|coord| coord as f32).into())
-            }
-            RenderedDiacPos::Exact(point) => Some(*point),
-            RenderedDiacPos::Miss(_) => None,
-        }
-    }
-
-    fn pos_i(&self) -> Option<Point<u32>> {
-        match self {
-            RenderedDiacPos::Letter(rect) => Some([rect.left, rect.top].into()),
-            RenderedDiacPos::Exact(point) => Some(point.snap()),
-            RenderedDiacPos::Miss(_) => None,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -122,7 +94,7 @@ impl Drawn {
                 PlaceMsg::Commit(pos) => {
                     if let Some(diac_idx) = self.placing.take() {
                         let pos = Point::new(pos.x, pos.y);
-                        self.diacs[diac_idx].position = RenderedDiacPos::Exact(pos);
+                        self.diacs[diac_idx].position = Ok(pos);
                     }
                 }
                 PlaceMsg::Cancel => {
@@ -147,12 +119,9 @@ impl Drawn {
     }
 
     pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
-        stage(
-            self.diacs
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, pos)| Some((pos.position.pos_f()?, pos.img.handle().clone()))),
-        )
+        stage(self.diacs.iter().filter_map(|pos| {
+            Some((pos.position.as_ref().ok().copied()?, pos.img.handle().clone()))
+        }))
         .handle(img.handle().clone())
         // .on_press(move |pos| Message::Place(PlaceMsg::Commit(pos)))
         // .interaction(if self.placing.is_some() {
@@ -213,7 +182,8 @@ async fn save(
         // [TODO] try not to clone
         let mut bottom = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
         for diac in positions {
-            let Some(Point { x, y }) = diac.position.pos_i() else { continue };
+            let Ok(pos) = diac.position else { continue };
+            let Point { x, y } = pos.snap();
             overlay(&mut bottom, &diac.img.img(), x.into(), y.into());
         }
         bottom
@@ -239,25 +209,14 @@ pub(super) fn position_diacs(
     datapath: &CStr,
     progress_callback: impl Fn(PositStatus),
 ) -> eyre::Result<Vec<RenderedDiac>> {
-    with_tctx(datapath, |ctx| {
-        let positions = ctx.positions(img, progress_callback).wrap_err("place error")?;
-        render_diacs(positions)
-    })?
-}
-
-// [TODO] DRY
-fn render_diacs(positions: Vec<(char, diac::Result)>) -> Result<Vec<RenderedDiac>, eyre::Error> {
+    let positions = with_tctx(datapath, |ctx| ctx.positions(img, progress_callback))??;
     let mut renderer = diac_renderer::Renderer::new();
-    positions
+    Ok(positions
         .into_iter()
-        .map(|(diac, position)| RenderedDiac {
+        .map(|(letter, diac, pos)| RenderedDiac {
             diac,
-            position: match position {
-                Ok(rect) => RenderedDiacPos::Letter(rect),
-                Err(diac_miss) => RenderedDiacPos::Miss(diac_miss),
-            },
+            position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
             img: renderer.render(diac, FONT_SIZE).into(),
         })
-        .collect::<Vec<_>>()
-        .pipe(Ok)
+        .collect())
 }

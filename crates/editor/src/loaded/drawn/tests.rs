@@ -3,7 +3,7 @@ use {
         App, FONT_SIZE, NamedImg, diac_renderer,
         loaded::{
             LoadedImage,
-            drawn::{Drawn, RenderedDiac, RenderedDiacPos},
+            drawn::{Drawn, RenderedDiac},
         },
         run_app,
         task::Poll,
@@ -18,7 +18,7 @@ use {
 fn save() -> eyre::Result<()> {
     let mut renderer = diac_renderer::Renderer::new();
     let mut bottom = test_utils::IMAGE.clone();
-    for (diac, pos) in test_utils::POSITIONS {
+    for (_, diac, pos) in test_utils::POSITIONS {
         let Ok(rect) = pos else { continue };
         let top = renderer.render(*diac, FONT_SIZE);
         overlay(&mut bottom, &top, rect.left.into(), rect.top.into());
@@ -38,12 +38,9 @@ fn view() -> eyre::Result<()> {
         let results = test_utils::POSITIONS
             .iter()
             .cloned()
-            .map(|(diac, pos)| RenderedDiac {
+            .map(|(letter, diac, pos)| RenderedDiac {
                 diac,
-                position: match pos {
-                    Ok(rect) => RenderedDiacPos::Letter(rect),
-                    Err(miss) => RenderedDiacPos::Miss(miss),
-                },
+                position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
                 img: renderer.render(diac, FONT_SIZE).into(),
             })
             .collect();

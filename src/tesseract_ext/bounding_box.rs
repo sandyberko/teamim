@@ -57,6 +57,17 @@ macro_rules! impl_rect {
 impl_rect!(i32, u32);
 impl_rect!(u32, u32);
 
+impl Rect<f32> {
+    #[must_use]
+    pub fn width(&self) -> f32 {
+        self.right - self.left
+    }
+    #[must_use]
+    pub fn height(&self) -> f32 {
+        self.top - self.bottom
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundingBox<Value> {
     pub value: Value,

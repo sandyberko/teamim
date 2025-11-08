@@ -83,7 +83,7 @@ impl TeamimCtx {
         &mut self,
         img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
-    ) -> Result<Vec<(char, diac::Result)>, PlaceError> {
+    ) -> Result<Vec<(char, char, diac::Result)>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
@@ -118,7 +118,7 @@ impl TeamimCtx {
         let mut last_diacrit_top = 0;
         let mut res = Vec::new();
         let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
-        'taam: for (&char_idx, &(diacritic, _)) in snip_diacs {
+        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
             let char_offset = char_idx - snip_char_offset;
             let change = 'change: loop {
                 let Some(change) = ops.peek() else {
@@ -154,7 +154,7 @@ impl TeamimCtx {
                     Err(diac::DiacMiss { top, missing_text })
                 }
             };
-            res.push((diacritic, result));
+            res.push((letter, diacritic, result));
         }
         Ok(res)
     }
