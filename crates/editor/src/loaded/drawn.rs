@@ -93,16 +93,13 @@ impl Drawn {
     }
 
     pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
-        stage(self.diacs.iter().map(|pos| {
-            #[expect(clippy::cast_precision_loss)]
-            let position = pos
-                .position
-                .as_ref()
-                .copied()
-                .unwrap_or_else(|miss| Point::new(-200.0, miss.top as f32));
-            let handle = pos.img.handle().clone();
-            let text = pos.position.as_ref().err().map(|miss| miss.missing_text.clone());
-            Overlay::new(position, handle, text)
+        stage(self.diacs.iter().map(|diac| match &diac.position {
+            Ok(pos) => Overlay::image(*pos, diac.img.handle().clone()),
+            Err(miss) =>
+            {
+                #[expect(clippy::cast_precision_loss)]
+                Overlay::text(Point::new(-200.0, miss.top as f32), miss.missing_text.clone())
+            }
         }))
         .handle(img.handle().clone())
         .on_repos(Message::Reposition)
@@ -114,31 +111,6 @@ impl Drawn {
         .content_fit(ContentFit::None)
         .font(Font::with_name("Guttman Stam"))
         .into()
-    }
-
-    pub(crate) fn misses_view(&self) -> Element<'_, Message> {
-        // stage(self.diacs.iter().enumerate().filter_map(|(result_idx, result)| {
-        //     let RenderedDiacPos::Miss(miss) = &result.position else {
-        //         return None;
-        //     };
-        //     Some((
-        //         button(text(&miss.missing_text).size(16))
-        //             .on_press_maybe(
-        //                 if let Some(diac_idx) = self.placing
-        //                     && diac_idx == result_idx
-        //                 {
-        //                     None
-        //                 } else {
-        //                     Some(Message::Place(PlaceMsg::StartMode(result_idx)))
-        //                 },
-        //             )
-        //             .into(),
-        //         #[expect(clippy::cast_precision_loss)]
-        //         Point::new(0.0, miss.top as f32),
-        //     ))
-        // }))
-        // .into()
-        text("TODO").into()
     }
 }
 

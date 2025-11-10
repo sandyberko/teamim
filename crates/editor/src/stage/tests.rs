@@ -24,7 +24,7 @@ fn run() -> eyre::Result<()> {
         #[expect(clippy::cast_precision_loss)]
         let overlays = (0..100)
             .flat_map(|x| (0..100).map(move |y| Point::new(100.0 * x as f32, 100.0 * y as f32)))
-            .map(|pos| Overlay::new(pos, overlay.clone(), None))
+            .map(|pos| Overlay::image(pos, overlay.clone()))
             .collect();
         State { background, overlays }
     }

@@ -21,13 +21,21 @@ use iced::{
 #[derive(Debug, Clone)]
 pub struct Overlay<Handle> {
     position: Point,
-    handle: Handle,
-    text: Option<Cow<'static, str>>,
+    kind: OverlayKind<Handle>,
+}
+
+#[derive(Debug, Clone)]
+pub enum OverlayKind<Handle> {
+    Image(Handle),
+    Text(Cow<'static, str>),
 }
 
 impl<Handle> Overlay<Handle> {
-    pub fn new(position: Point, handle: Handle, text: Option<Cow<'static, str>>) -> Self {
-        Self { position, handle, text }
+    pub fn image(position: Point, handle: Handle) -> Self {
+        Self { position, kind: OverlayKind::Image(handle) }
+    }
+    pub fn text(position: Point, text: Cow<'static, str>) -> Self {
+        Self { position, kind: OverlayKind::Text(text) }
     }
 }
 
@@ -164,7 +172,7 @@ where
             .iter()
             .map(|overlay| {
                 if let Some(font) = self.font
-                    && let Some(content) = &overlay.text
+                    && let OverlayKind::Text(content) = &overlay.kind
                 {
                     // TODO customize
                     let font_size = 32.0;
@@ -272,7 +280,6 @@ where
                 let Some(cursor_position) = cursor.position_over(bounds) else {
                     return;
                 };
-                eprintln!("STAGE CLICK!");
                 let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
                 let scale = Transformation::scale(state.scale);
 
@@ -280,7 +287,6 @@ where
                     let stage_offset = bounds.position() - Point::ORIGIN;
 
                     if let Some((diac_idx, diac_offset)) = state.repos.take() {
-                        eprintln!("COMMITING REPOS {diac_idx} with offset {diac_offset:?}");
                         let message =
                             on_repos(diac_idx, cursor_position - diac_offset - stage_offset);
                         shell.publish(message);
@@ -288,17 +294,20 @@ where
                         return;
                     }
 
-                    eprintln!("INTERSECTING {cursor_position}");
                     let over_diac = self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
-                        let size = renderer.measure_image(&overlay.handle)?;
                         #[expect(clippy::cast_precision_loss)]
-                        let size = Size::new(size.width as f32, size.height as f32) * scale;
+                        let size = match &overlay.kind {
+                            OverlayKind::Image(handle) => {
+                                let size = renderer.measure_image(handle)?;
+                                Size::new(size.width as f32, size.height as f32) * scale
+                            }
+                            OverlayKind::Text(_) => state.paragraphs[idx].min_bounds(),
+                        };
                         let diac_bounds =
                             Rectangle::new(overlay.position * scale + stage_offset, size);
                         if !diac_bounds.expand(3.0).contains(cursor_position) {
                             return None;
                         }
-                        eprintln!("OVER A THING!");
                         Some((idx, cursor_position - diac_bounds.position()))
                     });
 
@@ -426,40 +435,43 @@ where
                 let overlay_offset = overlay.position - Point::ORIGIN;
                 let overlay_position = img_bounds.position() + overlay_offset * state.scale;
 
-                if overlay.text.is_some() {
-                    renderer.fill_paragraph(
-                        paragraph,
-                        overlay_position,
-                        Color::from_rgb8(0xff, 0, 0),
-                        stage_bounds,
-                    );
+                match &overlay.kind {
+                    OverlayKind::Text(_) => {
+                        renderer.fill_paragraph(
+                            paragraph,
+                            overlay_position,
+                            Color::from_rgb8(0xff, 0, 0),
+                            stage_bounds,
+                        );
+                    }
+                    OverlayKind::Image(handle) => {
+                        let Size { width, height } =
+                            renderer.measure_image(handle).unwrap_or_default();
+                        #[expect(clippy::cast_precision_loss)]
+                        let orig_size = Size::new(width as f32, height as f32);
+                        let bounds = Rectangle::new(overlay_position, orig_size * state.scale);
+
+                        let opacity = if let Some((repos_idx, _)) = state.repos
+                            && repos_idx == idx
+                        {
+                            0.5
+                        } else {
+                            1.0
+                        };
+                        renderer.draw_image(
+                            Image {
+                                handle: handle.clone(),
+                                border_radius: border::Radius::default(),
+                                filter_method: self.filter_method,
+                                rotation: Radians(0.0),
+                                opacity,
+                                snap: true,
+                            },
+                            bounds,
+                            *viewport,
+                        );
+                    }
                 }
-
-                let Size { width, height } =
-                    renderer.measure_image(&overlay.handle).unwrap_or_default();
-                #[expect(clippy::cast_precision_loss)]
-                let orig_size = Size::new(width as f32, height as f32);
-                let bounds = Rectangle::new(overlay_position, orig_size * state.scale);
-
-                let opacity = if let Some((repos_idx, _)) = state.repos
-                    && repos_idx == idx
-                {
-                    0.5
-                } else {
-                    1.0
-                };
-                renderer.draw_image(
-                    Image {
-                        handle: overlay.handle.clone(),
-                        border_radius: border::Radius::default(),
-                        filter_method: self.filter_method,
-                        rotation: Radians(0.0),
-                        opacity,
-                        snap: true,
-                    },
-                    bounds,
-                    *viewport,
-                );
             }
         };
 
