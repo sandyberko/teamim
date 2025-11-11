@@ -39,7 +39,6 @@ fn view() -> eyre::Result<()> {
             .iter()
             .cloned()
             .map(|(letter, diac, pos)| RenderedDiac {
-                diac,
                 position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
                 img: renderer.render(diac, FONT_SIZE).into(),
             })

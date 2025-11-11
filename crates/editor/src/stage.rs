@@ -2,21 +2,24 @@
 #[cfg(test)]
 mod tests;
 
-use std::{borrow::Cow, iter};
-
-use iced::{
-    Background, Border, Color, ContentFit, Element, Event, Length, Pixels, Point, Radians,
-    Rectangle, Shadow, Size, Transformation, Vector,
-    advanced::{
-        self, Clipboard, Layout, Shell, Widget,
-        image::{self, FilterMethod, Image},
-        layout, mouse, renderer,
-        text::{self, Alignment, LineHeight, Paragraph, Shaping, paragraph},
-        widget::tree::{self, Tree},
+use {
+    iced::{
+        Background, Border, Color, ContentFit, Element, Event, Length, Pixels, Point, Radians,
+        Rectangle, Shadow, Size, Transformation, Vector,
+        advanced::{
+            self, Clipboard, Layout, Shell, Widget,
+            image::{self, FilterMethod, Image},
+            layout, mouse, renderer,
+            text::{self, Alignment, LineHeight, Paragraph, Shaping, paragraph},
+            widget::tree::{self, Tree},
+        },
+        alignment::Vertical,
+        border::{self, Radius},
+        color, keyboard,
+        mouse::ScrollDelta,
     },
-    alignment::Vertical,
-    border::{self, Radius},
-    color,
+    std::{borrow::Cow, iter},
+    tap::prelude::*,
 };
 
 #[derive(Debug, Clone)]
@@ -44,7 +47,7 @@ impl<Handle> Overlay<Handle> {
         Renderer: image::Renderer<Handle = Handle> + text::Renderer,
     {
         let scale = Transformation::scale(state.scale);
-        let stage_offset = layout.bounds().position() + state.current_offset - Point::ORIGIN;
+        let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
 
         #[expect(clippy::cast_precision_loss)]
         let size = match &self.kind {
@@ -82,6 +85,7 @@ where
     on_repos: Option<Box<dyn Fn(usize, Point) -> Message>>,
 
     font: Option<Renderer::Font>,
+    font_size: Option<Pixels>,
     overlays: Box<[Overlay<Renderer::Handle>]>,
 }
 
@@ -106,6 +110,7 @@ where
             on_repos: None,
 
             font: None,
+            font_size: None,
             overlays,
         }
     }
@@ -170,13 +175,18 @@ where
         self
     }
 
-    pub fn on_repos(mut self, on_repos: impl Fn(usize, Point) -> Message + 'static) -> Self {
+    pub fn on_move(mut self, on_repos: impl Fn(usize, Point) -> Message + 'static) -> Self {
         self.on_repos = Some(Box::new(on_repos));
         self
     }
 
     pub fn font(mut self, font: Renderer::Font) -> Self {
         self.font = Some(font);
+        self
+    }
+
+    pub fn font_size(mut self, font_size: impl Into<Pixels>) -> Self {
+        self.font_size = Some(font_size.into());
         self
     }
 
@@ -197,7 +207,7 @@ where
     }
 }
 
-const MISS_CHAR_COUNT: f32 = 20.0;
+const SCROLL_FACTOR: f32 = -10.0;
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Stage<Message, Renderer>
 where
@@ -210,13 +220,13 @@ where
     fn state(&self) -> tree::State {
         let state = State::<Renderer::Paragraph> {
             scale: 1.0,
-            starting_offset: Vector::default(),
-            current_offset: Vector::default(),
-            cursor_grabbed_at: None,
+            offset: Vector::default(),
 
-            repos: None,
+            move_element: None,
 
             paragraphs: Box::default(),
+
+            ctrl_pressed: false,
         };
         tree::State::new(state)
     }
@@ -270,7 +280,7 @@ where
                         content,
                         bounds: limits.width(Length::Shrink).height(Length::Shrink).max(),
                         // TODO customize
-                        size: renderer.default_size(),
+                        size: self.font_size.unwrap_or(renderer.default_size()),
                         line_height: LineHeight::Relative(1.5),
                         font: self.font.unwrap_or(renderer.default_font()),
                         align_x: Alignment::Right,
@@ -304,18 +314,25 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
         match event {
-            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+            // detect ctrl for zoom
+            Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => {
+                state.ctrl_pressed = mods.control();
+            }
+            // zoom
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) if state.ctrl_pressed => {
                 let Some(cursor_position) = cursor.position_over(bounds) else {
                     return;
                 };
-                let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
-                    *delta;
-                let State { scale, current_offset, .. } =
-                    tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+                let delta = {
+                    let (mouse::ScrollDelta::Lines { y, .. }
+                    | mouse::ScrollDelta::Pixels { y, .. }) = *delta;
+                    y * self.scale_step
+                };
+                let State { scale, offset: current_offset, .. } = state;
 
-                let factor = (1.0 + self.scale_step).powf(y);
+                let factor = (1.0 + self.scale_step).powf(delta);
                 *scale *= factor;
                 *current_offset = cursor_position
                     - (cursor_position - *current_offset) * Transformation::scale(factor);
@@ -323,78 +340,63 @@ where
                 shell.request_redraw();
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(cursor_position) = cursor.position_over(bounds) else {
-                    return;
+            // scroll
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) if !state.ctrl_pressed => {
+                let delta = {
+                    let (ScrollDelta::Lines { x, y } | ScrollDelta::Pixels { x, y }) = delta;
+                    [x, y].map(|coord| coord * SCROLL_FACTOR).conv::<Vector>()
                 };
-                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
-                if let Some(on_repos) = &self.on_repos {
-                    let stage_offset = bounds.position() - Point::ORIGIN;
+                // TODO
+                // let scaled_size = scaled_image_size(
+                //     renderer,
+                //     self.handle.as_ref().expect("image"),
+                //     state,
+                //     bounds.size(),
+                //     self.content_fit,
+                // );
+                // let hidden_width = (scaled_size.width - bounds.width / 2.0).max(0.0).round();
 
-                    if let Some((diac_idx, diac_offset)) = state.repos.take() {
-                        let message =
-                            on_repos(diac_idx, cursor_position - diac_offset - stage_offset);
-                        shell.publish(message);
-                        shell.capture_event();
-                        return;
-                    }
+                // let hidden_height = (scaled_size.height - bounds.height / 2.0).max(0.0).round();
 
-                    let over_diac = self.hit_overlay(state, layout, cursor_position, renderer);
+                // let x = if bounds.width < scaled_size.width {
+                //     (state.offset.x - delta.x).clamp(-hidden_width, hidden_width)
+                // } else {
+                //     0.0
+                // };
 
-                    if over_diac.is_some() {
-                        state.repos = over_diac;
-                        shell.request_redraw();
-                        shell.capture_event();
-                        return;
-                    }
-                }
+                // let y = if bounds.height < scaled_size.height {
+                //     (state.offset.y - delta.y).clamp(-hidden_height, hidden_height)
+                // } else {
+                //     0.0
+                // };
 
-                state.cursor_grabbed_at = Some(cursor_position);
-                state.starting_offset = state.current_offset;
-
+                state.offset = state.offset + delta;
                 shell.request_redraw();
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+            // initiate/commit element move
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(on_repos) = &self.on_repos else { return };
+                let Some(cursor_position) = cursor.position_over(bounds) else { return };
 
-                if state.cursor_grabbed_at.is_some() {
-                    state.cursor_grabbed_at = None;
-                    shell.request_redraw();
-                    shell.capture_event();
-                }
-            }
-            Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-
-                if let Some(origin) = state.cursor_grabbed_at {
-                    let scaled_size = scaled_image_size(
-                        renderer,
-                        self.handle.as_ref().expect("image"),
-                        state,
-                        bounds.size(),
-                        self.content_fit,
+                // commit move
+                if let Some((diac_idx, diac_offset)) = state.move_element.take() {
+                    let stage_offset = bounds.position() - Point::ORIGIN;
+                    let message = on_repos(
+                        diac_idx,
+                        (cursor_position - diac_offset - state.offset - stage_offset)
+                            * Transformation::scale(state.scale).inverse(),
                     );
-                    let hidden_width = (scaled_size.width - bounds.width / 2.0).max(0.0).round();
+                    shell.publish(message);
+                    shell.capture_event();
+                    return;
+                }
 
-                    let hidden_height = (scaled_size.height - bounds.height / 2.0).max(0.0).round();
-
-                    let delta = *position - origin;
-
-                    let x = if bounds.width < scaled_size.width {
-                        (state.starting_offset.x - delta.x).clamp(-hidden_width, hidden_width)
-                    } else {
-                        0.0
-                    };
-
-                    let y = if bounds.height < scaled_size.height {
-                        (state.starting_offset.y - delta.y).clamp(-hidden_height, hidden_height)
-                    } else {
-                        0.0
-                    };
-
-                    state.current_offset = Vector::new(x, y);
+                // initiate move
+                let over_diac = self.hit_overlay(state, layout, cursor_position, renderer);
+                if over_diac.is_some() {
+                    state.move_element = over_diac;
                     shell.request_redraw();
                     shell.capture_event();
                 }
@@ -415,10 +417,8 @@ where
         let bounds = layout.bounds();
         let is_mouse_over = cursor.is_over(bounds);
 
-        if state.repos.is_some() {
+        if state.move_element.is_some() {
             mouse::Interaction::Crosshair
-        } else if state.is_cursor_grabbed() {
-            mouse::Interaction::Grabbing
         } else if is_mouse_over {
             if let Some(pos) = cursor.position()
                 && self.hit_overlay(tree.state.downcast_ref(), layout, pos, renderer).is_some()
@@ -454,7 +454,7 @@ where
 
         for (idx, (overlay, paragraph)) in items.enumerate() {
             let overlay_bounds = overlay.bounds(state, layout, renderer, idx);
-            let opacity = if let Some((repos_idx, _)) = state.repos
+            let opacity = if let Some((repos_idx, _)) = state.move_element
                 && repos_idx == idx
             {
                 0.5
@@ -486,21 +486,6 @@ where
                     );
                 }
             }
-
-            // DEBUG
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: overlay_bounds,
-                    border: Border {
-                        color: color!(0, 0xFF, 0),
-                        width: 1.0,
-                        radius: Radius::new(0.0),
-                    },
-                    shadow: Shadow { color: color!(0), offset: Vector::ZERO, blur_radius: 0.0 },
-                    snap: true,
-                },
-                color!(0),
-            );
         }
     }
 }
@@ -509,12 +494,12 @@ where
 #[derive(Debug, Clone)]
 pub struct State<Paragraph> {
     scale: f32,
-    starting_offset: Vector,
-    current_offset: Vector,
-    cursor_grabbed_at: Option<Point>,
+    offset: Vector,
 
-    repos: Option<(usize, Vector)>,
+    move_element: Option<(usize, Vector)>,
     paragraphs: Box<[Paragraph]>,
+
+    ctrl_pressed: bool,
 }
 
 impl<Paragraph> State<Paragraph> {
@@ -526,14 +511,9 @@ impl<Paragraph> State<Paragraph> {
         let hidden_height = (image_size.height - bounds.height / 2.0).max(0.0).round();
 
         Vector::new(
-            self.current_offset.x.clamp(-hidden_width, hidden_width),
-            self.current_offset.y.clamp(-hidden_height, hidden_height),
+            self.offset.x.clamp(-hidden_width, hidden_width),
+            self.offset.y.clamp(-hidden_height, hidden_height),
         )
-    }
-
-    /// Returns if the cursor is currently grabbed by the [`Viewer`].
-    pub fn is_cursor_grabbed(&self) -> bool {
-        self.cursor_grabbed_at.is_some()
     }
 }
 

@@ -1,31 +1,22 @@
 #[cfg(test)]
 mod tests;
 
-use editor::{FONT, stage::Overlay};
-use iced::{ContentFit, Font, Transformation, widget::mouse_area};
-use image::imageops::overlay;
-use teamim::diac::{self, DiacMiss};
-use tokio::task::spawn_blocking;
-
-use crate::{
-    FONT_SIZE, IMG_EXTS, NamedImg, PADDING, SaveStatus, diac_renderer, img::ImgHandle, stage, strs,
-    task::Poll, with_tctx,
-};
 use {
-    eyre::{OptionExt as _, WrapErr as _},
-    iced::{
-        Element, Point, Subscription, Task,
-        futures::StreamExt,
-        keyboard::{Key, key::Named, on_key_press},
-        mouse::Interaction,
-        stream::channel,
-        widget::{button, text},
+    crate::{
+        FONT_SIZE, IMG_EXTS, NamedImg, PADDING, SaveStatus, diac_renderer, img::ImgHandle, stage,
+        strs, task::Poll, with_tctx,
     },
+    editor::stage::Overlay,
+    eyre::{OptionExt as _, WrapErr as _},
+    iced::{ContentFit, Font},
+    iced::{Element, Point, Task, futures::StreamExt, stream::channel},
+    image::imageops::overlay,
     image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer},
     rfd::AsyncFileDialog,
     std::{ffi::CStr, ops::Deref, sync::Arc},
-    tap::prelude::*,
-    teamim::{PositStatus, tesseract_ext::bounding_box::Rect},
+    teamim::PositStatus,
+    teamim::diac::DiacMiss,
+    tokio::task::spawn_blocking,
 };
 
 pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStatus>;
@@ -33,12 +24,11 @@ pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStat
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
     Save(Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>),
-    Reposition(usize, Point),
+    MoveDiac(usize, Point),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
-    diac: char,
     position: Result<Point, DiacMiss>,
     img: ImgHandle,
 }
@@ -47,12 +37,11 @@ pub(crate) struct RenderedDiac {
 pub struct Drawn {
     diacs: Vec<RenderedDiac>,
     saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
-    placing: Option<usize>,
 }
 
 impl Drawn {
     pub fn new(diacs: Vec<RenderedDiac>) -> Self {
-        Self { diacs, saving: Poll::Ready(Ok(())), placing: None }
+        Self { diacs, saving: Poll::Ready(Ok(())) }
     }
 
     pub fn update(&mut self, msg: Message) -> Task<Message> {
@@ -80,7 +69,7 @@ impl Drawn {
                     self.saving = Poll::Ready(msg);
                 }
             },
-            Message::Reposition(diac_idx, pos) => self.diacs[diac_idx].position = Ok(pos),
+            Message::MoveDiac(diac_idx, pos) => self.diacs[diac_idx].position = Ok(pos),
         }
         Task::none()
     }
@@ -105,14 +94,10 @@ impl Drawn {
             }
         }))
         .handle(img.handle().clone())
-        .on_repos(Message::Reposition)
-        // .interaction(if self.placing.is_some() {
-        //     Interaction::Crosshair
-        // } else {
-        //     Interaction::default()
-        // })
+        .on_move(Message::MoveDiac)
         .content_fit(ContentFit::None)
         .font(Font::with_name("Guttman Stam"))
+        .font_size(48.0)
         .into()
     }
 }
@@ -172,7 +157,6 @@ pub(super) fn position_diacs(
     Ok(positions
         .into_iter()
         .map(|(letter, diac, pos)| RenderedDiac {
-            diac,
             position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
             img: renderer.render(diac, FONT_SIZE).into(),
         })

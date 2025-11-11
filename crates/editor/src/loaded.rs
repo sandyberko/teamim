@@ -80,16 +80,10 @@ impl LoadedImage {
         Task::none()
     }
     pub fn view(&'_ self) -> Element<'_, Message> {
-        let drawn = self.drawing.as_ready_ok().and_then(Option::as_ref);
-        drawn.map_or_else(
-            || text("...").into(),
+        self.drawing.as_ready_ok().and_then(Option::as_ref).map_or_else(
+            || self.img.img.view(),
             |drawn| drawn.diac_view(self.img()).map(Message::Drawn),
         )
-        // Element::from(row(iter::chain(
-        //     drawn.map(|drawn| drawn.misses_view().map(Message::Drawn)),
-        //     drawn.map(|drawn| drawn.diac_view(self.img()).map(Message::Drawn)),
-        // )))
-        // .explain([1.0, 0.0, 0.0])
     }
 
     fn img(&self) -> &ImgHandle {
