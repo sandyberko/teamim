@@ -5,17 +5,18 @@ mod tests;
 use std::{borrow::Cow, iter};
 
 use iced::{
-    Color, ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size,
-    Transformation, Vector,
+    Background, Border, Color, ContentFit, Element, Event, Length, Pixels, Point, Radians,
+    Rectangle, Shadow, Size, Transformation, Vector,
     advanced::{
-        Clipboard, Layout, Shell, Widget,
+        self, Clipboard, Layout, Shell, Widget,
         image::{self, FilterMethod, Image},
         layout, mouse, renderer,
         text::{self, Alignment, LineHeight, Paragraph, Shaping, paragraph},
         widget::tree::{self, Tree},
     },
     alignment::Vertical,
-    border,
+    border::{self, Radius},
+    color,
 };
 
 #[derive(Debug, Clone)]
@@ -24,19 +25,43 @@ pub struct Overlay<Handle> {
     kind: OverlayKind<Handle>,
 }
 
-#[derive(Debug, Clone)]
-pub enum OverlayKind<Handle> {
-    Image(Handle),
-    Text(Cow<'static, str>),
-}
-
 impl<Handle> Overlay<Handle> {
-    pub fn image(position: Point, handle: Handle) -> Self {
-        Self { position, kind: OverlayKind::Image(handle) }
+    pub fn image(position: impl Into<Point>, handle: Handle) -> Self {
+        Self { position: position.into(), kind: OverlayKind::Image(handle) }
     }
     pub fn text(position: Point, text: Cow<'static, str>) -> Self {
         Self { position, kind: OverlayKind::Text(text) }
     }
+
+    fn bounds<Renderer>(
+        &self,
+        state: &State<Renderer::Paragraph>,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        idx: usize,
+    ) -> Rectangle
+    where
+        Renderer: image::Renderer<Handle = Handle> + text::Renderer,
+    {
+        let scale = Transformation::scale(state.scale);
+        let stage_offset = layout.bounds().position() + state.current_offset - Point::ORIGIN;
+
+        #[expect(clippy::cast_precision_loss)]
+        let size = match &self.kind {
+            OverlayKind::Image(handle) => {
+                let size = renderer.measure_image(handle).unwrap_or_default();
+                Size::new(size.width as f32, size.height as f32) * scale
+            }
+            OverlayKind::Text(_) => state.paragraphs[idx].min_bounds(),
+        };
+        Rectangle::new(self.position * scale + stage_offset, size)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum OverlayKind<Handle> {
+    Image(Handle),
+    Text(Cow<'static, str>),
 }
 
 /// A frame that displays an image with the ability to zoom in/out and pan.
@@ -154,6 +179,22 @@ where
         self.font = Some(font);
         self
     }
+
+    fn hit_overlay(
+        &self,
+        state: &State<Renderer::Paragraph>,
+        layout: Layout<'_>,
+        point: Point,
+        renderer: &Renderer,
+    ) -> Option<(usize, Vector)> {
+        self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
+            let overlay_bounds = overlay.bounds(state, layout, renderer, idx);
+            if !overlay_bounds.expand(3.0).contains(point) {
+                return None;
+            }
+            Some((idx, point - overlay_bounds.position()))
+        })
+    }
 }
 
 const MISS_CHAR_COUNT: f32 = 20.0;
@@ -167,33 +208,7 @@ where
     }
 
     fn state(&self) -> tree::State {
-        let paragraphs = self
-            .overlays
-            .iter()
-            .map(|overlay| {
-                if let Some(font) = self.font
-                    && let OverlayKind::Text(content) = &overlay.kind
-                {
-                    // TODO customize
-                    let font_size = 32.0;
-                    let line_height = font_size * 1.5;
-                    Renderer::Paragraph::with_text(text::Text {
-                        content,
-                        bounds: Size::new(font_size * MISS_CHAR_COUNT, line_height),
-                        size: font_size.into(),
-                        line_height: LineHeight::Absolute(line_height.into()),
-                        font,
-                        align_x: Alignment::Right,
-                        align_y: Vertical::Top,
-                        shaping: Shaping::Advanced,
-                        wrapping: text::Wrapping::None,
-                    })
-                } else {
-                    Renderer::Paragraph::default()
-                }
-            })
-            .collect();
-        let state = State {
+        let state = State::<Renderer::Paragraph> {
             scale: 1.0,
             starting_offset: Vector::default(),
             current_offset: Vector::default(),
@@ -201,7 +216,7 @@ where
 
             repos: None,
 
-            paragraphs,
+            paragraphs: Box::default(),
         };
         tree::State::new(state)
     }
@@ -216,9 +231,8 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
-        // The raw w/h of the underlying image
         let image_size =
             renderer.measure_image(self.handle.as_ref().expect("image")).unwrap_or_default();
 
@@ -241,6 +255,39 @@ where
                 _ => raw_size.height,
             },
         };
+
+        // text
+        if state.paragraphs.is_empty() {
+            state.paragraphs = self
+                .overlays
+                .iter()
+                .map(|overlay| {
+                    let OverlayKind::Text(content) = &overlay.kind else {
+                        return Renderer::Paragraph::default();
+                    };
+
+                    let text = text::Text::<&str, _> {
+                        content,
+                        bounds: limits.width(Length::Shrink).height(Length::Shrink).max(),
+                        // TODO customize
+                        size: renderer.default_size(),
+                        line_height: LineHeight::Relative(1.5),
+                        font: self.font.unwrap_or(renderer.default_font()),
+                        align_x: Alignment::Right,
+                        align_y: Vertical::Top,
+                        shaping: Shaping::Advanced,
+                        wrapping: text::Wrapping::None,
+                    };
+                    // HACK how do I measure text?
+                    let measure_paragraph = Renderer::Paragraph::with_text(text);
+
+                    Paragraph::with_text(text::Text {
+                        bounds: measure_paragraph.min_bounds(),
+                        ..text
+                    })
+                })
+                .collect();
+        }
 
         layout::Node::new(final_size)
     }
@@ -281,7 +328,6 @@ where
                     return;
                 };
                 let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-                let scale = Transformation::scale(state.scale);
 
                 if let Some(on_repos) = &self.on_repos {
                     let stage_offset = bounds.position() - Point::ORIGIN;
@@ -294,22 +340,7 @@ where
                         return;
                     }
 
-                    let over_diac = self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
-                        #[expect(clippy::cast_precision_loss)]
-                        let size = match &overlay.kind {
-                            OverlayKind::Image(handle) => {
-                                let size = renderer.measure_image(handle)?;
-                                Size::new(size.width as f32, size.height as f32) * scale
-                            }
-                            OverlayKind::Text(_) => state.paragraphs[idx].min_bounds(),
-                        };
-                        let diac_bounds =
-                            Rectangle::new(overlay.position * scale + stage_offset, size);
-                        if !diac_bounds.expand(3.0).contains(cursor_position) {
-                            return None;
-                        }
-                        Some((idx, cursor_position - diac_bounds.position()))
-                    });
+                    let over_diac = self.hit_overlay(state, layout, cursor_position, renderer);
 
                     if over_diac.is_some() {
                         state.repos = over_diac;
@@ -378,16 +409,24 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &Renderer,
+        renderer: &Renderer,
     ) -> mouse::Interaction {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
         let bounds = layout.bounds();
         let is_mouse_over = cursor.is_over(bounds);
 
-        if state.is_cursor_grabbed() {
+        if state.repos.is_some() {
+            mouse::Interaction::Crosshair
+        } else if state.is_cursor_grabbed() {
             mouse::Interaction::Grabbing
         } else if is_mouse_over {
-            mouse::Interaction::Grab
+            if let Some(pos) = cursor.position()
+                && self.hit_overlay(tree.state.downcast_ref(), layout, pos, renderer).is_some()
+            {
+                mouse::Interaction::Move
+            } else {
+                mouse::Interaction::Grab
+            }
         } else {
             mouse::Interaction::None
         }
@@ -404,78 +443,65 @@ where
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
-        let stage_bounds = layout.bounds();
 
-        let handle = self.handle.as_ref().expect("image");
-        let Size { width, height } = renderer.measure_image(handle).unwrap_or_default();
-        #[expect(clippy::cast_precision_loss)]
-        let orig_size = Size::new(width as f32, height as f32);
-        let img_bounds =
-            Rectangle::new(stage_bounds.position() + state.current_offset, orig_size * state.scale);
+        let background_item = self.handle.as_ref().map(|handle| {
+            (Overlay::image([0.0; _], handle.clone()), Renderer::Paragraph::default())
+        });
+        let items = iter::chain(
+            background_item.as_ref().map(|(handle, paragraph)| (handle, paragraph)),
+            self.overlays.iter().zip(&state.paragraphs),
+        );
 
-        let render = |renderer: &mut Renderer| {
-            // background
-            renderer.draw_image(
-                Image {
-                    handle: self.handle.clone().expect("image"),
-                    border_radius: border::Radius::default(),
-                    filter_method: self.filter_method,
-                    rotation: Radians(0.0),
-                    opacity: 1.0,
-                    snap: true,
-                },
-                img_bounds,
-                *viewport,
-            );
-
-            // overlays
-            for (idx, (overlay, paragraph)) in
-                self.overlays.iter().zip(&state.paragraphs).enumerate()
+        for (idx, (overlay, paragraph)) in items.enumerate() {
+            let overlay_bounds = overlay.bounds(state, layout, renderer, idx);
+            let opacity = if let Some((repos_idx, _)) = state.repos
+                && repos_idx == idx
             {
-                let overlay_offset = overlay.position - Point::ORIGIN;
-                let overlay_position = img_bounds.position() + overlay_offset * state.scale;
+                0.5
+            } else {
+                1.0
+            };
 
-                match &overlay.kind {
-                    OverlayKind::Text(_) => {
-                        renderer.fill_paragraph(
-                            paragraph,
-                            overlay_position,
-                            Color::from_rgb8(0xff, 0, 0),
-                            stage_bounds,
-                        );
-                    }
-                    OverlayKind::Image(handle) => {
-                        let Size { width, height } =
-                            renderer.measure_image(handle).unwrap_or_default();
-                        #[expect(clippy::cast_precision_loss)]
-                        let orig_size = Size::new(width as f32, height as f32);
-                        let bounds = Rectangle::new(overlay_position, orig_size * state.scale);
-
-                        let opacity = if let Some((repos_idx, _)) = state.repos
-                            && repos_idx == idx
-                        {
-                            0.5
-                        } else {
-                            1.0
-                        };
-                        renderer.draw_image(
-                            Image {
-                                handle: handle.clone(),
-                                border_radius: border::Radius::default(),
-                                filter_method: self.filter_method,
-                                rotation: Radians(0.0),
-                                opacity,
-                                snap: true,
-                            },
-                            bounds,
-                            *viewport,
-                        );
-                    }
+            match &overlay.kind {
+                OverlayKind::Text(_) => {
+                    renderer.fill_paragraph(
+                        paragraph,
+                        overlay_bounds.position(),
+                        Color::from_rgba(1.0, 0.0, 0.0, opacity),
+                        *viewport,
+                    );
+                }
+                OverlayKind::Image(handle) => {
+                    renderer.draw_image(
+                        Image {
+                            handle: handle.clone(),
+                            border_radius: border::Radius::default(),
+                            filter_method: self.filter_method,
+                            rotation: Radians(0.0),
+                            opacity,
+                            snap: true,
+                        },
+                        overlay_bounds,
+                        *viewport,
+                    );
                 }
             }
-        };
 
-        renderer.with_layer(img_bounds, render);
+            // DEBUG
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: overlay_bounds,
+                    border: Border {
+                        color: color!(0, 0xFF, 0),
+                        width: 1.0,
+                        radius: Radius::new(0.0),
+                    },
+                    shadow: Shadow { color: color!(0), offset: Vector::ZERO, blur_radius: 0.0 },
+                    snap: true,
+                },
+                color!(0),
+            );
+        }
     }
 }
 

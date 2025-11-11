@@ -8,7 +8,7 @@ use teamim::diac::{self, DiacMiss};
 use tokio::task::spawn_blocking;
 
 use crate::{
-    FONT_SIZE, IMG_EXTS, NamedImg, SaveStatus, diac_renderer, img::ImgHandle, stage, strs,
+    FONT_SIZE, IMG_EXTS, NamedImg, PADDING, SaveStatus, diac_renderer, img::ImgHandle, stage, strs,
     task::Poll, with_tctx,
 };
 use {
@@ -98,7 +98,10 @@ impl Drawn {
             Err(miss) =>
             {
                 #[expect(clippy::cast_precision_loss)]
-                Overlay::text(Point::new(-200.0, miss.top as f32), miss.missing_text.clone())
+                Overlay::text(
+                    Point::new(img.img().width() as f32 + f32::from(PADDING), miss.top as f32),
+                    miss.missing_text.clone(),
+                )
             }
         }))
         .handle(img.handle().clone())
