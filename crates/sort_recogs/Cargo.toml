@@ -6,8 +6,7 @@ edition = "2024"
 [dependencies]
 teamim.workspace = true
 clap.workspace = true
-eyre.workspace = true
-color-eyre.workspace = true
+mixup.workspace = true
 itertools.workspace = true
 rayon = "1.10.0"
 indicatif = { version = "0.18", features = ["rayon"] }

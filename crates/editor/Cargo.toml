@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 teamim.workspace = true
-eyre.workspace = true
+mixup.workspace = true
 image = { workspace = true, default-features = true }
 derive_setters = "0.1.8"
 lyon_algorithms = "1.0.16"
