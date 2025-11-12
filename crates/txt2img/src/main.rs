@@ -26,7 +26,7 @@ use teamim::{
 };
 use text::{draw_text_mut, text_size};
 use tiff::{
-    encoder::{Rational, TiffEncoder, colortype::Gray8, compression::Lzw},
+    encoder::{Compression, Rational, TiffEncoder, colortype::Gray8, compression::Lzw},
     tags::ResolutionUnit,
 };
 
@@ -120,7 +120,8 @@ fn generate(
         File::create(&box_path)
             .wrap_err_with(|| eyre!("Failed to create box file {box_path:?}"))?,
     );
-    let mut encoder = TiffEncoder::new(BufWriter::new(File::create(output)?))?;
+    let mut encoder =
+        TiffEncoder::new(BufWriter::new(File::create(output)?))?.with_compression(Compression::Lzw);
     let mut image_buf = GrayImage::new(xsize, ysize);
 
     let mut pages = PageIter {
@@ -158,7 +159,7 @@ fn generate(
         }
 
         {
-            let mut encoder = encoder.new_image_with_compression::<Gray8, _>(xsize, ysize, Lzw)?;
+            let mut encoder = encoder.new_image::<Gray8>(xsize, ysize)?;
             encoder.resolution(ResolutionUnit::Inch, Rational { n: DPI, d: 1 });
             encoder.write_data(image_buf.as_raw())?;
         }
