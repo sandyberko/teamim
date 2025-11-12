@@ -1,13 +1,25 @@
 mod drawn;
+mod number_input;
 
 use {
-    crate::{FONT_SIZE, NamedImg, PADDING, img::ImgHandle, strs, task::Poll},
+    crate::{
+        FONT_SIZE, NamedImg, PADDING, diac_renderer,
+        img::ImgHandle,
+        loaded::{drawn::RenderedDiac, number_input::State},
+        strs,
+        task::Poll,
+        with_tctx,
+    },
     drawn::Drawn,
     iced::{
         Element, Task,
         alignment::Vertical,
         stream::channel,
-        widget::{row, slider, text, text::IntoFragment},
+        widget::{
+            row, slider,
+            text::{self, IntoFragment},
+            text_input,
+        },
     },
     std::{borrow::Cow, sync::Arc},
     tap::prelude::*,
@@ -33,19 +45,27 @@ pub(crate) enum Message {
     Drawn(drawn::Message),
     SetBlur(u32),
     Blur(Poll<ImgHandle, BlurStatus>),
+    DiacSize(number_input::Message),
 }
 
 #[derive(Debug)]
 pub(crate) struct LoadedImage {
     img: NamedImg,
     blur: u32,
+    diac_size: number_input::State,
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
     drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
 }
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
-        Self { img, blur: 0, drawing: Poll::Ready(Ok(None)), blurring: Poll::Ready(None) }
+        Self {
+            img,
+            blur: 0,
+            diac_size: State::new(FONT_SIZE),
+            drawing: Poll::Ready(Ok(None)),
+            blurring: Poll::Ready(None),
+        }
     }
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
@@ -76,6 +96,7 @@ impl LoadedImage {
                 }
                 Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
+            Message::DiacSize(msg) => return self.diac_size.update(msg).map(Message::DiacSize),
         }
         Task::none()
     }
@@ -95,6 +116,7 @@ impl LoadedImage {
             Poll::Pending(PositStatus::Pending) => {
                 self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.img.img();
+                let diac_size = self.diac_size.get();
                 Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
                         let tx = tx.clone();
@@ -103,7 +125,21 @@ impl LoadedImage {
                         }
                     };
                     let result = spawn_blocking(move || {
-                        drawn::position_diacs(&img, DATAPATH, progress_callback)
+                        let positions =
+                            with_tctx(DATAPATH, |ctx| ctx.positions(&img, progress_callback))??;
+                        // TODO persist
+                        let mut renderer = diac_renderer::Renderer::new();
+                        Ok(positions
+                            .into_iter()
+                            .map(|(letter, diac, pos)| {
+                                RenderedDiac::new(
+                                    pos.map(|rect| {
+                                        renderer.position(letter, diac, rect, diac_size)
+                                    }),
+                                    renderer.render(diac, diac_size).into(),
+                                )
+                            })
+                            .collect())
                     })
                     .await
                     .expect("blocking task to finish");
@@ -122,10 +158,11 @@ impl LoadedImage {
         }
     }
 
-    pub(crate) fn toolbar_view<'a>(&self) -> Element<'a, Message> {
+    pub(crate) fn toolbar_view(&self) -> Element<'_, Message> {
         row([
             // blur
             slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0).into(),
+            self.diac_size.view().map(Message::DiacSize),
             self.blurring
                 .loading_btn()
                 .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))

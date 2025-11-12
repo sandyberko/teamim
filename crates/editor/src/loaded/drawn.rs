@@ -33,6 +33,12 @@ pub(crate) struct RenderedDiac {
     img: ImgHandle,
 }
 
+impl RenderedDiac {
+    pub(crate) fn new(position: Result<Point, DiacMiss>, img: ImgHandle) -> Self {
+        Self { position, img }
+    }
+}
+
 #[derive(Debug)]
 pub struct Drawn {
     diacs: Vec<RenderedDiac>,
@@ -145,20 +151,4 @@ async fn save(
         img.save_with_format(file.path(), format).wrap_err(strs::SAVE_FAILED)?;
     }
     Ok(())
-}
-
-pub(super) fn position_diacs(
-    img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
-    datapath: &CStr,
-    progress_callback: impl Fn(PositStatus),
-) -> eyre::Result<Vec<RenderedDiac>> {
-    let positions = with_tctx(datapath, |ctx| ctx.positions(img, progress_callback))??;
-    let mut renderer = diac_renderer::Renderer::new();
-    Ok(positions
-        .into_iter()
-        .map(|(letter, diac, pos)| RenderedDiac {
-            position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
-            img: renderer.render(diac, FONT_SIZE).into(),
-        })
-        .collect())
 }

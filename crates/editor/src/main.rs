@@ -85,7 +85,7 @@ impl Default for App {
 }
 
 impl App {
-    fn toolbar<'a>(&'_ self) -> Element<'a, Message> {
+    fn toolbar(&self) -> Element<'_, Message> {
         let children = [
             // select
             Some(self.img.loading_btn().on_press(Message::SelectImage).into()),
