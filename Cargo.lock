@@ -1308,6 +1308,7 @@ dependencies = [
 name = "editor"
 version = "0.1.0"
 dependencies = [
+ "color-eyre",
  "derive_setters",
  "eyre",
  "iced",
@@ -1318,6 +1319,10 @@ dependencies = [
  "tap",
  "teamim",
  "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-error",
+ "tracing-subscriber",
 ]
 
 [[package]]

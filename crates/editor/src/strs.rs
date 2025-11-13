@@ -10,12 +10,13 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, PositStatus> {
         Cow::Borrowed(match self {
             Poll::Ready(_) => "צייר טעמים",
             Poll::Pending(progress) => match progress {
-                PositStatus::Pending => "מצייר...",
+                PositStatus::Pending => "רק רגע...",
                 PositStatus::Recognizing => "מזהה...",
                 PositStatus::ImageEffects => "עורך תמונה...",
                 PositStatus::Searching => "מחפש...",
                 PositStatus::Diffing => "משווה...",
                 PositStatus::Placing => "ממקם...",
+                PositStatus::Rendering => "מצייר...",
             },
         })
     }

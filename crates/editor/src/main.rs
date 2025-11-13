@@ -13,7 +13,7 @@ use {
         Element, Font, Length, Task,
         widget::{
             column, row,
-            scrollable::{AbsoluteOffset, Viewport},
+            scrollable::AbsoluteOffset,
             text,
             text::{Fragment, IntoFragment},
         },
@@ -29,7 +29,6 @@ enum Message {
     SelectImage,
     ImageLoaded(Result<Option<NamedImg>, String>),
     Loaded(loaded::Message),
-    Scroll(Viewport),
 }
 
 impl From<loaded::Message> for Message {
@@ -67,12 +66,11 @@ const FONT_SIZE: f32 = 72.0;
 struct SelectProgress {}
 struct App {
     img: Poll<Result<Option<loaded::LoadedImage>, String>, SelectProgress>,
-    scroll_offset: AbsoluteOffset,
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self { img: Poll::Ready(Ok(None)), scroll_offset: AbsoluteOffset::default() }
+        Self { img: Poll::Ready(Ok(None)) }
     }
 }
 
@@ -138,10 +136,6 @@ impl App {
                 };
                 loaded.update(msg).map(Message::Loaded)
             }
-            Message::Scroll(viewport) => {
-                self.scroll_offset = viewport.absolute_offset();
-                Task::none()
-            }
         }
     }
 }
@@ -192,9 +186,35 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, SaveStatus> {
 }
 
 fn main() -> eyre::Result<()> {
+    let _guard = tracing_init()?;
+
     let boot_fn = App::default;
     run_app(boot_fn)?;
     Ok(())
+}
+
+fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_appender::{non_blocking, rolling};
+    use tracing_error::ErrorLayer;
+    use tracing_subscriber::{
+        EnvFilter, Registry, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+    };
+
+    let (non_blocking_appender, guard) = non_blocking(rolling::daily("logs", "teamim-editor"));
+    let file_layer = fmt::layer().with_ansi(false).with_writer(non_blocking_appender);
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    Registry::default()
+        .with(fmt::layer().pretty().with_writer(std::io::stderr))
+        .with(file_layer)
+        .with(ErrorLayer::default())
+        .with(env_filter)
+        .init();
+
+    color_eyre::install()?;
+
+    Ok(guard)
 }
 
 const ICON_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Teamim_Icons.ttf");

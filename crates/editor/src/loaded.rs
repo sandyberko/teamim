@@ -16,9 +16,8 @@ use {
         alignment::Vertical,
         stream::channel,
         widget::{
-            row, slider,
+            row,
             text::{self, IntoFragment},
-            text_input,
         },
     },
     std::{borrow::Cow, sync::Arc},
@@ -120,6 +119,7 @@ impl LoadedImage {
         self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img.img)
     }
 
+    #[tracing::instrument(skip(self))]
     fn render_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
         match msg {
             Poll::Pending(PositStatus::Pending) => {
@@ -133,24 +133,29 @@ impl LoadedImage {
                             _ = tx.clone().try_send(Poll::Pending(progress));
                         }
                     };
-                    let result = spawn_blocking(move || {
-                        let positions =
-                            with_tctx(DATAPATH, |ctx| ctx.positions(&img, progress_callback))??;
-                        // TODO persist
-                        let mut renderer = diac_renderer::Renderer::new();
-                        Ok(positions
-                            .into_iter()
-                            .map(|(letter, diac, pos)| {
-                                RenderedDiac::new(
-                                    letter,
-                                    diac,
-                                    pos.map(|rect| {
-                                        renderer.position(letter, diac, rect, diac_size)
-                                    }),
-                                    renderer.render(diac, diac_size).into(),
-                                )
-                            })
-                            .collect())
+                    let result = spawn_blocking({
+                        let tx = tx.clone();
+                        move || {
+                            let positions =
+                                with_tctx(DATAPATH, |ctx| ctx.positions(&img, progress_callback))??;
+
+                            _ = tx.clone().try_send(Poll::Pending(PositStatus::Rendering));
+                            // TODO persist
+                            let mut renderer = diac_renderer::Renderer::new();
+                            Ok(positions
+                                .into_iter()
+                                .map(|(letter, diac, pos)| {
+                                    RenderedDiac::new(
+                                        letter,
+                                        diac,
+                                        pos.map(|rect| {
+                                            renderer.position(letter, diac, rect, diac_size)
+                                        }),
+                                        renderer.render(diac, diac_size).into(),
+                                    )
+                                })
+                                .collect())
+                        }
                     })
                     .await
                     .expect("blocking task to finish");

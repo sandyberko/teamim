@@ -45,6 +45,7 @@ pub enum PositStatus {
     Searching,
     Diffing,
     Placing,
+    Rendering,
 }
 
 #[derive(Clone)]
