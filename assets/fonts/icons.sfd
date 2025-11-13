@@ -1,0 +1,147 @@
+SplineFontDB: 3.2
+FontName: Teamim_Icons
+FullName: Teamim_Icons
+FamilyName: Teamim_Icons
+Weight: Regular
+Copyright: Copyright (c) 2025, Alex
+UComments: "2025-11-13: Created with FontForge (http://fontforge.org)"
+Version: 001.000
+ItalicAngle: 0
+UnderlinePosition: -102.4
+UnderlineWidth: 51.2
+Ascent: 819
+Descent: 205
+InvalidEm: 0
+LayerCount: 2
+Layer: 0 0 "Back" 1
+Layer: 1 0 "Fore" 0
+XUID: [1021 39 -1655111086 8427843]
+OS2Version: 0
+OS2_WeightWidthSlopeOnly: 0
+OS2_UseTypoMetrics: 1
+CreationTime: 1763053802
+ModificationTime: 1763055181
+OS2TypoAscent: 0
+OS2TypoAOffset: 1
+OS2TypoDescent: 0
+OS2TypoDOffset: 1
+OS2TypoLinegap: 0
+OS2WinAscent: 0
+OS2WinAOffset: 1
+OS2WinDescent: 0
+OS2WinDOffset: 1
+HheadAscent: 0
+HheadAOffset: 1
+HheadDescent: 0
+HheadDOffset: 1
+OS2Vendor: 'PfEd'
+MarkAttachClasses: 1
+DEI: 91125
+Encoding: ISO8859-1
+UnicodeInterp: none
+NameList: AGL For New Fonts
+DisplaySize: -48
+AntiAlias: 1
+FitToEm: 0
+WinInfo: 19 19 13
+BeginPrivate: 0
+EndPrivate
+BeginChars: 256 3
+
+StartChar: v
+Encoding: 118 118 0
+Width: 1024
+Flags: HW
+LayerCount: 2
+Fore
+SplineSet
+490 1226 m 2
+ 335 1380 l 2
+ 333 1382 331 1385 330 1387 c 0
+ 329 1389 329 1392 329 1395 c 0
+ 329 1401 330 1406 334 1410 c 0
+ 338 1414 344 1417 350 1417 c 2
+ 674 1417 l 2
+ 680 1417 686 1414 690 1410 c 0
+ 694 1406 695 1401 695 1395 c 0
+ 695 1394 693 1389 689 1380 c 1
+ 534 1226 l 2
+ 530 1222 528 1219 524 1218 c 0
+ 520 1217 516 1216 512 1216 c 0
+ 508 1216 504 1217 500 1218 c 0
+ 496 1219 494 1222 490 1226 c 2
+EndSplineSet
+EndChar
+
+StartChar: asciicircum
+Encoding: 94 94 1
+Width: 1024
+Flags: HW
+LayerCount: 2
+Fore
+SplineSet
+350 1246 m 2
+ 344 1246 338 1248 334 1252 c 0
+ 330 1256 329 1261 329 1267 c 0
+ 329 1268 331 1273 335 1282 c 1
+ 490 1437 l 2
+ 494 1441 496 1443 500 1444 c 0
+ 504 1445 508 1446 512 1446 c 0
+ 516 1446 520 1445 524 1444 c 0
+ 528 1443 530 1441 534 1437 c 2
+ 689 1282 l 2
+ 691 1280 693 1277 694 1275 c 0
+ 695 1273 695 1270 695 1267 c 0
+ 695 1261 694 1256 690 1252 c 0
+ 686 1248 680 1246 674 1246 c 2
+ 350 1246 l 2
+EndSplineSet
+EndChar
+
+StartChar: T
+Encoding: 84 84 2
+Width: 1024
+Flags: HW
+LayerCount: 2
+Fore
+SplineSet
+597 1545 m 1
+ 448 1545 l 2
+ 430 1545 415 1551 403 1563 c 0
+ 391 1575 384 1591 384 1609 c 0
+ 384 1627 391 1642 403 1654 c 0
+ 415 1666 430 1673 448 1673 c 2
+ 875 1673 l 2
+ 893 1673 908 1666 920 1654 c 0
+ 932 1642 939 1627 939 1609 c 0
+ 939 1591 932 1575 920 1563 c 0
+ 908 1551 893 1545 875 1545 c 2
+ 725 1545 l 1
+ 725 1054 l 2
+ 725 1036 719 1021 707 1009 c 0
+ 695 997 679 990 661 990 c 0
+ 643 990 628 997 616 1009 c 0
+ 604 1021 597 1036 597 1054 c 2
+ 597 1545 l 1
+213 1331 m 1
+ 149 1331 l 2
+ 131 1331 116 1338 104 1350 c 0
+ 92 1362 85 1377 85 1395 c 0
+ 85 1413 92 1429 104 1441 c 0
+ 116 1453 131 1459 149 1459 c 2
+ 405 1459 l 2
+ 423 1459 439 1453 451 1441 c 0
+ 463 1429 469 1413 469 1395 c 0
+ 469 1377 463 1362 451 1350 c 0
+ 439 1338 423 1331 405 1331 c 2
+ 341 1331 l 1
+ 341 1054 l 2
+ 341 1036 335 1021 323 1009 c 0
+ 311 997 295 990 277 990 c 0
+ 259 990 244 997 232 1009 c 0
+ 220 1021 213 1036 213 1054 c 2
+ 213 1331 l 1
+EndSplineSet
+EndChar
+EndChars
+EndSplineFont
