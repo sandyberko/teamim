@@ -122,6 +122,7 @@ impl LoadedImage {
     fn render_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
         match msg {
             Poll::Pending(PositStatus::Pending) => {
+                tracing::info!("STARTED");
                 self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.img.img();
                 let diac_size = self.diac_size;
@@ -131,6 +132,7 @@ impl LoadedImage {
                     let progress_callback = {
                         let tx = tx.clone();
                         move |progress| {
+                            tracing::info!("{progress:?}");
                             _ = tx.clone().try_send(Poll::Pending(progress));
                         }
                     };

@@ -54,8 +54,10 @@ pub struct TeamimCtx {
 }
 
 impl TeamimCtx {
+    #[tracing::instrument]
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
-        let tess = Tess::new(datapath, LANG)?;
+        tracing::info!("initializing context...");
+        let tess = Tess::new(datapath, LANG).inspect_err(|err| tracing::error!("{err}"))?;
         tess.set_page_seg_mode(PageSegMode::SingleColumn);
         Ok(Self { tess })
     }

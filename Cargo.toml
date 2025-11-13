@@ -37,6 +37,7 @@ similar = { version = "2.7.0", features = ["unicode"] }
 serde = { version = "1.0.217", features = ["derive"] }
 search = { version = "0.1.0", path = "crates/search" }
 tesseract-sys = "0.6.3"
+tracing = "0.1.41"
 
 [dev-dependencies]
 image = { workspace = true, default-features = true }
