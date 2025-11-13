@@ -29,13 +29,20 @@ pub(crate) enum Message {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
+    letter: char,
+    diac: char,
     position: Result<Point, DiacMiss>,
     img: ImgHandle,
 }
 
 impl RenderedDiac {
-    pub(crate) fn new(position: Result<Point, DiacMiss>, img: ImgHandle) -> Self {
-        Self { position, img }
+    pub(crate) fn new(
+        letter: char,
+        diac: char,
+        position: Result<Point, DiacMiss>,
+        img: ImgHandle,
+    ) -> Self {
+        Self { letter, diac, position, img }
     }
 }
 

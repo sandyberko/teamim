@@ -38,9 +38,13 @@ fn view() -> eyre::Result<()> {
         let results = test_utils::POSITIONS
             .iter()
             .cloned()
-            .map(|(letter, diac, pos)| RenderedDiac {
-                position: pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
-                img: renderer.render(diac, FONT_SIZE).into(),
+            .map(|(letter, diac, pos)| {
+                RenderedDiac::new(
+                    letter,
+                    diac,
+                    pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
+                    renderer.render(diac, FONT_SIZE).into(),
+                )
             })
             .collect();
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));

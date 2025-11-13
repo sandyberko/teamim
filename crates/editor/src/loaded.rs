@@ -43,25 +43,28 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
 pub(crate) enum Message {
     Draw(drawn::PollDraw),
     Drawn(drawn::Message),
-    SetBlur(u32),
+    BlurSigma(number_input::Message),
     Blur(Poll<ImgHandle, BlurStatus>),
     DiacSize(number_input::Message),
+    ResizeDiac(f32),
 }
 
-#[derive(Debug)]
 pub(crate) struct LoadedImage {
     img: NamedImg,
-    blur: u32,
-    diac_size: number_input::State,
-    blurring: Poll<Option<ImgHandle>, BlurStatus>,
+
     drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
+
+    blur_sigma: number_input::State<f32>,
+    blurring: Poll<Option<ImgHandle>, BlurStatus>,
+
+    diac_size: number_input::State<f32>,
 }
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
         Self {
             img,
-            blur: 0,
+            blur_sigma: number_input::State::new(17.0),
             diac_size: State::new(FONT_SIZE),
             drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),
@@ -80,14 +83,17 @@ impl LoadedImage {
                     .map_or(Task::none(), |drawn| drawn.update(msg))
                     .map(Message::Drawn);
             }
-            Message::SetBlur(blur) => self.blur = blur,
+            Message::BlurSigma(msg) => {
+                return self.blur_sigma.update(msg).map(Message::BlurSigma);
+            }
             Message::Blur(msg) => match msg {
                 Poll::Pending(BlurStatus::Blurring) => {
                     self.blurring = Poll::Pending(BlurStatus::Blurring);
                     let img = self.img.img.clone();
+                    let simga = self.blur_sigma.get();
                     return Task::future(async move {
                         spawn_blocking(move || {
-                            let blurred = img.blur();
+                            let blurred = img.blur(simga);
                             Message::Blur(Poll::Ready(blurred))
                         })
                         .await
@@ -96,7 +102,10 @@ impl LoadedImage {
                 }
                 Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
-            Message::DiacSize(msg) => return self.diac_size.update(msg).map(Message::DiacSize),
+            Message::DiacSize(msg) => {
+                return self.diac_size.update(msg).map(Message::DiacSize);
+            }
+            Message::ResizeDiac(_) => todo!(),
         }
         Task::none()
     }
@@ -133,6 +142,8 @@ impl LoadedImage {
                             .into_iter()
                             .map(|(letter, diac, pos)| {
                                 RenderedDiac::new(
+                                    letter,
+                                    diac,
                                     pos.map(|rect| {
                                         renderer.position(letter, diac, rect, diac_size)
                                     }),
@@ -161,12 +172,13 @@ impl LoadedImage {
     pub(crate) fn toolbar_view(&self) -> Element<'_, Message> {
         row([
             // blur
-            slider(0..=25, self.blur, Message::SetBlur).width(FONT_SIZE * 3.0).into(),
-            self.diac_size.view().map(Message::DiacSize),
+            self.blur_sigma.view().map(Message::BlurSigma),
             self.blurring
                 .loading_btn()
                 .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))
                 .into(),
+            // diac size
+            self.diac_size.view().map(Message::DiacSize),
             // draw
             self.drawing
                 .loading_btn()

@@ -20,11 +20,11 @@ impl ImgHandle {
         &self.handle
     }
 
-    pub(crate) fn blur(&self) -> Self {
+    pub(crate) fn blur(&self, simga: f32) -> Self {
         let (width, height) = self.img.dimensions();
         // [TODO] don't clone
         let img = RgbaImage::from_vec(width, height, self.img.to_vec()).unwrap();
-        fast_blur(&img, 17.0).into()
+        fast_blur(&img, simga).into()
     }
 
     pub(crate) fn view<'a, Message>(&self) -> Element<'a, Message> {

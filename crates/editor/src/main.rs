@@ -6,36 +6,28 @@ mod loaded;
 mod strs;
 mod task;
 
-use eyre::eyre;
-use iced::{
-    Element, Length, Task,
-    widget::{
-        Column, column, row, scrollable,
-        scrollable::{AbsoluteOffset, Direction, Scrollbar, Viewport},
-        text,
-        text::{Fragment, IntoFragment},
+use {
+    crate::{img::ImgHandle, loaded::LoadedImage, task::Poll},
+    editor::{GUTTMAN, stage},
+    iced::{
+        Element, Font, Length, Task,
+        widget::{
+            column, row,
+            scrollable::{AbsoluteOffset, Viewport},
+            text,
+            text::{Fragment, IntoFragment},
+        },
     },
+    image::ImageReader,
+    rfd::AsyncFileDialog,
+    std::{borrow::Cow, cell::RefCell, ffi::CStr, path::Path, sync::Arc},
+    teamim::TeamimCtx,
 };
-use image::ImageReader;
-use rfd::AsyncFileDialog;
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    ffi::CStr,
-    mem,
-    path::Path,
-    sync::{Arc, Mutex},
-};
-
-use editor::{GUTTMAN, stage};
-use teamim::TeamimCtx;
-
-use crate::{img::ImgHandle, task::Poll};
 
 #[derive(Debug, Clone)]
 enum Message {
     SelectImage,
-    ImageLoaded(Arc<Mutex<eyre::Result<Option<loaded::LoadedImage>>>>),
+    ImageLoaded(Result<Option<NamedImg>, String>),
     Loaded(loaded::Message),
     Scroll(Viewport),
 }
@@ -132,14 +124,12 @@ impl App {
 
                 self.img = Poll::Pending(SelectProgress::default());
                 Task::future(async move {
-                    let loaded = select_image().await;
-                    Message::ImageLoaded(Arc::new(Mutex::new(loaded)))
+                    let loaded = select_image().await.map_err(|err| err.to_string());
+                    Message::ImageLoaded(loaded)
                 })
             }
             Message::ImageLoaded(res) => {
-                let mut res = res.lock().unwrap();
-                let res = mem::replace(&mut *res, Err(eyre!("message taken")));
-                self.img = Poll::Ready(res.map_err(|err| err.to_string()));
+                self.img = Poll::Ready(res.map(|img| img.map(LoadedImage::new)));
                 Task::none()
             }
             Message::Loaded(msg) => {
@@ -156,7 +146,7 @@ impl App {
     }
 }
 
-async fn select_image() -> eyre::Result<Option<loaded::LoadedImage>> {
+async fn select_image() -> eyre::Result<Option<NamedImg>> {
     // [TODO]
     let Some(picked_file) = AsyncFileDialog::new()
         .set_title(strs::SELECT_IMG)
@@ -167,24 +157,25 @@ async fn select_image() -> eyre::Result<Option<loaded::LoadedImage>> {
         return Ok(None);
     };
 
-    let loaded = tokio::task::spawn_blocking(move || load_image(picked_file.path()))
+    let loaded = tokio::task::spawn_blocking(move || NamedImg::open(picked_file.path()))
         .await
         .expect("blocking task to finish")?;
 
     Ok(Some(loaded))
 }
 
-fn load_image(path: impl AsRef<Path>) -> eyre::Result<loaded::LoadedImage> {
-    let path = path.as_ref().into();
-    let img = ImageReader::open(&path)?.decode()?.into_rgba8().into();
-    Ok(loaded::LoadedImage::new(NamedImg { path, img }))
-}
-
 #[derive(Debug, Clone)]
 struct NamedImg {
-    // [TODO] private
-    pub(crate) path: Arc<Path>,
+    path: Arc<Path>,
     img: ImgHandle,
+}
+
+impl NamedImg {
+    pub(crate) fn open(path: impl Into<Arc<Path>>) -> eyre::Result<Self> {
+        let path = path.into();
+        let img = ImageReader::open(&path)?.decode()?.into_rgba8().into();
+        Ok(Self { path, img })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -206,10 +197,17 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+const ICON_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Teamim_Icons.ttf");
+const ICON_FONT: Font = Font::with_name("Teamim_Icons");
+
 fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
     fn view(state: &'_ App) -> Element<'_, Message> {
         App::view(state)
     }
-    iced::application(boot_fn, App::update, view).font(GUTTMAN).title(strs::TITLE).run()?;
+    iced::application(boot_fn, App::update, view)
+        .font(GUTTMAN)
+        .font(ICON_FONT_BYTES)
+        .title(strs::TITLE)
+        .run()?;
     Ok(())
 }
