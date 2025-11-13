@@ -1,19 +1,17 @@
-use std::{cell::LazyCell, sync::LazyLock};
-
-use editor::FONT;
-use iced::Point;
-use image::{Rgba, RgbaImage};
-use swash::{
-    FontRef,
-    scale::{Render, ScaleContext, Source, image::Image},
-    zeno::Format,
+use {
+    editor::FONT,
+    iced::Point,
+    image::{Rgba, RgbaImage},
+    swash::{
+        FontRef,
+        scale::{Render, ScaleContext, Source, image::Image},
+        zeno::Format,
+    },
+    teamim::{
+        glyph::{self, CombiningClass, diacs},
+        tesseract_ext::bounding_box::Rect,
+    },
 };
-use teamim::{
-    diac,
-    glyph::{self, CombiningClass},
-    tesseract_ext::bounding_box::Rect,
-};
-
 pub(crate) struct Renderer {
     font: FontRef<'static>,
     ctx: ScaleContext,
@@ -38,10 +36,21 @@ impl Renderer {
         let margin = font_size * 0.05;
 
         let center = rect.left + rect.width() / 2.0;
-        match (letter, glyph.combining_class) {
-            (_, CombiningClass::Above) => Point::new(center, rect.top - diac_height - margin),
-            (_, CombiningClass::Bottom) => Point::new(center, rect.bottom + margin),
-            (_, CombiningClass::After) => Point::new(rect.left - diac_width - margin, rect.top),
+        match glyph.combining_class {
+            CombiningClass::Above => Point::new(center, rect.top - diac_height - margin),
+            CombiningClass::Bottom => Point::new(center, rect.bottom + margin),
+            CombiningClass::After => Point::new(
+                rect.left - diac_width - margin,
+                rect.top
+                    - rect.height()
+                        * if letter == 'ל' {
+                            0.5
+                        } else if diac == diacs::SOF_PASUQ.diac {
+                            0.3
+                        } else {
+                            1.0
+                        },
+            ),
         }
     }
 
