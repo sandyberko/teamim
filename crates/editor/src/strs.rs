@@ -1,15 +1,16 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Display};
 
 use iced::widget::text::{Fragment, IntoFragment};
 use teamim::PositStatus;
 
 use crate::{SelectProgress, task::Poll};
 
-impl<Ready> IntoFragment<'static> for &Poll<Ready, PositStatus> {
+impl<Ready, Err: Display> IntoFragment<'static> for &Poll<Result<Ready, Err>, PositStatus> {
     fn into_fragment(self) -> Fragment<'static> {
-        Cow::Borrowed(match self {
-            Poll::Ready(_) => "צייר טעמים",
-            Poll::Pending(progress) => match progress {
+        match self {
+            Poll::Ready(Ok(_)) => Cow::Borrowed("צייר טעמים"),
+            Poll::Ready(Err(err)) => Cow::Owned(format!("⚠️ שגיאה: {err}")),
+            Poll::Pending(progress) => Cow::Borrowed(match progress {
                 PositStatus::Pending => "רק רגע...",
                 PositStatus::Recognizing => "מזהה...",
                 PositStatus::ImageEffects => "עורך תמונה...",
@@ -17,8 +18,8 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, PositStatus> {
                 PositStatus::Diffing => "משווה...",
                 PositStatus::Placing => "ממקם...",
                 PositStatus::Rendering => "מצייר...",
-            },
-        })
+            }),
+        }
     }
 }
 

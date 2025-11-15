@@ -1,4 +1,4 @@
-use std::iter::once;
+use std::iter::{self, once};
 
 use editor::spinner::Spinner;
 use iced::{
@@ -44,7 +44,7 @@ impl<Ready, Status> Poll<Ready, Status> {
         Message: Clone + 'a,
     {
         button(
-            row(once(text(self).into()).chain(self.as_pending().map(|_| Spinner::new().into())))
+            row(iter::chain([text(self).into()], self.as_pending().map(|_| Spinner::new().into())))
                 .spacing(6)
                 .align_y(Vertical::Center),
         )

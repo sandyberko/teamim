@@ -49,7 +49,7 @@ where
     TEAMIM_CTX.with_borrow_mut(|ctx| {
         let ctx = {
             if ctx.is_none() {
-                *ctx = Some(TeamimCtx::new(datapath)?);
+                *ctx = Some(TeamimCtx::new(datapath).inspect_err(|err| tracing::error!("{err}"))?);
             }
 
             ctx.as_mut().unwrap()

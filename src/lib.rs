@@ -11,7 +11,7 @@ pub mod test_utils;
 mod tests;
 
 use {
-    eyre::{OptionExt, eyre},
+    eyre::{OptionExt, ensure, eyre},
     image::{ImageBuffer, Rgba},
     serde::Serialize,
     similar::{Algorithm, DiffTag, TextDiff, udiff::UnifiedDiff, utils::TextDiffRemapper},
@@ -19,6 +19,7 @@ use {
         borrow::Cow,
         collections::BTreeMap,
         ffi::{CStr, CString},
+        fs,
         ops::Deref,
         path::Path,
         sync::{Arc, LazyLock},
@@ -57,7 +58,13 @@ impl TeamimCtx {
     #[tracing::instrument]
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
         tracing::info!("initializing context...");
-        let tess = Tess::new(datapath, LANG).inspect_err(|err| tracing::error!("{err}"))?;
+        ensure!(fs::exists(datapath.to_str()?)?, "tessdata doesn't exist!");
+        let mut tess = Tess::new(datapath, LANG)?;
+        // TODO
+        if !fs::exists("./logs")? {
+            fs::create_dir("./logs")?;
+        }
+        tess.set_variable(c"debug_file", c"./logs/tesseract.log")?;
         tess.set_page_seg_mode(PageSegMode::SingleColumn);
         Ok(Self { tess })
     }

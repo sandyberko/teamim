@@ -65,15 +65,12 @@ impl Tess {
         name: impl AsRef<CStr>,
         value: impl AsRef<CStr>,
     ) -> eyre::Result<()> {
+        let name = name.as_ref();
         let succeed = unsafe {
-            capi::TessBaseAPISetVariable(
-                self.raw.as_ptr(),
-                name.as_ref().as_ptr(),
-                value.as_ref().as_ptr(),
-            )
+            capi::TessBaseAPISetVariable(self.raw.as_ptr(), name.as_ptr(), value.as_ref().as_ptr())
         };
         if succeed != 1 {
-            bail!("failed to set variable {succeed:x}");
+            bail!("failed to set variable {name:?}");
         }
         Ok(())
     }
