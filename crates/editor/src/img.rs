@@ -1,9 +1,11 @@
-use iced::{
-    Element,
-    advanced::image::Bytes,
-    widget::{self, image::Handle},
+use {
+    bytes::Bytes,
+    iced::{
+        Element,
+        widget::{self, image::Handle},
+    },
+    image::{ImageBuffer, Rgba, RgbaImage, imageops::fast_blur},
 };
-use image::{ImageBuffer, Rgba, RgbaImage, imageops::fast_blur};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImgHandle {

@@ -9,7 +9,7 @@ eyre.workspace = true
 image = { workspace = true, default-features = true }
 derive_setters = "0.1.8"
 lyon_algorithms = "1.0.16"
-rfd = "0.15.4"
+rfd = "0.16"
 swash = "0.2.6"
 tap = "1.0.1"
 tokio = { version = "1.47.1", features = ["macros", "rt"] }
@@ -18,9 +18,9 @@ tracing-appender = "0.2.3"
 tracing-error = "0.2.1"
 color-eyre.workspace = true
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+bytes = "1.11.0"
 
 [dependencies.iced]
-version = "0.14.0-dev"
 path = "../../../third-party/iced"
 features = ["advanced", "canvas", "image", "tokio", "wgpu"]
 
@@ -28,7 +28,6 @@ features = ["advanced", "canvas", "image", "tokio", "wgpu"]
 teamim = { workspace = true, features = ["test_utils"] }
 
 [dev-dependencies.iced]
-version = "0.14.0-dev"
 path = "../../../third-party/iced"
 features = ["debug"]
 

@@ -45,7 +45,6 @@ pub(crate) enum Message {
     BlurSigma(number_input::Message),
     Blur(Poll<ImgHandle, BlurStatus>),
     DiacSize(number_input::Message),
-    ResizeDiac(f32),
 }
 
 pub(crate) struct LoadedImage {
@@ -104,7 +103,6 @@ impl LoadedImage {
             Message::DiacSize(msg) => {
                 return self.diac_size.update(msg).map(Message::DiacSize);
             }
-            Message::ResizeDiac(_) => todo!(),
         }
         Task::none()
     }
