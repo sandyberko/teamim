@@ -7,6 +7,8 @@ use {
     std::{ffi::CStr, io::Cursor, sync::LazyLock},
 };
 
+pub const DIAC_COLOR: [u8; 3] = [0xFF, 0, 0];
+
 pub fn ctx() -> eyre::Result<TeamimCtx> {
     TeamimCtx::new(
         CStr::from_bytes_with_nul(

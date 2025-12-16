@@ -12,12 +12,11 @@ use {
     iced::{
         Element, Font, Length, Task,
         widget::{
-            column, row,
-            scrollable::AbsoluteOffset,
-            text,
+            column, row, text,
             text::{Fragment, IntoFragment},
         },
     },
+    iced_aw::ICED_AW_FONT_BYTES,
     image::ImageReader,
     rfd::AsyncFileDialog,
     std::{borrow::Cow, cell::RefCell, ffi::CStr, path::Path, sync::Arc},
@@ -227,6 +226,7 @@ fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
     iced::application(boot_fn, App::update, view)
         .font(GUTTMAN)
         .font(ICON_FONT_BYTES)
+        .font(ICED_AW_FONT_BYTES)
         .title(strs::TITLE)
         .run()?;
     Ok(())

@@ -1,3 +1,4 @@
+mod color_picker;
 mod drawn;
 mod number_input;
 
@@ -12,7 +13,7 @@ use {
     },
     drawn::Drawn,
     iced::{
-        Element, Task,
+        Color, Element, Task,
         alignment::Vertical,
         stream::channel,
         widget::{
@@ -45,6 +46,7 @@ pub(crate) enum Message {
     BlurSigma(number_input::Message),
     Blur(Poll<ImgHandle, BlurStatus>),
     DiacSize(number_input::Message),
+    DiacColor(color_picker::Message),
 }
 
 pub(crate) struct LoadedImage {
@@ -56,6 +58,8 @@ pub(crate) struct LoadedImage {
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
 
     diac_size: number_input::State<f32>,
+
+    diac_color: color_picker::State,
 }
 
 impl LoadedImage {
@@ -63,11 +67,14 @@ impl LoadedImage {
         Self {
             img,
             blur_sigma: number_input::State::new(17.0),
-            diac_size: State::new(FONT_SIZE),
             drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),
+
+            diac_size: State::new(FONT_SIZE),
+            diac_color: color_picker::State::new(Color::from_rgb8(u8::MAX, 0, 0)),
         }
     }
+
     fn drawn_mut(&mut self) -> Option<&mut Drawn> {
         if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
     }
@@ -103,6 +110,7 @@ impl LoadedImage {
             Message::DiacSize(msg) => {
                 return self.diac_size.update(msg).map(Message::DiacSize);
             }
+            Message::DiacColor(msg) => return self.diac_color.update(msg).map(Message::DiacColor),
         }
         Task::none()
     }
@@ -124,6 +132,7 @@ impl LoadedImage {
                 self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.img.img();
                 let diac_size = self.diac_size.get();
+                let diac_color = self.diac_color.get_rgb8();
                 Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
                         let tx = tx.clone();
@@ -143,14 +152,11 @@ impl LoadedImage {
                             Ok(positions
                                 .into_iter()
                                 .map(|(letter, diac, pos)| {
-                                    RenderedDiac::new(
-                                        letter,
-                                        diac,
-                                        pos.map(|rect| {
-                                            renderer.position(letter, diac, rect, diac_size)
-                                        }),
-                                        renderer.render(diac, diac_size).into(),
-                                    )
+                                    let map = pos.map(|rect| {
+                                        renderer.position(letter, diac, rect, diac_size)
+                                    });
+                                    let img = renderer.render(diac, diac_size, diac_color).into();
+                                    RenderedDiac::new(letter, diac, map, img)
                                 })
                                 .collect())
                         }
@@ -182,6 +188,8 @@ impl LoadedImage {
                 .into(),
             // diac size
             self.diac_size.view().map(Message::DiacSize),
+            // diac color
+            self.diac_color.view().map(Message::DiacColor),
             // draw
             self.drawing
                 .loading_btn()

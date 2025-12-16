@@ -20,7 +20,7 @@ fn save() -> eyre::Result<()> {
     let mut bottom = test_utils::IMAGE.clone();
     for (_, diac, pos) in test_utils::POSITIONS {
         let Ok(rect) = pos else { continue };
-        let top = renderer.render(*diac, FONT_SIZE);
+        let top = renderer.render(*diac, FONT_SIZE, test_utils::DIAC_COLOR);
         overlay(&mut bottom, &top, rect.left.into(), rect.top.into());
     }
     bottom.save_with_format("../../../temp/saved-tests/007.png", ImageFormat::Png)?;
@@ -43,7 +43,7 @@ fn view() -> eyre::Result<()> {
                     letter,
                     diac,
                     pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
-                    renderer.render(diac, FONT_SIZE).into(),
+                    renderer.render(diac, FONT_SIZE, test_utils::DIAC_COLOR).into(),
                 )
             })
             .collect();

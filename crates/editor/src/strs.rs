@@ -37,3 +37,4 @@ pub const SAVE: &str = "שמור";
 pub const NO_IMG_SELECTED: &str = "לא נבחרה תמונה";
 pub const BLUR: &str = "טשטוש";
 pub const DIAC_SIZE: &str = "גודל טעמים";
+pub const COLOR: &str = "צבע";

@@ -19,17 +19,12 @@ tracing-error = "0.2.1"
 color-eyre.workspace = true
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 bytes = "1.11.0"
-
-[dependencies.iced]
-path = "../../../third-party/iced"
-features = ["advanced", "canvas", "image", "tokio", "wgpu"]
+iced_aw = { version = "0.13.0", default-features = false, features = ["color_picker"] }
+iced = { version = "0.14", features = ["advanced", "canvas", "image", "tokio", "wgpu"] }
 
 [dev-dependencies]
 teamim = { workspace = true, features = ["test_utils"] }
-
-[dev-dependencies.iced]
-path = "../../../third-party/iced"
-features = ["debug"]
+iced = { version = "0.14", features = ["debug"] }
 
 [lints]
 workspace = true

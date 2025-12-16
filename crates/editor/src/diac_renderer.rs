@@ -66,7 +66,7 @@ impl Renderer {
             panic!("outline should exist for glyph {glyph_id}");
         }
     }
-    pub(crate) fn render(&mut self, c: char, px_size: f32) -> RgbaImage {
+    pub(crate) fn render(&mut self, c: char, px_size: f32, [r, g, b]: [u8; 3]) -> RgbaImage {
         self.render_into(c, px_size);
         let width = self.image.placement.width;
         let height = self.image.placement.height;
@@ -74,7 +74,7 @@ impl Renderer {
         let data = &self.image.data;
 
         for (src, dst) in data.iter().zip(rgba.pixels_mut()) {
-            *dst = Rgba([0xFF, 0, 0, *src]); // black text, alpha from coverage
+            *dst = Rgba([r, g, b, *src]);
         }
 
         self.image.clear();

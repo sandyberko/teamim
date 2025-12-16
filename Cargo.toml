@@ -43,3 +43,9 @@ image = { workspace = true, default-features = true }
 
 [lints]
 workspace = true
+
+[patch.crates-io]
+iced = { path = "../third-party/iced", version = "0.14.0" }
+iced_core = { path = "../third-party/iced/core", version = "0.14.0" }
+iced_graphics = { path = "../third-party/iced/graphics", version = "0.14.0" }
+iced_widget = { path = "../third-party/iced/widget", version = "0.14.0" }
