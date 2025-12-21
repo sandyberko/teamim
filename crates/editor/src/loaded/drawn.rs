@@ -2,18 +2,15 @@
 mod tests;
 
 use {
-    crate::{
-        FONT_SIZE, IMG_EXTS, NamedImg, PADDING, SaveStatus, diac_renderer, img::ImgHandle, stage,
-        strs, task::Poll, with_tctx,
-    },
+    crate::{IMG_EXTS, NamedImg, PADDING, SaveStatus, img::ImgHandle, stage, strs, task::Poll},
     editor::stage::Overlay,
     eyre::{OptionExt as _, WrapErr as _},
     iced::{ContentFit, Font},
     iced::{Element, Point, Task, futures::StreamExt, stream::channel},
     image::imageops::overlay,
-    image::{ImageBuffer, ImageFormat, Rgb, Rgba, RgbaImage, buffer::ConvertBuffer},
+    image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer},
     rfd::AsyncFileDialog,
-    std::{ffi::CStr, ops::Deref, sync::Arc},
+    std::sync::Arc,
     teamim::PositStatus,
     teamim::diac::DiacMiss,
     tokio::task::spawn_blocking,

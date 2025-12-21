@@ -1,8 +1,8 @@
 use {
-    crate::{FONT_SIZE, PADDING, strs},
+    crate::{PADDING, strs},
     iced::{
-        Alignment, Color, Element, Length, Task,
-        widget::{Button, Row, Text, container, row, space, text},
+        Color, Element, Task,
+        widget::{Button, container, row, space, text},
     },
     iced_aw::helpers::color_picker,
 };

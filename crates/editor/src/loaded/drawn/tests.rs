@@ -50,7 +50,7 @@ fn view() -> eyre::Result<()> {
         loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
         loaded
     }
-    let boot_fn = || App { img: Poll::Ready(Ok(Some(load()))), ..App::default() };
+    let boot_fn = || App { img: Poll::Ready(Ok(Some(load()))) };
     run_app(boot_fn)?;
 
     Ok(())

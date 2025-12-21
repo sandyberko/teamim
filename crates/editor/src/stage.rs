@@ -4,18 +4,18 @@ mod tests;
 
 use {
     iced::{
-        Background, Border, Color, ContentFit, Element, Event, Length, Pixels, Point, Radians,
-        Rectangle, Shadow, Size, Transformation, Vector,
+        Color, ContentFit, Element, Event, Length, Pixels, Point, Radians, Rectangle, Size,
+        Transformation, Vector,
         advanced::{
-            self, Clipboard, Layout, Shell, Widget,
+            Clipboard, Layout, Shell, Widget,
             image::{self, FilterMethod, Image},
             layout, mouse, renderer,
-            text::{self, Alignment, LineHeight, Paragraph, Shaping, paragraph},
+            text::{self, Alignment, LineHeight, Paragraph, Shaping},
             widget::tree::{self, Tree},
         },
         alignment::Vertical,
-        border::{self, Radius},
-        color, keyboard,
+        border::{self},
+        keyboard,
         mouse::ScrollDelta,
     },
     std::{borrow::Cow, iter},
@@ -32,6 +32,8 @@ impl<Handle> Overlay<Handle> {
     pub fn image(position: impl Into<Point>, handle: Handle) -> Self {
         Self { position: position.into(), kind: OverlayKind::Image(handle) }
     }
+
+    #[must_use]
     pub fn text(position: Point, text: Cow<'static, str>) -> Self {
         Self { position, kind: OverlayKind::Text(text) }
     }
@@ -94,6 +96,7 @@ where
     Renderer: image::Renderer + text::Renderer,
 {
     /// Creates a new [`Viewer`] with the given [`State`].
+    #[must_use]
     pub fn new(overlays: Box<[Overlay<Renderer::Handle>]>) -> Self {
         Stage {
             handle: None,
@@ -116,30 +119,35 @@ where
     }
 
     /// Sets the [`FilterMethod`] of the [`Viewer`].
+    #[must_use]
     pub fn filter_method(mut self, filter_method: image::FilterMethod) -> Self {
         self.filter_method = filter_method;
         self
     }
 
     /// Sets the [`ContentFit`] of the [`Viewer`].
+    #[must_use]
     pub fn content_fit(mut self, content_fit: ContentFit) -> Self {
         self.content_fit = content_fit;
         self
     }
 
     /// Sets the padding of the [`Viewer`].
+    #[must_use]
     pub fn padding(mut self, padding: impl Into<Pixels>) -> Self {
         self.padding = padding.into().0;
         self
     }
 
     /// Sets the width of the [`Viewer`].
+    #[must_use]
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
     }
 
     /// Sets the height of the [`Viewer`].
+    #[must_use]
     pub fn height(mut self, height: impl Into<Length>) -> Self {
         self.height = height.into();
         self
@@ -148,6 +156,7 @@ where
     /// Sets the max scale applied to the image of the [`Viewer`].
     ///
     /// Default is `10.0`
+    #[must_use]
     pub fn max_scale(mut self, max_scale: f32) -> Self {
         self.max_scale = max_scale;
         self
@@ -156,6 +165,7 @@ where
     /// Sets the min scale applied to the image of the [`Viewer`].
     ///
     /// Default is `0.25`
+    #[must_use]
     pub fn min_scale(mut self, min_scale: f32) -> Self {
         self.min_scale = min_scale;
         self
@@ -165,26 +175,31 @@ where
     /// when zoomed in / out.
     ///
     /// Default is `0.10`
+    #[must_use]
     pub fn scale_step(mut self, scale_step: f32) -> Self {
         self.scale_step = scale_step;
         self
     }
 
+    #[must_use]
     pub fn handle(mut self, handle: Renderer::Handle) -> Self {
         self.handle = Some(handle);
         self
     }
 
+    #[must_use]
     pub fn on_move(mut self, on_repos: impl Fn(usize, Point) -> Message + 'static) -> Self {
         self.on_repos = Some(Box::new(on_repos));
         self
     }
 
+    #[must_use]
     pub fn font(mut self, font: Renderer::Font) -> Self {
         self.font = Some(font);
         self
     }
 
+    #[must_use]
     pub fn font_size(mut self, font_size: impl Into<Pixels>) -> Self {
         self.font_size = Some(font_size.into());
         self
@@ -246,6 +261,7 @@ where
         let image_size =
             renderer.measure_image(self.handle.as_ref().expect("image")).unwrap_or_default();
 
+        #[expect(clippy::cast_precision_loss)]
         let image_size = Size::new(image_size.width as f32, image_size.height as f32);
 
         // The size to be available to the widget prior to `Shrink`ing
@@ -371,7 +387,7 @@ where
                 //     0.0
                 // };
 
-                state.offset = state.offset + delta;
+                state.offset += delta;
                 shell.request_redraw();
                 shell.capture_event();
             }

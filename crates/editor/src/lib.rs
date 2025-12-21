@@ -1,9 +1,6 @@
 use {
     crate::stage::Overlay,
-    iced::{
-        Point,
-        advanced::{image, text},
-    },
+    iced::advanced::{image, text},
     std::sync::LazyLock,
     swash::FontRef,
 };
