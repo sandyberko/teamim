@@ -1,4 +1,4 @@
-//! Zoom and pan on an image.
+//! Zoom and pan on fixed-position images and text.
 #[cfg(test)]
 mod tests;
 
@@ -84,7 +84,7 @@ where
     filter_method: FilterMethod,
     content_fit: ContentFit,
 
-    on_repos: Option<Box<dyn Fn(usize, Point) -> Message>>,
+    on_move: Option<Box<dyn Fn(usize, Point) -> Message>>,
 
     font: Option<Renderer::Font>,
     font_size: Option<Pixels>,
@@ -110,7 +110,7 @@ where
             filter_method: FilterMethod::default(),
             content_fit: ContentFit::default(),
 
-            on_repos: None,
+            on_move: None,
 
             font: None,
             font_size: None,
@@ -188,8 +188,8 @@ where
     }
 
     #[must_use]
-    pub fn on_move(mut self, on_repos: impl Fn(usize, Point) -> Message + 'static) -> Self {
-        self.on_repos = Some(Box::new(on_repos));
+    pub fn on_move(mut self, on_move: impl Fn(usize, Point) -> Message + 'static) -> Self {
+        self.on_move = Some(Box::new(on_move));
         self
     }
 
@@ -393,15 +393,17 @@ where
             }
             // initiate/commit element move
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(on_repos) = &self.on_repos else { return };
+                let Some(on_repos) = &self.on_move else { return };
                 let Some(cursor_position) = cursor.position_over(bounds) else { return };
 
                 // commit move
-                if let Some((diac_idx, diac_offset)) = state.move_element.take() {
+                if let Some(MoveElement { elem_idx, press_elem_offset, .. }) =
+                    state.move_element.take()
+                {
                     let stage_offset = bounds.position() - Point::ORIGIN;
                     let message = on_repos(
-                        diac_idx,
-                        (cursor_position - diac_offset - state.offset - stage_offset)
+                        elem_idx,
+                        (cursor_position - press_elem_offset - state.offset - stage_offset)
                             * Transformation::scale(state.scale).inverse(),
                     );
                     shell.publish(message);
@@ -410,13 +412,25 @@ where
                 }
 
                 // initiate move
-                let over_diac = self.hit_overlay(state, layout, cursor_position, renderer);
-                if over_diac.is_some() {
-                    state.move_element = over_diac;
+                if let Some((elem_idx, press_elem_offset)) =
+                    self.hit_overlay(state, layout, cursor_position, renderer)
+                {
+                    state.move_element = Some(MoveElement { elem_idx, press_elem_offset });
                     shell.request_redraw();
                     shell.capture_event();
                 }
             }
+
+            // cursor position for moving diac
+            Event::Mouse(mouse::Event::CursorMoved { position })
+                if state.move_element.is_some() && bounds.contains(*position) =>
+            {
+                shell.request_redraw();
+            }
+            Event::Mouse(mouse::Event::CursorLeft) if state.move_element.is_some() => {
+                shell.request_redraw();
+            }
+
             _ => {}
         }
     }
@@ -455,7 +469,7 @@ where
         _theme: &Theme,
         _style: &renderer::Style,
         layout: Layout<'_>,
-        _cursor: mouse::Cursor,
+        cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
@@ -469,10 +483,15 @@ where
         );
 
         for (idx, (overlay, paragraph)) in items.enumerate() {
-            let overlay_bounds = overlay.bounds(state, layout, renderer, idx);
-            let opacity = if let Some((repos_idx, _)) = state.move_element
-                && repos_idx == idx
+            let mut overlay_bounds = overlay.bounds(state, layout, renderer, idx);
+            let opacity = if let Some(mov) = state.move_element
+                && mov.elem_idx + 1 == idx
             {
+                if let Some(cursor_position) = cursor.position() {
+                    let Point { x, y } = cursor_position - mov.press_elem_offset;
+                    overlay_bounds.x = x;
+                    overlay_bounds.y = y;
+                }
                 0.5
             } else {
                 1.0
@@ -506,13 +525,19 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MoveElement {
+    elem_idx: usize,
+    press_elem_offset: Vector,
+}
+
 /// The local state of a [`Viewer`].
 #[derive(Debug, Clone)]
 pub struct State<Paragraph> {
     scale: f32,
     offset: Vector,
 
-    move_element: Option<(usize, Vector)>,
+    move_element: Option<MoveElement>,
     paragraphs: Box<[Paragraph]>,
 
     ctrl_pressed: bool,
