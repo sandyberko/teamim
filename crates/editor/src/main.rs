@@ -10,7 +10,7 @@ use {
     crate::{img::ImgHandle, loaded::LoadedImage, task::Poll},
     editor::{GUTTMAN, stage},
     iced::{
-        Element, Font, Length, Task,
+        Element, Length, Task,
         widget::{
             column, row, text,
             text::{Fragment, IntoFragment},
@@ -59,6 +59,7 @@ where
 }
 
 const FONT_SIZE: f32 = 72.0;
+const MARGIN: f32 = (FONT_SIZE * 0.4).round();
 
 // [TODO]
 #[derive(Default)]
@@ -216,16 +217,12 @@ fn tracing_init() -> eyre::Result<tracing_appender::non_blocking::WorkerGuard> {
     Ok(guard)
 }
 
-const ICON_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Teamim_Icons.ttf");
-const ICON_FONT: Font = Font::with_name("Teamim_Icons");
-
 fn run_app(boot_fn: impl Fn() -> App + 'static) -> eyre::Result<()> {
     fn view(state: &'_ App) -> Element<'_, Message> {
         App::view(state)
     }
     iced::application(boot_fn, App::update, view)
         .font(GUTTMAN)
-        .font(ICON_FONT_BYTES)
         .font(ICED_AW_FONT_BYTES)
         .title(strs::TITLE)
         .run()?;

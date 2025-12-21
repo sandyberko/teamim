@@ -3,18 +3,15 @@ mod drawn;
 
 use {
     crate::{
-        FONT_SIZE, NamedImg, PADDING, diac_renderer, img::ImgHandle, loaded::drawn::RenderedDiac,
-        strs, task::Poll, with_tctx,
+        FONT_SIZE, MARGIN, NamedImg, PADDING, diac_renderer, img::ImgHandle,
+        loaded::drawn::RenderedDiac, strs, task::Poll, with_tctx,
     },
     drawn::Drawn,
     iced::{
         Color, Element, Task,
         alignment::Vertical,
         stream::channel,
-        widget::{
-            row,
-            text::{self, IntoFragment},
-        },
+        widget::{row, text, text::IntoFragment},
     },
     iced_aw::widget::helpers::number_input,
     std::{borrow::Cow, sync::Arc},
@@ -41,7 +38,9 @@ pub(crate) enum Message {
     Drawn(drawn::Message),
     BlurSigma(f32),
     Blur(Poll<ImgHandle, BlurStatus>),
+
     DiacSize(f32),
+    DiacMargin(f32),
     DiacColor(color_picker::Message),
 }
 
@@ -49,6 +48,7 @@ pub(crate) struct LoadedImage {
     img: NamedImg,
 
     diac_size: f32,
+    diac_margin: f32,
     diac_color: color_picker::State,
     drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
 
@@ -65,6 +65,7 @@ impl LoadedImage {
             blurring: Poll::Ready(None),
 
             diac_size: FONT_SIZE,
+            diac_margin: MARGIN,
             diac_color: color_picker::State::new(Color::from_rgb8(u8::MAX, 0, 0)),
         }
     }
@@ -101,6 +102,7 @@ impl LoadedImage {
                 Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
             Message::DiacSize(msg) => self.diac_size = msg,
+            Message::DiacMargin(msg) => self.diac_margin = msg,
             Message::DiacColor(msg) => return self.diac_color.update(msg).map(Message::DiacColor),
         }
         Task::none()
@@ -123,6 +125,7 @@ impl LoadedImage {
                 self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.img.img();
                 let diac_size = self.diac_size;
+                let diac_margin = self.diac_margin;
                 let diac_color = self.diac_color.get_rgb8();
                 Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
@@ -144,7 +147,13 @@ impl LoadedImage {
                                 .into_iter()
                                 .map(|(letter, diac, pos)| {
                                     let map = pos.map(|rect| {
-                                        renderer.position(letter, diac, rect, diac_size)
+                                        diac_renderer::Renderer::position(
+                                            letter,
+                                            diac,
+                                            rect,
+                                            diac_size,
+                                            diac_margin,
+                                        )
                                     });
                                     let img = renderer.render(diac, diac_size, diac_color).into();
                                     RenderedDiac::new(letter, diac, map, img)
@@ -181,6 +190,10 @@ impl LoadedImage {
             self.diac_color.view().map(Message::DiacColor),
             // diac size
             number_input(&self.diac_size, 1.0..254.0, Message::DiacSize).into(),
+            text(strs::SIZE).into(),
+            // diac margin
+            number_input(&self.diac_margin, -245.0..254.0, Message::DiacMargin).into(),
+            text(strs::MARGIN).into(),
             // draw
             self.drawing
                 .loading_btn()
@@ -198,6 +211,7 @@ impl LoadedImage {
         ))
         .align_y(Vertical::Center)
         .spacing(u32::from(PADDING))
+        .wrap()
         .into()
     }
 }

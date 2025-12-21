@@ -1,6 +1,6 @@
 use {
     crate::{
-        App, FONT_SIZE, NamedImg, diac_renderer,
+        App, FONT_SIZE, MARGIN, NamedImg, diac_renderer,
         loaded::{
             LoadedImage,
             drawn::{Drawn, RenderedDiac},
@@ -42,7 +42,9 @@ fn view() -> eyre::Result<()> {
                 RenderedDiac::new(
                     letter,
                     diac,
-                    pos.map(|rect| renderer.position(letter, diac, rect, FONT_SIZE)),
+                    pos.map(|rect| {
+                        diac_renderer::Renderer::position(letter, diac, rect, FONT_SIZE, MARGIN)
+                    }),
                     renderer.render(diac, FONT_SIZE, test_utils::DIAC_COLOR).into(),
                 )
             })

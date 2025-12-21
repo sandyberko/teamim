@@ -24,7 +24,13 @@ impl Renderer {
     }
 
     #[must_use]
-    pub fn position(&self, letter: char, diac: char, rect: Rect<u32>, font_size: f32) -> Point {
+    pub fn position(
+        letter: char,
+        diac: char,
+        rect: Rect<u32>,
+        font_size: f32,
+        margin: f32,
+    ) -> Point {
         #[expect(clippy::cast_precision_loss)]
         let rect = rect.map(|coord| coord as f32);
 
@@ -33,7 +39,6 @@ impl Renderer {
         // TODO
         let diac_height = font_size * 0.2;
         let diac_width = font_size * 0.2;
-        let margin = font_size * 0.05;
 
         let center = rect.left + rect.width() / 2.0;
         match glyph.combining_class {
