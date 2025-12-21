@@ -1,15 +1,10 @@
 mod color_picker;
 mod drawn;
-mod number_input;
 
 use {
     crate::{
-        FONT_SIZE, NamedImg, PADDING, diac_renderer,
-        img::ImgHandle,
-        loaded::{drawn::RenderedDiac, number_input::State},
-        strs,
-        task::Poll,
-        with_tctx,
+        FONT_SIZE, NamedImg, PADDING, diac_renderer, img::ImgHandle, loaded::drawn::RenderedDiac,
+        strs, task::Poll, with_tctx,
     },
     drawn::Drawn,
     iced::{
@@ -21,6 +16,7 @@ use {
             text::{self, IntoFragment},
         },
     },
+    iced_aw::widget::helpers::number_input,
     std::{borrow::Cow, sync::Arc},
     tap::prelude::*,
     teamim::{DATAPATH, PositStatus},
@@ -43,34 +39,32 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
 pub(crate) enum Message {
     Draw(drawn::PollDraw),
     Drawn(drawn::Message),
-    BlurSigma(number_input::Message),
+    BlurSigma(f32),
     Blur(Poll<ImgHandle, BlurStatus>),
-    DiacSize(number_input::Message),
+    DiacSize(f32),
     DiacColor(color_picker::Message),
 }
 
 pub(crate) struct LoadedImage {
     img: NamedImg,
 
+    diac_size: f32,
+    diac_color: color_picker::State,
     drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
 
-    blur_sigma: number_input::State<f32>,
+    blur_sigma: f32,
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
-
-    diac_size: number_input::State<f32>,
-
-    diac_color: color_picker::State,
 }
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
         Self {
             img,
-            blur_sigma: number_input::State::new(17.0),
+            blur_sigma: 17.0,
             drawing: Poll::Ready(Ok(None)),
             blurring: Poll::Ready(None),
 
-            diac_size: State::new(FONT_SIZE),
+            diac_size: FONT_SIZE,
             diac_color: color_picker::State::new(Color::from_rgb8(u8::MAX, 0, 0)),
         }
     }
@@ -88,14 +82,13 @@ impl LoadedImage {
                     .map_or(Task::none(), |drawn| drawn.update(msg))
                     .map(Message::Drawn);
             }
-            Message::BlurSigma(msg) => {
-                return self.blur_sigma.update(msg).map(Message::BlurSigma);
-            }
+            Message::BlurSigma(msg) => self.blur_sigma = msg,
             Message::Blur(msg) => match msg {
                 Poll::Pending(BlurStatus::Blurring) => {
                     self.blurring = Poll::Pending(BlurStatus::Blurring);
                     let img = self.img.img.clone();
-                    let simga = self.blur_sigma.get();
+                    let simga = self.blur_sigma;
+
                     return Task::future(async move {
                         spawn_blocking(move || {
                             let blurred = img.blur(simga);
@@ -107,9 +100,7 @@ impl LoadedImage {
                 }
                 Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
-            Message::DiacSize(msg) => {
-                return self.diac_size.update(msg).map(Message::DiacSize);
-            }
+            Message::DiacSize(msg) => self.diac_size = msg,
             Message::DiacColor(msg) => return self.diac_color.update(msg).map(Message::DiacColor),
         }
         Task::none()
@@ -131,7 +122,7 @@ impl LoadedImage {
             Poll::Pending(PositStatus::Pending) => {
                 self.drawing = Poll::Pending(PositStatus::Pending);
                 let img = self.img.img.img();
-                let diac_size = self.diac_size.get();
+                let diac_size = self.diac_size;
                 let diac_color = self.diac_color.get_rgb8();
                 Task::stream(channel(1, async move |mut tx| {
                     let progress_callback = {
@@ -181,15 +172,15 @@ impl LoadedImage {
     pub(crate) fn toolbar_view(&self) -> Element<'_, Message> {
         row([
             // blur
-            self.blur_sigma.view().map(Message::BlurSigma),
+            number_input(&self.blur_sigma, 0.0..25.0, Message::BlurSigma).into(),
             self.blurring
                 .loading_btn()
                 .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))
                 .into(),
-            // diac size
-            self.diac_size.view().map(Message::DiacSize),
             // diac color
             self.diac_color.view().map(Message::DiacColor),
+            // diac size
+            number_input(&self.diac_size, 1.0..254.0, Message::DiacSize).into(),
             // draw
             self.drawing
                 .loading_btn()
