@@ -99,6 +99,7 @@ impl Drawn {
                 #[expect(clippy::cast_precision_loss)]
                 Overlay::text(
                     Point::new(img.img().width() as f32 + f32::from(PADDING), miss.top as f32),
+                    diac.img.handle().clone(),
                     miss.missing_text.clone(),
                 )
             }

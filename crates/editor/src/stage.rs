@@ -25,48 +25,44 @@ use {
 #[derive(Debug, Clone)]
 pub struct Overlay<Handle> {
     position: Point,
-    kind: OverlayKind<Handle>,
+    handle: Handle,
+    text: Option<Cow<'static, str>>,
 }
 
 impl<Handle> Overlay<Handle> {
+    #[must_use]
     pub fn image(position: impl Into<Point>, handle: Handle) -> Self {
-        Self { position: position.into(), kind: OverlayKind::Image(handle) }
+        Self { position: position.into(), handle, text: None }
     }
 
     #[must_use]
-    pub fn text(position: Point, text: Cow<'static, str>) -> Self {
-        Self { position, kind: OverlayKind::Text(text) }
+    pub fn text(position: impl Into<Point>, handle: Handle, text: Cow<'static, str>) -> Self {
+        Self { position: position.into(), handle, text: Some(text) }
     }
 
-    fn bounds<Renderer>(
-        &self,
-        state: &State<Renderer::Paragraph>,
-        layout: Layout<'_>,
-        renderer: &Renderer,
-        idx: usize,
-    ) -> Rectangle
-    where
-        Renderer: image::Renderer<Handle = Handle> + text::Renderer,
-    {
-        let scale = Transformation::scale(state.scale);
-        let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
+    // fn bounds<Renderer>(
+    //     &self,
+    //     state: &State<Renderer::Paragraph>,
+    //     layout: Layout<'_>,
+    //     renderer: &Renderer,
+    //     idx: usize,
+    // ) -> Rectangle
+    // where
+    //     Renderer: image::Renderer<Handle = Handle> + text::Renderer,
+    // {
+    //     let scale = Transformation::scale(state.scale);
+    //     let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
 
-        #[expect(clippy::cast_precision_loss)]
-        let size = match &self.kind {
-            OverlayKind::Image(handle) => {
-                let size = renderer.measure_image(handle).unwrap_or_default();
-                Size::new(size.width as f32, size.height as f32) * scale
-            }
-            OverlayKind::Text(_) => state.paragraphs[idx].min_bounds(),
-        };
-        Rectangle::new(self.position * scale + stage_offset, size)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum OverlayKind<Handle> {
-    Image(Handle),
-    Text(Cow<'static, str>),
+    //     #[expect(clippy::cast_precision_loss)]
+    //     let size = match &self.kind {
+    //         OverlayKind::Image(handle) => {
+    //             let size = renderer.measure_image(handle).unwrap_or_default();
+    //             Size::new(size.width as f32, size.height as f32) * scale
+    //         }
+    //         OverlayKind::Text(_) => state.paragraphs[idx].min_bounds(),
+    //     };
+    //     Rectangle::new(self.position * scale + stage_offset, size)
+    // }
 }
 
 /// A frame that displays an image with the ability to zoom in/out and pan.
@@ -209,15 +205,29 @@ where
         &self,
         state: &State<Renderer::Paragraph>,
         layout: Layout<'_>,
-        point: Point,
+        shot: Point,
         renderer: &Renderer,
     ) -> Option<(usize, Vector)> {
+        let scale = Transformation::scale(state.scale);
+        let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
         self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
-            let overlay_bounds = overlay.bounds(state, layout, renderer, idx);
-            if !overlay_bounds.expand(3.0).contains(point) {
+            #[expect(clippy::cast_precision_loss)]
+            let size = if overlay.text.is_some() {
+                state.paragraphs[idx].min_bounds()
+            } else {
+                let size = renderer.measure_image(&overlay.handle).unwrap_or_default();
+                Size::new(size.width as f32, size.height as f32) * scale
+            };
+            let overlay_bounds = Rectangle::new(overlay.position * scale + stage_offset, size);
+            if !overlay_bounds.expand(3.0).contains(shot) {
                 return None;
             }
-            Some((idx, point - overlay_bounds.position()))
+            let elem_shot_offset = if overlay.text.is_some() {
+                Vector::ZERO
+            } else {
+                shot - overlay_bounds.position()
+            };
+            Some((idx, elem_shot_offset))
         })
     }
 }
@@ -288,7 +298,7 @@ where
                 .overlays
                 .iter()
                 .map(|overlay| {
-                    let OverlayKind::Text(content) = &overlay.kind else {
+                    let Some(content) = &overlay.text else {
                         return Renderer::Paragraph::default();
                     };
 
@@ -473,6 +483,8 @@ where
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+        let scale = Transformation::scale(state.scale);
+        let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
 
         let background_item = self.handle.as_ref().map(|handle| {
             (Overlay::image([0.0; _], handle.clone()), Renderer::Paragraph::default())
@@ -483,43 +495,47 @@ where
         );
 
         for (idx, (overlay, paragraph)) in items.enumerate() {
-            let mut overlay_bounds = overlay.bounds(state, layout, renderer, idx);
-            let opacity = if let Some(mov) = state.move_element
-                && mov.elem_idx + 1 == idx
-            {
-                if let Some(cursor_position) = cursor.position() {
-                    let Point { x, y } = cursor_position - mov.press_elem_offset;
-                    overlay_bounds.x = x;
-                    overlay_bounds.y = y;
-                }
-                0.5
+            let position = overlay.position * scale + stage_offset;
+            if overlay.text.is_some() && state.move_element.is_none() {
+                renderer.fill_paragraph(
+                    paragraph,
+                    position,
+                    Color::from_rgb(1.0, 0.0, 0.0),
+                    *viewport,
+                );
             } else {
-                1.0
-            };
+                let size = renderer.measure_image(&overlay.handle).unwrap_or_default();
+                #[expect(clippy::cast_precision_loss)]
+                let size = Size::new(size.width as f32, size.height as f32) * scale;
+                let position = if let Some(mov) = state.move_element
+                    && mov.elem_idx + 1 == idx
+                {
+                    let Some(cursor_position) = cursor.position() else {
+                        // don't draw element if cursor position isn't available
+                        continue;
+                    };
 
-            match &overlay.kind {
-                OverlayKind::Text(_) => {
-                    renderer.fill_paragraph(
-                        paragraph,
-                        overlay_bounds.position(),
-                        Color::from_rgba(1.0, 0.0, 0.0, opacity),
-                        *viewport,
-                    );
-                }
-                OverlayKind::Image(handle) => {
-                    renderer.draw_image(
-                        Image {
-                            handle: handle.clone(),
-                            border_radius: border::Radius::default(),
-                            filter_method: self.filter_method,
-                            rotation: Radians(0.0),
-                            opacity,
-                            snap: true,
-                        },
-                        overlay_bounds,
-                        *viewport,
-                    );
-                }
+                    cursor_position - mov.press_elem_offset
+                } else {
+                    position
+                };
+                let bounds = Rectangle::new(position, size);
+                let opacity = if let Some(mov) = state.move_element
+                    && mov.elem_idx + 1 == idx
+                {
+                    0.5
+                } else {
+                    1.0
+                };
+                let image = Image {
+                    handle: overlay.handle.clone(),
+                    border_radius: border::Radius::default(),
+                    filter_method: self.filter_method,
+                    rotation: Radians(0.0),
+                    opacity,
+                    snap: true,
+                };
+                renderer.draw_image(image, bounds, *viewport);
             }
         }
     }
