@@ -1,22 +1,18 @@
 mod color_picker;
-mod drawn;
+pub(crate) mod recognize;
 
 use {
     crate::{
-        FONT_SIZE, MARGIN, NamedImg, PADDING, diac_renderer, img::ImgHandle,
-        loaded::drawn::RenderedDiac, strs, task::Poll, with_tctx,
+        NamedImg,
+        img::ImgHandle,
+        strs,
+        task::{Poll, loading_btn},
     },
-    drawn::Drawn,
-    iced::{
-        Color, Element, Task,
-        alignment::Vertical,
-        stream::channel,
-        widget::{row, text, text::IntoFragment},
-    },
+    editor::stage,
+    iced::{Element, Task, futures::FutureExt},
     iced_aw::widget::helpers::number_input,
-    std::{borrow::Cow, sync::Arc},
-    tap::prelude::*,
-    teamim::{DATAPATH, PositStatus},
+    std::iter::chain,
+    teamim::{DATAPATH, TeamimCtx},
     tokio::task::spawn_blocking,
 };
 
@@ -26,31 +22,18 @@ pub enum BlurStatus {
     Blurring,
 }
 
-impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
-    fn into_fragment(self) -> text::Fragment<'static> {
-        Cow::Borrowed(strs::BLUR)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Draw(drawn::PollDraw),
-    Drawn(drawn::Message),
     BlurSigma(f32),
     Blur(Poll<ImgHandle, BlurStatus>),
 
-    DiacSize(f32),
-    DiacMargin(f32),
-    DiacColor(color_picker::Message),
+    Recognize(recognize::SuperMsg),
 }
 
 pub(crate) struct LoadedImage {
     img: NamedImg,
 
-    diac_size: f32,
-    diac_margin: f32,
-    diac_color: color_picker::State,
-    drawing: Poll<Result<Option<Drawn>, Arc<eyre::Report>>, PositStatus>,
+    recognizing: Option<recognize::SuperState>,
 
     blur_sigma: f32,
     blurring: Poll<Option<ImgHandle>, BlurStatus>,
@@ -58,31 +41,11 @@ pub(crate) struct LoadedImage {
 
 impl LoadedImage {
     pub(crate) fn new(img: NamedImg) -> Self {
-        Self {
-            img,
-            blur_sigma: 17.0,
-            drawing: Poll::Ready(Ok(None)),
-            blurring: Poll::Ready(None),
-
-            diac_size: FONT_SIZE,
-            diac_margin: MARGIN,
-            diac_color: color_picker::State::new(Color::from_rgb8(u8::MAX, 0, 0)),
-        }
-    }
-
-    fn drawn_mut(&mut self) -> Option<&mut Drawn> {
-        if let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing { Some(drawn) } else { None }
+        Self { img, blur_sigma: 17.0, recognizing: None, blurring: Poll::Ready(None) }
     }
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Draw(msg) => return self.render_diacs(msg),
-            Message::Drawn(msg) => {
-                return self
-                    .drawn_mut()
-                    .map_or(Task::none(), |drawn| drawn.update(msg))
-                    .map(Message::Drawn);
-            }
             Message::BlurSigma(msg) => self.blur_sigma = msg,
             Message::Blur(msg) => match msg {
                 Poll::Pending(BlurStatus::Blurring) => {
@@ -101,119 +64,81 @@ impl LoadedImage {
                 }
                 Poll::Ready(blurred) => self.blurring = Poll::Ready(Some(blurred.clone())),
             },
-            Message::DiacSize(msg) => self.diac_size = msg,
-            Message::DiacMargin(msg) => self.diac_margin = msg,
-            Message::DiacColor(msg) => return self.diac_color.update(msg).map(Message::DiacColor),
+            Message::Recognize(msg) => match msg {
+                Poll::Pending(msg) => match msg {
+                    Poll::Pending(msg) => {
+                        self.recognizing = Some(Poll::Pending(msg));
+                        return Task::perform(
+                            {
+                                let img = self.img.img.img();
+                                spawn_blocking(move || {
+                                    // TODO reuse
+                                    let mut ctx =
+                                        TeamimCtx::new(DATAPATH).map_err(|err| "ERROR")?;
+                                    let positions =
+                                        ctx.positions(&img, |_| {}).map_err(|err| "ERROR")?;
+                                    Ok(positions)
+                                })
+                                .map(|res| res.expect("blocking task to complete"))
+                            },
+                            |ready| Message::Recognize(Poll::Pending(Poll::Ready(ready))),
+                        );
+                    }
+                    Poll::Ready(msg) => {
+                        self.recognizing = Some(Poll::Ready(msg.map(recognize::State::new)));
+                    }
+                },
+                Poll::Ready(msg) => {
+                    let Some(Poll::Ready(Ok(recognized))) = &mut self.recognizing else {
+                        return Task::none();
+                    };
+                    return recognized.update(msg).map(|msg| Message::Recognize(Poll::Ready(msg)));
+                }
+            },
         }
         Task::none()
     }
     pub fn view(&'_ self) -> Element<'_, Message> {
-        self.drawing.as_ready_ok().and_then(Option::as_ref).map_or_else(
-            || self.img.img.view(),
-            |drawn| drawn.diac_view(self.img()).map(Message::Drawn),
-        )
+        if let Some(recognizing) = &self.recognizing
+            && let Some(recognized) = recognizing.as_ready_ok()
+        {
+            recognized.view(self.img()).map(|msg| Message::Recognize(Poll::Ready(msg)))
+        } else {
+            stage([]).handle(self.img().handle().clone()).into()
+        }
     }
 
     fn img(&self) -> &ImgHandle {
         self.blurring.as_ready().and_then(Option::as_ref).unwrap_or(&self.img.img)
     }
 
-    #[tracing::instrument(skip(self))]
-    fn render_diacs(&mut self, msg: drawn::PollDraw) -> Task<Message> {
-        match msg {
-            Poll::Pending(PositStatus::Pending) => {
-                tracing::info!("STARTED");
-                self.drawing = Poll::Pending(PositStatus::Pending);
-                let img = self.img.img.img();
-                let diac_size = self.diac_size;
-                let diac_margin = self.diac_margin;
-                let diac_color = self.diac_color.get_rgb8();
-                Task::stream(channel(1, async move |mut tx| {
-                    let progress_callback = {
-                        let tx = tx.clone();
-                        move |progress| {
-                            tracing::info!("{progress:?}");
-                            _ = tx.clone().try_send(Poll::Pending(progress));
-                        }
-                    };
-                    let result = spawn_blocking({
-                        let tx = tx.clone();
-                        move || {
-                            let positions =
-                                with_tctx(DATAPATH, |ctx| ctx.positions(&img, progress_callback))??;
-
-                            _ = tx.clone().try_send(Poll::Pending(PositStatus::Rendering));
-                            // TODO persist
-                            let mut renderer = diac_renderer::Renderer::new();
-                            Ok(positions
-                                .into_iter()
-                                .map(|(letter, diac, pos)| {
-                                    let map = pos.map(|rect| {
-                                        diac_renderer::Renderer::position(
-                                            letter,
-                                            diac,
-                                            rect,
-                                            diac_size,
-                                            diac_margin,
-                                        )
-                                    });
-                                    let img = renderer.render(diac, diac_size, diac_color).into();
-                                    RenderedDiac::new(letter, diac, map, img)
-                                })
-                                .collect())
-                        }
-                    })
-                    .await
-                    .expect("blocking task to finish");
-                    _ = tx.try_send(Poll::Ready(result.map_err(Arc::new)));
-                }))
-                .map(Message::Draw)
-            }
-            Poll::Pending(msg) => {
-                self.drawing = Poll::Pending(msg);
-                Task::none()
-            }
-            Poll::Ready(diac_res) => {
-                self.drawing = diac_res.map(Drawn::new).map(Some).pipe(Poll::Ready);
-                Task::none()
-            }
-        }
-    }
-
-    pub(crate) fn toolbar_view(&self) -> Element<'_, Message> {
-        row([
-            // blur
-            number_input(&self.blur_sigma, 0.0..25.0, Message::BlurSigma).into(),
-            self.blurring
-                .loading_btn()
-                .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))
-                .into(),
-            // diac color
-            self.diac_color.view().map(Message::DiacColor),
-            // diac size
-            number_input(&self.diac_size, 1.0..254.0, Message::DiacSize).into(),
-            text(strs::SIZE).into(),
-            // diac margin
-            number_input(&self.diac_margin, -245.0..254.0, Message::DiacMargin).into(),
-            text(strs::MARGIN).into(),
-            // draw
-            self.drawing
-                .loading_btn()
-                .on_press(Message::Draw(Poll::Pending(PositStatus::Pending)))
-                .into(),
-        ]
-        .into_iter()
-        .chain(
-            // drawn
-            self.drawing.as_ready_ok().and_then(Option::as_ref).map(|drawn| {
-                drawn
-                    .toolbar_view(NamedImg { path: self.img.path.clone(), img: self.img().clone() })
-                    .map(Message::Drawn)
-            }),
-        ))
-        .align_y(Vertical::Center)
-        .spacing(u32::from(PADDING))
-        .wrap()
-        .into()
+    pub(crate) fn toolbar_items(&self) -> impl IntoIterator<Item = Element<'_, Message>> {
+        chain(
+            self.recognizing
+                .as_ref()
+                .and_then(|recognizing| recognizing.as_ready_ok())
+                .into_iter()
+                .flat_map(|recognized| {
+                    recognized
+                        .toolbar_items(NamedImg {
+                            path: self.img.path.clone(),
+                            img: self.img().clone(),
+                        })
+                        .into_iter()
+                        .map(|item| item.map(|msg| Message::Recognize(Poll::Ready(msg))))
+                }),
+            [
+                // recognize
+                loading_btn(&self.recognizing, strs::RECOGNIZE)
+                    .on_press(Message::Recognize(Poll::Pending(Poll::Pending(recognize::Status))))
+                    .into(),
+                // blur
+                number_input(&self.blur_sigma, 0.0..25.0, Message::BlurSigma).into(),
+                self.blurring
+                    .loading_btn()
+                    .on_press(Message::Blur(Poll::Pending(BlurStatus::Blurring)))
+                    .into(),
+            ],
+        )
     }
 }

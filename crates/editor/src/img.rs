@@ -1,9 +1,6 @@
 use {
     bytes::Bytes,
-    iced::{
-        Element,
-        widget::{self, image::Handle},
-    },
+    iced::widget::image::Handle,
     image::{ImageBuffer, Rgba, RgbaImage, imageops::fast_blur},
 };
 
@@ -27,19 +24,6 @@ impl ImgHandle {
         // [TODO] don't clone
         let img = RgbaImage::from_vec(width, height, self.img.to_vec()).unwrap();
         fast_blur(&img, simga).into()
-    }
-
-    pub(crate) fn view<'a, Message>(&self) -> Element<'a, Message> {
-        let (width, height) = self.img.dimensions();
-        #[expect(
-            clippy::cast_precision_loss,
-            clippy::cast_sign_loss,
-            clippy::cast_possible_truncation
-        )]
-        widget::Image::new(&self.handle)
-            .width((width as f32) as u32)
-            .height((height as f32) as u32)
-            .into()
     }
 }
 

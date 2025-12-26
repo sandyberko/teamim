@@ -1,4 +1,4 @@
-use std::iter::{self, once};
+use std::iter::{self};
 
 use editor::spinner::Spinner;
 use iced::{
@@ -35,6 +35,30 @@ impl<Ready, Err, Pending> Poll<Result<Ready, Err>, Pending> {
     pub(crate) fn ready_ok_mut(&mut self) -> Option<&mut Ready> {
         if let Poll::Ready(Ok(ready)) = self { Some(ready) } else { None }
     }
+}
+
+#[expect(clippy::ref_option)]
+pub(crate) fn loading_btn<'a, Message, Ready, Status>(
+    state: &'_ Option<Poll<Ready, Status>>,
+    idle_text: impl IntoFragment<'a>,
+) -> Button<'a, Message>
+where
+    Message: Clone + 'a,
+    Status: Copy + IntoFragment<'a>,
+{
+    let txt = match state {
+        None | Some(Poll::Ready(..)) => idle_text.into_fragment(),
+        Some(Poll::Pending(status)) => status.into_fragment(),
+    };
+
+    button(
+        row(iter::chain(
+            [text(txt).into()],
+            state.as_ref().and_then(|state| state.as_pending()).map(|_| Spinner::new().into()),
+        ))
+        .spacing(6)
+        .align_y(Vertical::Center),
+    )
 }
 
 impl<Ready, Status> Poll<Ready, Status> {

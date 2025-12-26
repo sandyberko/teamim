@@ -26,9 +26,9 @@ pub(crate) enum Message {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
-    letter: char,
-    diac: char,
-    position: Result<Point, DiacMiss>,
+    pub(crate) letter: char,
+    pub(crate) diac: char,
+    pub(crate) position: Result<Point, DiacMiss>,
     img: ImgHandle,
 }
 
@@ -45,7 +45,7 @@ impl RenderedDiac {
 
 #[derive(Debug)]
 pub struct Drawn {
-    diacs: Vec<RenderedDiac>,
+    pub(crate) diacs: Vec<RenderedDiac>,
     saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
 }
 

@@ -3,7 +3,11 @@ use std::{borrow::Cow, fmt::Display};
 use iced::widget::text::{Fragment, IntoFragment};
 use teamim::PositStatus;
 
-use crate::{SelectProgress, task::Poll};
+use crate::{
+    SelectProgress,
+    loaded::{BlurStatus, recognize},
+    task::Poll,
+};
 
 impl<Ready, Err: Display> IntoFragment<'static> for &Poll<Result<Ready, Err>, PositStatus> {
     fn into_fragment(self) -> Fragment<'static> {
@@ -29,6 +33,19 @@ impl<Ready> IntoFragment<'static> for &Poll<Ready, SelectProgress> {
     }
 }
 
+impl IntoFragment<'static> for recognize::Status {
+    fn into_fragment(self) -> Fragment<'static> {
+        Cow::Borrowed("מזהה...")
+    }
+}
+pub const RECOGNIZE: &str = "זהה";
+
+impl<Ready> IntoFragment<'static> for &Poll<Ready, BlurStatus> {
+    fn into_fragment(self) -> Fragment<'static> {
+        Cow::Borrowed("טשטוש")
+    }
+}
+
 pub const TITLE: &str = "טעמים";
 pub const SELECT_IMG: &str = "בחר תמונה";
 pub const SAVE_FAILED: &str = "שמירה נכשלה";
@@ -36,7 +53,6 @@ pub const ERROR: &str = "שגיאה";
 pub const LOADING: &str = "טוען...";
 pub const SAVE: &str = "שמור";
 pub const NO_IMG_SELECTED: &str = "לא נבחרה תמונה";
-pub const BLUR: &str = "טשטוש";
 pub const SIZE: &str = "גודל";
 pub const MARGIN: &str = "מרווח";
 pub const COLOR: &str = "צבע";

@@ -1,9 +1,10 @@
 use {
+    super::{Drawn, RenderedDiac},
     crate::{
         App, FONT_SIZE, MARGIN, NamedImg, diac_renderer,
         loaded::{
             LoadedImage,
-            drawn::{Drawn, RenderedDiac},
+            recognize::{self, diac_style},
         },
         run_app,
         task::Poll,
@@ -30,10 +31,6 @@ fn save() -> eyre::Result<()> {
 #[test]
 fn view() -> eyre::Result<()> {
     fn load() -> LoadedImage {
-        let mut loaded = LoadedImage::new(NamedImg {
-            path: test_utils::img_path!().to_owned().conv::<PathBuf>().into(),
-            img: test_utils::IMAGE.clone().into(),
-        });
         let mut renderer = diac_renderer::Renderer::new();
         let results = test_utils::POSITIONS
             .iter()
@@ -49,8 +46,17 @@ fn view() -> eyre::Result<()> {
                 )
             })
             .collect();
-        loaded.drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
-        loaded
+        let drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
+        let recognizing = Some(Poll::Ready(Ok(recognize::State {
+            positions: test_utils::POSITIONS.into(),
+            drawing,
+            diac_style: diac_style::State::default(),
+        })));
+        let img = NamedImg {
+            path: test_utils::img_path!().to_owned().conv::<PathBuf>().into(),
+            img: test_utils::IMAGE.clone().into(),
+        };
+        LoadedImage { recognizing, ..LoadedImage::new(img) }
     }
     let boot_fn = || App { img: Poll::Ready(Ok(Some(load()))) };
     run_app(boot_fn)?;

@@ -47,7 +47,8 @@ impl State {
         Task::none()
     }
 
-    pub(crate) fn view(&self) -> Element<'_, Message> {
+    pub(crate) fn view<'a>(&self) -> Element<'a, Message> {
+        let background = self.color;
         color_picker(
             self.show_picker,
             self.color,
@@ -57,7 +58,7 @@ impl State {
                     container(space())
                         .width(32)
                         .height(16)
-                        .style(|_| container::background(self.color))
+                        .style(move |_| container::background(background))
                         .into(),
                 ])
                 .spacing(u32::from(PADDING)),

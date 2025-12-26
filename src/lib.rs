@@ -54,6 +54,8 @@ pub struct TeamimCtx {
     tess: Tess,
 }
 
+pub type DiacPosition = (char, char, diac::Result);
+
 impl TeamimCtx {
     #[tracing::instrument]
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
@@ -94,7 +96,7 @@ impl TeamimCtx {
         &mut self,
         img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
-    ) -> Result<Vec<(char, char, diac::Result)>, PlaceError> {
+    ) -> Result<Vec<DiacPosition>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;

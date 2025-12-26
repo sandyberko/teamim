@@ -11,6 +11,7 @@ use {
     editor::{GUTTMAN, stage},
     iced::{
         Element, Length, Task,
+        alignment::Vertical,
         widget::{
             column, row, text,
             text::{Fragment, IntoFragment},
@@ -19,7 +20,7 @@ use {
     iced_aw::ICED_AW_FONT_BYTES,
     image::ImageReader,
     rfd::AsyncFileDialog,
-    std::{borrow::Cow, cell::RefCell, ffi::CStr, path::Path, sync::Arc},
+    std::{borrow::Cow, cell::RefCell, ffi::CStr, iter::chain, path::Path, sync::Arc},
     teamim::TeamimCtx,
 };
 
@@ -76,17 +77,19 @@ impl Default for App {
 
 impl App {
     fn toolbar(&self) -> Element<'_, Message> {
-        let children = [
+        row(chain(
+            // loaded items
+            self.img.as_ready_ok().and_then(Option::as_ref).into_iter().flat_map(|loaded| {
+                loaded.toolbar_items().into_iter().map(|elem| elem.map(Message::Loaded))
+            }),
             // select
-            Some(self.img.loading_btn().on_press(Message::SelectImage).into()),
-            // draw
-            self.img
-                .as_ready_ok()
-                .and_then(Option::as_ref)
-                .map(|loaded| loaded.toolbar_view().map(Message::Loaded)),
-        ];
-
-        row(children.into_iter().flatten()).spacing(u32::from(PADDING)).width(Length::Fill).into()
+            [self.img.loading_btn().on_press(Message::SelectImage).into()],
+        ))
+        .spacing(u32::from(PADDING))
+        .width(Length::Fill)
+        .align_y(Vertical::Center)
+        .wrap()
+        .into()
     }
 
     fn content_view(&self) -> Element<'_, Message> {
