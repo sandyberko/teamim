@@ -8,6 +8,7 @@ use {
         Transformation, Vector,
         advanced::{
             Clipboard, Layout, Shell, Widget,
+            graphics::geometry::{self, frame::Backend},
             image::{self, FilterMethod, Image},
             layout, mouse, renderer,
             text::{self, Alignment, LineHeight, Paragraph, Shaping},
@@ -17,6 +18,7 @@ use {
         border::{self},
         keyboard,
         mouse::ScrollDelta,
+        widget::canvas::Stroke,
     },
     std::{borrow::Cow, iter},
     tap::prelude::*,
@@ -24,20 +26,20 @@ use {
 
 #[derive(Debug, Clone)]
 pub struct Overlay<Handle> {
+    loaction: Result<Rectangle, Cow<'static, str>>,
     position: Point,
     handle: Handle,
-    text: Option<Cow<'static, str>>,
 }
 
 impl<Handle> Overlay<Handle> {
     #[must_use]
-    pub fn image(position: impl Into<Point>, handle: Handle) -> Self {
-        Self { position: position.into(), handle, text: None }
+    pub fn image(rect: Rectangle, position: impl Into<Point>, handle: Handle) -> Self {
+        Self { loaction: Ok(rect), position: position.into(), handle }
     }
 
     #[must_use]
     pub fn text(position: impl Into<Point>, handle: Handle, text: Cow<'static, str>) -> Self {
-        Self { position: position.into(), handle, text: Some(text) }
+        Self { loaction: Err(text), position: position.into(), handle }
     }
 
     // fn bounds<Renderer>(
@@ -89,7 +91,7 @@ where
 
 impl<Message, Renderer> Stage<Message, Renderer>
 where
-    Renderer: image::Renderer + text::Renderer,
+    Renderer: image::Renderer + text::Renderer + geometry::Renderer,
 {
     /// Creates a new [`Viewer`] with the given [`State`].
     #[must_use]
@@ -212,7 +214,7 @@ where
         let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
         self.overlays.iter().enumerate().find_map(|(idx, overlay)| {
             #[expect(clippy::cast_precision_loss)]
-            let size = if overlay.text.is_some() {
+            let size = if overlay.loaction.is_err() {
                 state.paragraphs[idx].min_bounds()
             } else {
                 let size = renderer.measure_image(&overlay.handle).unwrap_or_default();
@@ -222,7 +224,8 @@ where
             if !overlay_bounds.expand(3.0).contains(shot) {
                 return None;
             }
-            let elem_shot_offset = if overlay.text.is_some() {
+
+            let elem_shot_offset = if overlay.loaction.is_err() {
                 Vector::ZERO
             } else {
                 shot - overlay_bounds.position()
@@ -230,13 +233,78 @@ where
             Some((idx, elem_shot_offset))
         })
     }
+    fn draw_transformed(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) {
+        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+        let mut frame = renderer.new_frame(bounds);
+
+        let background_item = self.handle.as_ref().map(|handle| {
+            // TODO background rect
+            (
+                Overlay::image(Rectangle::default(), [0.0; _], handle.clone()),
+                Renderer::Paragraph::default(),
+            )
+        });
+        let items = iter::chain(
+            background_item.as_ref().map(|(handle, paragraph)| (handle, paragraph)),
+            self.overlays.iter().zip(&state.paragraphs),
+        );
+
+        for (idx, (overlay, paragraph)) in items.enumerate() {
+            let diac_size = renderer.measure_image(&overlay.handle).unwrap_or_default();
+            #[expect(clippy::cast_precision_loss)]
+            let diac_size = Size::new(diac_size.width as f32, diac_size.height as f32);
+            let opacity = if let Some(mov) = state.move_element
+                && mov.elem_idx + 1 == idx
+            {
+                0.5
+            } else {
+                1.0
+            };
+            let image = Image {
+                handle: overlay.handle.clone(),
+                border_radius: border::Radius::default(),
+                filter_method: self.filter_method,
+                rotation: Radians(0.0),
+                opacity,
+                snap: true,
+            };
+            match (&overlay.loaction, state.move_element) {
+                (Ok(letter_bounds), ..) => {
+                    let diac_bounds = Rectangle::new(overlay.position, diac_size);
+                    renderer.draw_image(image, diac_bounds, bounds);
+                    let stroke =
+                        Stroke::default().with_color([0.0, 1.0, 0.0, 0.5].into()).with_width(2.0);
+                    frame.stroke_rectangle(letter_bounds.position(), letter_bounds.size(), stroke);
+                }
+                (Err(_), Some(mv)) if mv.elem_idx == idx => {
+                    let Some(position) = cursor.position() else { continue };
+                    renderer.draw_image(image, Rectangle::new(position, diac_size), bounds);
+                }
+                (Err(_), ..) => {
+                    renderer.fill_paragraph(
+                        paragraph,
+                        overlay.position,
+                        Color::from_rgb(1.0, 0.0, 0.0),
+                        bounds,
+                    );
+                }
+            }
+        }
+        renderer.with_layer(bounds, |renderer| renderer.draw_geometry(frame.into_geometry()));
+    }
 }
 
 const SCROLL_FACTOR: f32 = -10.0;
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Stage<Message, Renderer>
 where
-    Renderer: image::Renderer + text::Renderer,
+    Renderer: image::Renderer + text::Renderer + geometry::Renderer,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State<Renderer::Paragraph>>()
@@ -298,7 +366,7 @@ where
                 .overlays
                 .iter()
                 .map(|overlay| {
-                    let Some(content) = &overlay.text else {
+                    let Err(content) = &overlay.loaction else {
                         return Renderer::Paragraph::default();
                     };
 
@@ -480,64 +548,15 @@ where
         _style: &renderer::Style,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        viewport: &Rectangle,
+        _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
-        let scale = Transformation::scale(state.scale);
-        let stage_offset = layout.bounds().position() + state.offset - Point::ORIGIN;
-
-        let background_item = self.handle.as_ref().map(|handle| {
-            (Overlay::image([0.0; _], handle.clone()), Renderer::Paragraph::default())
+        let transformation = Transformation::translate(state.offset.x, state.offset.y)
+            * Transformation::scale(state.scale);
+        let bounds = layout.bounds() * transformation.inverse();
+        renderer.with_transformation(transformation, |renderer| {
+            self.draw_transformed(tree, renderer, bounds, cursor);
         });
-        let items = iter::chain(
-            background_item.as_ref().map(|(handle, paragraph)| (handle, paragraph)),
-            self.overlays.iter().zip(&state.paragraphs),
-        );
-
-        for (idx, (overlay, paragraph)) in items.enumerate() {
-            let position = overlay.position * scale + stage_offset;
-            if overlay.text.is_some() && state.move_element.is_none() {
-                renderer.fill_paragraph(
-                    paragraph,
-                    position,
-                    Color::from_rgb(1.0, 0.0, 0.0),
-                    *viewport,
-                );
-            } else {
-                let size = renderer.measure_image(&overlay.handle).unwrap_or_default();
-                #[expect(clippy::cast_precision_loss)]
-                let size = Size::new(size.width as f32, size.height as f32) * scale;
-                let position = if let Some(mov) = state.move_element
-                    && mov.elem_idx + 1 == idx
-                {
-                    let Some(cursor_position) = cursor.position() else {
-                        // don't draw element if cursor position isn't available
-                        continue;
-                    };
-
-                    cursor_position - mov.press_elem_offset
-                } else {
-                    position
-                };
-                let bounds = Rectangle::new(position, size);
-                let opacity = if let Some(mov) = state.move_element
-                    && mov.elem_idx + 1 == idx
-                {
-                    0.5
-                } else {
-                    1.0
-                };
-                let image = Image {
-                    handle: overlay.handle.clone(),
-                    border_radius: border::Radius::default(),
-                    filter_method: self.filter_method,
-                    rotation: Radians(0.0),
-                    opacity,
-                    snap: true,
-                };
-                renderer.draw_image(image, bounds, *viewport);
-            }
-        }
     }
 }
 
@@ -577,7 +596,7 @@ impl<Paragraph> State<Paragraph> {
 impl<'a, Message, Theme, Renderer> From<Stage<Message, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Renderer: 'a + image::Renderer + text::Renderer,
+    Renderer: 'a + image::Renderer + text::Renderer + geometry::Renderer,
     Message: 'a,
 {
     fn from(viewer: Stage<Message, Renderer>) -> Element<'a, Message, Theme, Renderer> {

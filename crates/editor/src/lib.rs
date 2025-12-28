@@ -1,6 +1,6 @@
 use {
     crate::stage::Overlay,
-    iced::advanced::{image, text},
+    iced::advanced::{graphics::geometry, image, text},
     std::sync::LazyLock,
     swash::FontRef,
 };
@@ -16,7 +16,7 @@ pub fn stage<Message, Renderer>(
     children: impl IntoIterator<Item = Overlay<Renderer::Handle>>,
 ) -> stage::Stage<Message, Renderer>
 where
-    Renderer: image::Renderer + text::Renderer,
+    Renderer: image::Renderer + text::Renderer + geometry::Renderer,
 {
     stage::Stage::new(children.into_iter().collect())
 }

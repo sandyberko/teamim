@@ -5,14 +5,14 @@ use {
     crate::{IMG_EXTS, NamedImg, PADDING, SaveStatus, img::ImgHandle, stage, strs, task::Poll},
     editor::stage::Overlay,
     eyre::{OptionExt as _, WrapErr as _},
-    iced::{ContentFit, Font},
-    iced::{Element, Point, Task, futures::StreamExt, stream::channel},
-    image::imageops::overlay,
-    image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer},
+    iced::{
+        ContentFit, Element, Font, Point, Rectangle, Size, Task, futures::StreamExt,
+        stream::channel,
+    },
+    image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer, imageops::overlay},
     rfd::AsyncFileDialog,
-    std::sync::Arc,
-    teamim::PositStatus,
-    teamim::diac::DiacMiss,
+    std::{iter::zip, sync::Arc},
+    teamim::{DiacRect, PositStatus, diac::DiacMiss, tesseract_ext::bounding_box::Rect},
     tokio::task::spawn_blocking,
 };
 
@@ -91,9 +91,18 @@ impl Drawn {
             .into()
     }
 
-    pub fn diac_view<'a>(&self, img: &ImgHandle) -> Element<'a, Message> {
-        stage(self.diacs.iter().map(|diac| match &diac.position {
-            Ok(pos) => Overlay::image(*pos, diac.img.handle().clone()),
+    pub fn diac_view<'a>(&self, img: &ImgHandle, rects: &[DiacRect]) -> Element<'a, Message> {
+        stage(zip(&self.diacs, rects).map(|(diac, (_, _, rect))| match &diac.position {
+            Ok(pos) => {
+                // TODO
+                let rect = rect.as_ref().ok().copied().unwrap_or(Rect::new(0, 0, 0, 0));
+                #[expect(clippy::cast_precision_loss)]
+                let rect = Rectangle::new(
+                    Point::new(rect.left as _, rect.top as _),
+                    Size::new(rect.width() as _, rect.height() as _),
+                );
+                Overlay::image(rect, *pos, diac.img.handle().clone())
+            }
             Err(miss) =>
             {
                 #[expect(clippy::cast_precision_loss)]

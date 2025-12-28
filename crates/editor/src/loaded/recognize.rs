@@ -1,6 +1,9 @@
 #[path = "diac_style.rs"]
 mod diac_style;
 
+#[path = "position.rs"]
+mod position;
+
 #[path = "drawn.rs"]
 mod drawn;
 
@@ -13,12 +16,12 @@ use {
     editor::stage,
     iced::{Element, Task},
     std::{iter::chain, sync::Arc},
-    teamim::{DiacPosition, PositStatus},
+    teamim::{DiacRect, PositStatus},
 };
 
 pub(crate) type SuperState = Poll<Result<State, String>, Status>;
 
-pub(crate) type SuperMsg = Poll<Message, Poll<Result<Vec<DiacPosition>, String>, Status>>;
+pub(crate) type SuperMsg = Poll<Message, Poll<Result<Vec<DiacRect>, String>, Status>>;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Status;
@@ -31,15 +34,19 @@ pub(crate) enum Message {
 }
 
 pub(crate) struct State {
-    positions: Vec<DiacPosition>,
+    rects: Vec<DiacRect>,
     drawing: Poll<Result<Option<drawn::Drawn>, Arc<eyre::Report>>, PositStatus>,
 
     diac_style: diac_style::State,
 }
 
 impl State {
-    pub(crate) fn new(positions: Vec<DiacPosition>) -> Self {
-        Self { positions, drawing: Poll::Ready(Ok(None)), diac_style: diac_style::State::default() }
+    pub(crate) fn new(positions: Vec<DiacRect>) -> Self {
+        Self {
+            rects: positions,
+            drawing: Poll::Ready(Ok(None)),
+            diac_style: diac_style::State::default(),
+        }
     }
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
@@ -64,7 +71,7 @@ impl State {
                             })
                             .collect()
                     } else {
-                        self.positions
+                        self.rects
                             .iter()
                             .map(|&(letter, diac, ref pos)| {
                                 // TODO
@@ -97,7 +104,7 @@ impl State {
 
     pub(crate) fn view(&'_ self, img: &ImgHandle) -> Element<'_, Message> {
         if let Some(drawn) = self.drawing.as_ready_ok().and_then(Option::as_ref) {
-            drawn.diac_view(img).map(Message::Drawn)
+            drawn.diac_view(img, &self.rects).map(Message::Drawn)
         } else {
             stage([]).handle(img.handle().clone()).into()
         }

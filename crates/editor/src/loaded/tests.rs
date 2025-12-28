@@ -48,7 +48,7 @@ fn view() -> eyre::Result<()> {
             .collect();
         let drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
         let recognizing = Some(Poll::Ready(Ok(recognize::State {
-            positions: test_utils::POSITIONS.into(),
+            rects: test_utils::POSITIONS.into(),
             drawing,
             diac_style: diac_style::State::default(),
         })));
