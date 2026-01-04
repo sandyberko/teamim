@@ -1,4 +1,5 @@
 use {
+    crate::{FONT_SIZE, MARGIN},
     editor::FONT,
     iced::Point,
     image::{Rgba, RgbaImage},
@@ -12,6 +13,19 @@ use {
         tesseract_ext::bounding_box::Rect,
     },
 };
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DiacPositionOpts {
+    pub(crate) font_size: f32,
+    pub(crate) margin: f32,
+}
+
+impl Default for DiacPositionOpts {
+    fn default() -> Self {
+        Self { font_size: FONT_SIZE, margin: MARGIN }
+    }
+}
+
 pub(crate) struct Renderer {
     font: FontRef<'static>,
     ctx: ScaleContext,
@@ -24,13 +38,8 @@ impl Renderer {
     }
 
     #[must_use]
-    pub fn position(
-        letter: char,
-        diac: char,
-        rect: Rect<u32>,
-        font_size: f32,
-        margin: f32,
-    ) -> Point {
+    pub fn position(letter: char, diac: char, rect: Rect<u32>, opts: DiacPositionOpts) -> Point {
+        let DiacPositionOpts { font_size, margin } = opts;
         #[expect(clippy::cast_precision_loss)]
         let rect = rect.map(|coord| coord as f32);
 

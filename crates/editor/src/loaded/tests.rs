@@ -1,7 +1,8 @@
 use {
     super::{Drawn, RenderedDiac},
     crate::{
-        App, FONT_SIZE, MARGIN, NamedImg, diac_renderer,
+        App, FONT_SIZE, MARGIN, NamedImg,
+        diac_renderer::{self, DiacPositionOpts},
         loaded::{
             LoadedImage,
             recognize::{self, diac_style},
@@ -31,22 +32,11 @@ fn save() -> eyre::Result<()> {
 #[test]
 fn view() -> eyre::Result<()> {
     fn load() -> LoadedImage {
-        let mut renderer = diac_renderer::Renderer::new();
-        let results = test_utils::POSITIONS
-            .iter()
-            .cloned()
-            .map(|(letter, diac, pos)| {
-                RenderedDiac::new(
-                    letter,
-                    diac,
-                    pos.map(|rect| {
-                        diac_renderer::Renderer::position(letter, diac, rect, FONT_SIZE, MARGIN)
-                    }),
-                    renderer.render(diac, FONT_SIZE, test_utils::DIAC_COLOR).into(),
-                )
-            })
-            .collect();
-        let drawing = Poll::Ready(Ok(Some(Drawn::new(results))));
+        let drawing = Poll::Ready(Ok(Some(Drawn::from_rects(
+            test_utils::POSITIONS,
+            DiacPositionOpts::default(),
+            test_utils::DIAC_COLOR,
+        ))));
         let recognizing = Some(Poll::Ready(Ok(recognize::State {
             rects: test_utils::POSITIONS.into(),
             drawing,

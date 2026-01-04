@@ -2,12 +2,20 @@
 mod tests;
 
 use {
-    crate::{IMG_EXTS, NamedImg, PADDING, SaveStatus, img::ImgHandle, stage, strs, task::Poll},
+    crate::{
+        IMG_EXTS, NamedImg, PADDING, SaveStatus,
+        diac_renderer::{self, DiacPositionOpts},
+        img::ImgHandle,
+        stage, strs,
+        task::Poll,
+    },
     editor::stage::Overlay,
     eyre::{OptionExt as _, WrapErr as _},
     iced::{
-        ContentFit, Element, Font, Point, Rectangle, Size, Task, futures::StreamExt,
+        ContentFit, Element, Font, Point, Rectangle, Size, Task,
+        futures::StreamExt,
         stream::channel,
+        widget::{button, text},
     },
     image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer, imageops::overlay},
     rfd::AsyncFileDialog,
@@ -16,19 +24,35 @@ use {
     tokio::task::spawn_blocking,
 };
 
+#[derive(Debug, Clone)]
+pub(crate) struct Position {
+    letter: Option<Rect<u32>>,
+    diac: Point,
+}
+
+impl Position {
+    pub(crate) fn new(letter: Rect<u32>, diac: Point) -> Self {
+        Self { letter: Some(letter), diac }
+    }
+    pub(crate) fn new_miss(diac: Point) -> Self {
+        Self { letter: None, diac }
+    }
+}
+
 pub type PollDraw = Poll<Result<Vec<RenderedDiac>, Arc<eyre::Report>>, PositStatus>;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Save(Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>),
+    Position(DiacPositionOpts),
     MoveDiac(usize, Point),
+    Save(Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderedDiac {
     pub(crate) letter: char,
     pub(crate) diac: char,
-    pub(crate) position: Result<Point, DiacMiss>,
+    pub(crate) position: Result<Position, DiacMiss>,
     img: ImgHandle,
 }
 
@@ -36,7 +60,7 @@ impl RenderedDiac {
     pub(crate) fn new(
         letter: char,
         diac: char,
-        position: Result<Point, DiacMiss>,
+        position: Result<Position, DiacMiss>,
         img: ImgHandle,
     ) -> Self {
         Self { letter, diac, position, img }
@@ -54,8 +78,42 @@ impl Drawn {
         Self { diacs, saving: Poll::Ready(Ok(())) }
     }
 
+    pub(crate) fn from_rects(
+        rects: &[DiacRect],
+        opts: DiacPositionOpts,
+        diac_color: [u8; 3],
+    ) -> Self {
+        let mut renderer = diac_renderer::Renderer::new();
+        let diacs = rects
+            .iter()
+            .map(|&(letter, diac, ref pos)| {
+                // TODO
+                let position = pos.clone().map(|letter_pos| {
+                    let diac_pos =
+                        diac_renderer::Renderer::position(letter, diac, letter_pos, opts);
+                    Position::new(letter_pos, diac_pos)
+                });
+                let img = renderer.render(diac, opts.font_size, diac_color).into();
+                RenderedDiac::new(letter, diac, position, img)
+            })
+            .collect();
+        Self::new(diacs)
+    }
+
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
+            Message::Position(opts) => {
+                for diac in &mut self.diacs {
+                    let Ok(position) = &mut diac.position else { continue };
+                    let Some(letter_bounds) = position.letter else { continue };
+                    position.diac = diac_renderer::Renderer::position(
+                        diac.letter,
+                        diac.diac,
+                        letter_bounds,
+                        opts,
+                    );
+                }
+            }
             Message::Save(msg) => match msg {
                 // trigger
                 Poll::Pending(SaveStatus::Trigger(img)) => {
@@ -79,16 +137,26 @@ impl Drawn {
                     self.saving = Poll::Ready(msg);
                 }
             },
-            Message::MoveDiac(diac_idx, pos) => self.diacs[diac_idx].position = Ok(pos),
+            Message::MoveDiac(diac_idx, new_pos) => match &mut self.diacs[diac_idx].position {
+                Ok(cur_pos) => cur_pos.diac = new_pos,
+                cur_pos @ Err(..) => *cur_pos = Ok(Position::new_miss(new_pos)),
+            },
         }
         Task::none()
     }
 
-    pub fn toolbar_view<'a>(&self, img_to_save: NamedImg) -> Element<'a, Message> {
-        self.saving
-            .loading_btn()
-            .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save))))
-            .into()
+    pub fn toolbar_items<'a>(
+        &self,
+        img_to_save: NamedImg,
+        diac_pos_opts: DiacPositionOpts,
+    ) -> impl IntoIterator<Item = Element<'a, Message>> {
+        [
+            self.saving
+                .loading_btn()
+                .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save))))
+                .into(),
+            button(text(strs::POSITION)).on_press(Message::Position(diac_pos_opts)).into(),
+        ]
     }
 
     pub fn diac_view<'a>(&self, img: &ImgHandle, rects: &[DiacRect]) -> Element<'a, Message> {
@@ -101,7 +169,7 @@ impl Drawn {
                     Point::new(rect.left as _, rect.top as _),
                     Size::new(rect.width() as _, rect.height() as _),
                 );
-                Overlay::image(rect, *pos, diac.img.handle().clone())
+                Overlay::image(rect, pos.diac, diac.img.handle().clone())
             }
             Err(miss) =>
             {
@@ -146,7 +214,7 @@ async fn save(
         let mut bottom = RgbaImage::from_raw(width, height, img.to_vec()).unwrap();
         for diac in positions {
             let Ok(pos) = diac.position else { continue };
-            let Point { x, y } = pos.snap();
+            let Point { x, y } = pos.diac.snap();
             overlay(&mut bottom, &diac.img.img(), x.into(), y.into());
         }
         bottom

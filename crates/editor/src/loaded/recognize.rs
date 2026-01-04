@@ -54,42 +54,15 @@ impl State {
             Message::Draw(msg) => {
                 // TODO offload?
 
-                let diac_size = self.diac_style.size;
-                let diac_margin = self.diac_style.margin;
+                let position_opts = self.diac_style.position_opts;
                 let diac_color = self.diac_style.color.get_rgb8();
 
-                let mut renderer = diac_renderer::Renderer::new();
                 // TODO simplify, split?
-                let diacs =
-                    if let Some(rendered) = self.drawing.as_ready_ok().and_then(Option::as_ref) {
-                        rendered
-                            .diacs
-                            .iter()
-                            .map(|&RenderedDiac { letter, diac, ref position, .. }| {
-                                let img = renderer.render(diac, diac_size, diac_color).into();
-                                RenderedDiac::new(letter, diac, position.clone(), img)
-                            })
-                            .collect()
-                    } else {
-                        self.rects
-                            .iter()
-                            .map(|&(letter, diac, ref pos)| {
-                                // TODO
-                                let position = pos.clone().map(|rect| {
-                                    diac_renderer::Renderer::position(
-                                        letter,
-                                        diac,
-                                        rect,
-                                        diac_size,
-                                        diac_margin,
-                                    )
-                                });
-                                let img = renderer.render(diac, diac_size, diac_color).into();
-                                RenderedDiac::new(letter, diac, position, img)
-                            })
-                            .collect()
-                    };
-                self.drawing = Poll::Ready(Ok(Some(Drawn::new(diacs))));
+                self.drawing = Poll::Ready(Ok(Some(Drawn::from_rects(
+                    &self.rects,
+                    position_opts,
+                    diac_color,
+                ))));
             }
             Message::Drawn(msg) => {
                 let Poll::Ready(Ok(Some(drawn))) = &mut self.drawing else {
@@ -118,7 +91,14 @@ impl State {
             self.drawing
                 .as_ready_ok()
                 .and_then(Option::as_ref)
-                .map(|drawn| drawn.toolbar_view(img_to_save).map(Message::Drawn)),
+                .map(|drawn| {
+                    drawn
+                        .toolbar_items(img_to_save, self.diac_style.position_opts)
+                        .into_iter()
+                        .map(|item| item.map(Message::Drawn))
+                })
+                .into_iter()
+                .flatten(),
             [self
                 .drawing
                 .loading_btn()

@@ -56,3 +56,4 @@ pub const NO_IMG_SELECTED: &str = "לא נבחרה תמונה";
 pub const SIZE: &str = "גודל";
 pub const MARGIN: &str = "מרווח";
 pub const COLOR: &str = "צבע";
+pub const POSITION: &str = "מקם";
