@@ -8,10 +8,7 @@ use {
         Transformation, Vector,
         advanced::{
             Clipboard, Layout, Shell, Widget,
-            graphics::{
-                geometry::{self, frame::Backend},
-                text::cosmic_text::skrifa::instance::Location,
-            },
+            graphics::geometry::{self, frame::Backend},
             image::{self, FilterMethod, Image},
             layout, mouse, renderer,
             text::{self, Alignment, LineHeight, Paragraph, Shaping},
@@ -84,6 +81,7 @@ where
     handle: Option<Renderer::Handle>,
     filter_method: FilterMethod,
     content_fit: ContentFit,
+    show_rects: bool,
 
     on_move: Option<Box<dyn Fn(usize, Point) -> Message>>,
 
@@ -115,8 +113,14 @@ where
 
             font: None,
             font_size: None,
+            show_rects: false,
             overlays,
         }
+    }
+
+    #[must_use]
+    pub fn show_rects(self, show_rects: bool) -> Self {
+        Self { show_rects, ..self }
     }
 
     /// Sets the [`FilterMethod`] of the [`Viewer`].
@@ -280,7 +284,9 @@ where
                     snap: true,
                 };
                 renderer.draw_image(image, Rectangle::new(position, diac_size), bounds);
-                if let Ok(letter_bounds) = &overlay.loaction {
+                if self.show_rects
+                    && let Ok(letter_bounds) = &overlay.loaction
+                {
                     let stroke =
                         Stroke::default().with_color([0.0, 1.0, 0.0, 0.5].into()).with_width(2.0);
                     frame.stroke_rectangle(letter_bounds.position(), letter_bounds.size(), stroke);

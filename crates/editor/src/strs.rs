@@ -57,3 +57,4 @@ pub const SIZE: &str = "גודל";
 pub const MARGIN: &str = "מרווח";
 pub const COLOR: &str = "צבע";
 pub const POSITION: &str = "מקם";
+pub const SHOW_RECTS: &str = "הצג ריבועים";

@@ -15,7 +15,7 @@ use {
         ContentFit, Element, Font, Point, Rectangle, Size, Task,
         futures::StreamExt,
         stream::channel,
-        widget::{button, text},
+        widget::{button, text, toggler},
     },
     image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer, imageops::overlay},
     rfd::AsyncFileDialog,
@@ -46,6 +46,7 @@ pub(crate) enum Message {
     Position(DiacPositionOpts),
     MoveDiac(usize, Point),
     Save(Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>),
+    ShowRects(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -70,12 +71,13 @@ impl RenderedDiac {
 #[derive(Debug)]
 pub struct Drawn {
     pub(crate) diacs: Vec<RenderedDiac>,
+    show_rects: bool,
     saving: Poll<Result<(), Arc<eyre::ErrReport>>, SaveStatus>,
 }
 
 impl Drawn {
     pub fn new(diacs: Vec<RenderedDiac>) -> Self {
-        Self { diacs, saving: Poll::Ready(Ok(())) }
+        Self { diacs, show_rects: false, saving: Poll::Ready(Ok(())) }
     }
 
     pub(crate) fn from_rects(
@@ -102,6 +104,7 @@ impl Drawn {
 
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
+            Message::ShowRects(msg) => self.show_rects = msg,
             Message::Position(opts) => {
                 for diac in &mut self.diacs {
                     let Ok(position) = &mut diac.position else { continue };
@@ -155,6 +158,8 @@ impl Drawn {
                 .loading_btn()
                 .on_press(Message::Save(Poll::Pending(SaveStatus::Trigger(img_to_save))))
                 .into(),
+            toggler(self.show_rects).on_toggle(Message::ShowRects).into(),
+            text(strs::SHOW_RECTS).into(),
             button(text(strs::POSITION)).on_press(Message::Position(diac_pos_opts)).into(),
         ]
     }
@@ -186,6 +191,7 @@ impl Drawn {
         .content_fit(ContentFit::None)
         .font(Font::with_name("Guttman Stam"))
         .font_size(48.0)
+        .show_rects(self.show_rects)
         .into()
     }
 }
