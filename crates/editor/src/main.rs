@@ -60,7 +60,7 @@ where
 }
 
 const FONT_SIZE: f32 = 72.0;
-const MARGIN: f32 = (FONT_SIZE * 0.4).round();
+const MARGIN: f32 = 5.0;
 
 // [TODO]
 #[derive(Default)]

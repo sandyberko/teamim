@@ -53,18 +53,19 @@ impl Renderer {
         match glyph.combining_class {
             CombiningClass::Above => Point::new(center, rect.top - diac_height - margin),
             CombiningClass::Bottom => Point::new(center, rect.bottom + margin),
-            CombiningClass::After => Point::new(
-                rect.left - diac_width - margin,
-                rect.top
-                    - rect.height()
-                        * if letter == 'ל' {
-                            0.5
-                        } else if diac == diacs::SOF_PASUQ.diac {
-                            0.3
-                        } else {
-                            1.0
-                        },
-            ),
+            CombiningClass::After => {
+                let diac_y_precent = if letter == 'ל' {
+                    0.5
+                } else if diac == diacs::SOF_PASUQ.diac {
+                    0.3
+                } else {
+                    0.1
+                };
+                Point::new(
+                    rect.left - diac_width - margin,
+                    rect.top - rect.height() * diac_y_precent,
+                )
+            }
         }
     }
 
