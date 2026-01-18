@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt::Display, path::PathBuf, str::from_utf8};
 
 use clap::{Parser, ValueEnum};
-use eyre::{Ok, bail, ensure};
+use eyre::{bail, ensure};
 use futures::TryStreamExt;
 use phf::{Map, phf_map};
 use quick_xml::events::{BytesStart, Event, attributes::Attribute};
@@ -56,7 +56,7 @@ async fn main() -> eyre::Result<()> {
     let mut writer = BufWriter::new(file);
 
     let client = Client::new();
-    let books = ["Gen", "Exod", "Lev", "Num", "Deut"];
+    let books = ["Gen", "Exod", "Lev", "Num", "Deut", "Esth"];
 
     let mut buf = Vec::new();
     for book in books {
@@ -111,6 +111,8 @@ pub static WIDE_LETTERS: Map<char, char> = phf_map! {
     'ת'  =>'ﬨ',
 };
 
+const IGNORED_TAG_PREFIX: &[u8] = b"spi-";
+
 struct Context {
     target: Target,
     wide_letter_elapsed: usize,
@@ -120,12 +122,6 @@ impl Context {
     fn new(target: Target) -> Self {
         Self { target, wide_letter_elapsed: 0 }
     }
-}
-
-const IGNORE_TAGS: &[&[u8]] = &[b"spi-pe2", b"spi-samekh2", b"spi-samekh3"];
-fn is_ignored_verse_tag(name: &[u8]) -> bool {
-    const IGNORE_VERSE_TAGS: &[&[u8]] = &[b"lp-legarmeih", b"spi-invnun"];
-    IGNORE_VERSE_TAGS.contains(&name) || IGNORE_TAGS.contains(&name)
 }
 
 impl Context {
@@ -164,7 +160,7 @@ impl Context {
                         Target::Search => (),
                     }
                 }
-                Event::Empty(elem) if IGNORE_TAGS.contains(&elem.name().as_ref()) => {
+                Event::Empty(elem) if elem.name().as_ref().starts_with(IGNORED_TAG_PREFIX) => {
                     // TODO
                     continue;
                 }
@@ -271,6 +267,13 @@ impl Context {
                 // handle other tags
                 event => {
                     trailing_shirah_space = false;
+
+                    match self.sof_pasuq(&event, writer).await {
+                        Some(Ok(())) => continue,
+                        Some(Err(err)) => return Err(err),
+                        None => (),
+                    }
+
                     match event {
                         Event::Start(elem) => match elem.name().as_ref() {
                             b"slh-word" => self.parse_slh_word(xml, buf, writer).await?,
@@ -285,24 +288,15 @@ impl Context {
                                 xml.buffer_position()
                             ),
                         },
-                        Event::Empty(elem) if elem.name().as_ref() == b"lp-paseq" => {
-                            match self.target {
-                                Target::Teamim => {
-                                    writer.write_all(b" \xD7\x80 ").await?;
-                                }
-                                Target::TrainingWideLetters | Target::Training => {
-                                    writer.write_all(b" ").await?;
-                                }
-                                Target::Search => (),
-                            }
-                        }
                         Event::Empty(elem) if elem.name().as_ref() == b"text" => {
                             self.expect_text_attr(writer, elem).await?;
                         }
                         Event::Empty(elem) if elem.name().as_ref() == b"kq-trivial" => {
                             self.expect_text_attr(writer, elem).await?;
                         }
-                        Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
+                        Event::Empty(elem)
+                            if elem.name().as_ref().starts_with(IGNORED_TAG_PREFIX) =>
+                        {
                             // TODO
                             continue;
                         }
@@ -337,7 +331,7 @@ impl Context {
                 Event::Empty(elem) if elem.name().as_ref() == b"kq-trivial" => {
                     self.expect_text_attr(writer, elem).await?;
                 }
-                Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
+                Event::Empty(elem) if elem.name().as_ref().starts_with(IGNORED_TAG_PREFIX) => {
                     // TODO
                     continue;
                 }
@@ -348,6 +342,27 @@ impl Context {
         Ok(())
     }
 
+    async fn sof_pasuq(
+        &mut self,
+        event: &Event<'_>,
+        writer: &mut BufWriter<File>,
+    ) -> Option<eyre::Result<()>> {
+        const SOF_PASUQ_TAGS: &[&[u8]] = &[b"lp-paseq", b"lp-legarmeih", b"lp-legarmeih "];
+
+        let Event::Empty(tag) = event else { return None };
+
+        if !SOF_PASUQ_TAGS.contains(&tag.name().as_ref()) {
+            return None;
+        }
+
+        Some(match self.target {
+            Target::Teamim => writer.write_all(b" \xD7\x80 ").await.map_err(eyre::Error::from),
+            Target::TrainingWideLetters | Target::Training => {
+                writer.write_all(b" ").await.map_err(eyre::Error::from)
+            }
+            Target::Search => Ok(()),
+        })
+    }
     async fn parse_complicated_cant(
         &mut self,
         xml: &mut quick_xml::Reader<impl AsyncBufRead + Unpin>,
@@ -355,11 +370,19 @@ impl Context {
         writer: &mut BufWriter<File>,
     ) -> eyre::Result<()> {
         loop {
-            match self.next(xml, buf).await? {
+            let event = self.next(xml, buf).await?;
+
+            match self.sof_pasuq(&event, writer).await {
+                Some(Ok(())) => continue,
+                Some(Err(err)) => return Err(err),
+                None => (),
+            }
+
+            match event {
                 Event::Empty(elem) if elem.name().as_ref() == b"text" => {
                     self.expect_text_attr(writer, elem).await?;
                 }
-                Event::Empty(elem) if is_ignored_verse_tag(elem.name().as_ref()) => {
+                Event::Empty(elem) if elem.name().as_ref().starts_with(IGNORED_TAG_PREFIX) => {
                     // TODO
                     continue;
                 }
@@ -532,7 +555,15 @@ impl Context {
         writer: &mut BufWriter<File>,
     ) -> eyre::Result<()> {
         loop {
-            match self.next(xml, buf).await? {
+            let event = self.next(xml, buf).await?;
+
+            match self.sof_pasuq(&event, writer).await {
+                Some(Ok(())) => continue,
+                Some(Err(err)) => return Err(err),
+                None => (),
+            }
+
+            match event {
                 Event::Empty(elem) => match elem.name().as_ref() {
                     b"text" | b"letter-large" | b"letter-small" => {
                         self.expect_text_attr(writer, elem).await?;
