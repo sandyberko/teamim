@@ -44,7 +44,7 @@ impl Display for Target {
     }
 }
 
-const COMMIT: &str = "6684604e161a4f7910fcac58d6dca2c07d21f6a4";
+const COMMIT: &str = "fcd85bc74d3688f5b28dd2158e2c1168c51d4e72";
 const WIDE_LETTER_INTERVAL: usize = 25;
 
 #[tokio::main]
