@@ -4,3 +4,8 @@ rustflags = [
     "-C", "link-args=user32.lib crypt32.lib advapi32.lib",
     # "-C", "target-feature=+crt-static"
 ]
+
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = [
+#     "-C", "target-feature=+crt-static"
+# ]
