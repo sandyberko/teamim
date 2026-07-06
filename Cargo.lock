@@ -5244,6 +5244,7 @@ dependencies = [
  "eyre",
  "image",
  "phf",
+ "rayon",
  "search",
  "serde",
  "similar",

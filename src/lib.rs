@@ -79,6 +79,8 @@ impl TeamimCtx {
         Ok(self)
     }
 
+    /// # Returns
+    /// (file boxes, width, height)
     pub fn file_boxes(
         &mut self,
         img_path: impl AsRef<Path>,

@@ -9,7 +9,7 @@ clap.workspace = true
 eyre.workspace = true
 color-eyre.workspace = true
 itertools.workspace = true
-rayon = "1.10.0"
+rayon.workspace = true
 indicatif = { version = "0.18", features = ["rayon"] }
 ctrlc = "3.4.5"
 similar = "2.7.0"
