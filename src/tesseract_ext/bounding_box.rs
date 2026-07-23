@@ -1,10 +1,12 @@
 use std::{collections::VecDeque, fmt::Display};
 
 use eyre::{OptionExt, WrapErr, ensure};
+use serde::{Deserialize, Serialize};
 
 pub const LINE_TERMINATOR: char = '\t';
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// NOTE: origin is at **bottom** left
 pub struct Rect<T = i32> {
     pub left: T,
@@ -68,7 +70,8 @@ impl Rect<f32> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundingBox<Value> {
     pub value: Value,
     pub rect: Rect<u32>,

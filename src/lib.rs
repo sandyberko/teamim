@@ -127,52 +127,11 @@ impl TeamimCtx {
         let (old, new) = (snippet.as_str(), r#match.text);
         let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
-        let mut ops = diff.ops().iter().peekable();
 
         progress_callback(PositStatus::Placing);
-        let mut last_diacrit_top = 0;
-        let mut res = Vec::new();
-        let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
-        'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
-            let char_offset = char_idx - snip_char_offset;
-            let change = 'change: loop {
-                let Some(change) = ops.peek() else {
-                    break 'taam;
-                };
-                if change.new_range().start > char_offset {
-                    continue 'taam;
-                }
-                if change.new_range().end > char_offset {
-                    break 'change change;
-                }
-                ops.next();
-            };
-            let result = match change.tag() {
-                DiffTag::Equal => {
-                    let char_offset_in_change = char_offset - change.new_range().start;
-                    let box_idx = change.old_range().start + char_offset_in_change;
-                    let rect = boxes[box_idx].rect;
-                    last_diacrit_top = rect.top;
-                    Ok(rect)
-                }
-                DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
-                DiffTag::Insert | DiffTag::Replace => {
-                    let range = change.new_range();
-                    let pre = remapper
-                        .slice_new(range.start.saturating_sub(6)..range.end)
-                        .ok_or_eyre("invalid range")?;
-                    let post = remapper
-                        .slice_new(range.end..new.len().min(range.end + 6))
-                        .ok_or_eyre("invalid range")?;
-                    let missing_text = Cow::Owned(format!("{pre}{diacritic}{post}"));
-                    let top = last_diacrit_top;
-                    Err(diac::DiacMiss { top, missing_text })
-                }
-            };
-            res.push((letter, diacritic, result));
-        }
-        Ok(res)
+        place(&boxes, snip_char_offset, new, &remapper, diff.ops().iter().copied())
     }
+
     pub fn diff_boxes(
         &mut self,
         img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
@@ -230,6 +189,64 @@ impl TeamimCtx {
 
         Ok(box_diff)
     }
+}
+
+///
+/// # Arguments
+/// - `snip_char_offset`
+pub fn place(
+    boxes: &[BoundingBox<char>],
+    snip_char_offset: usize,
+    new: &str,
+    remapper: &TextDiffRemapper<'_, str>,
+    ops: impl IntoIterator<Item = similar::DiffOp>,
+) -> Result<Vec<DiacRect>, PlaceError> {
+    eprintln!("\tplacing (snip offset {snip_char_offset})...");
+
+    let mut ops = ops.into_iter().peekable();
+
+    let mut last_diacrit_top = 0;
+    let mut res = Vec::new();
+    let snip_diacs = DIACRIT_MAP.as_ref().map_err(|e| eyre!(e))?.range(snip_char_offset..);
+    'taam: for (&char_idx, &(diacritic, letter)) in snip_diacs {
+        let char_offset = char_idx - snip_char_offset;
+        let change = 'change: loop {
+            let Some(change) = ops.peek() else {
+                break 'taam;
+            };
+            if change.new_range().start > char_offset {
+                continue 'taam;
+            }
+            if change.new_range().end > char_offset {
+                break 'change change;
+            }
+            ops.next();
+        };
+        let result = match change.tag() {
+            DiffTag::Equal => {
+                let char_offset_in_change = char_offset - change.new_range().start;
+                let box_idx = change.old_range().start + char_offset_in_change;
+                let rect = boxes[box_idx].rect;
+                last_diacrit_top = rect.top;
+                Ok(rect)
+            }
+            DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
+            DiffTag::Insert | DiffTag::Replace => {
+                let range = change.new_range();
+                let pre = remapper
+                    .slice_new(range.start.saturating_sub(6)..range.end)
+                    .ok_or_eyre("invalid range")?;
+                let post = remapper
+                    .slice_new(range.end..new.len().min(range.end + 6))
+                    .ok_or_eyre("invalid range")?;
+                let missing_text = Cow::Owned(format!("{pre}{diacritic}{post}"));
+                let top = last_diacrit_top;
+                Err(diac::DiacMiss { top, missing_text })
+            }
+        };
+        res.push((letter, diacritic, result));
+    }
+    Ok(res)
 }
 
 #[derive(Debug, Clone)]

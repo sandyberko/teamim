@@ -40,9 +40,13 @@ serde = { version = "1.0.217", features = ["derive"] }
 search = { version = "0.1.0", path = "crates/search" }
 tesseract-sys = "0.6.3"
 tracing = "0.1.41"
+fastcdc = "4.0.1"
+blake3 = "1.8.5"
 
 [dev-dependencies]
 image = { workspace = true, default-features = true }
+memmap2 = "0.9.11"
+rkyv = "0.8.18"
 
 [lints]
 workspace = true
