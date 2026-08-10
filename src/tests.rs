@@ -87,6 +87,7 @@ fn entire_book() -> eyre::Result<()> {
     let new = text.as_str();
 
     let placed = block_hashing::diff_and_place(old, new, &boxes);
+
     Ok(())
 }
 

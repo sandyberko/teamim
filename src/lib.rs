@@ -54,8 +54,6 @@ pub struct TeamimCtx {
     tess: Tess,
 }
 
-pub type DiacRect = (char, char, diac::Result);
-
 impl TeamimCtx {
     #[tracing::instrument]
     pub fn new(datapath: &CStr) -> eyre::Result<Self> {
@@ -98,7 +96,7 @@ impl TeamimCtx {
         &mut self,
         img: &ImageBuffer<Rgba<u8>, impl Deref<Target = [u8]>>,
         progress_callback: impl Fn(PositStatus),
-    ) -> Result<Vec<DiacRect>, PlaceError> {
+    ) -> Result<Vec<PlacedDiac>, PlaceError> {
         progress_callback(PositStatus::Recognizing);
         self.tess.set_image(img);
         self.tess.recognize()?;
@@ -191,6 +189,20 @@ impl TeamimCtx {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacedDiac {
+    pub letter: char,
+    pub diacritic: char,
+    pub place: diac::Result,
+}
+
+impl PlacedDiac {
+    #[must_use]
+    pub const fn new(letter: char, diacritic: char, place: diac::Result) -> Self {
+        Self { letter, diacritic, place }
+    }
+}
+
 ///
 /// # Arguments
 /// - `snip_char_offset`
@@ -200,7 +212,7 @@ pub fn place(
     new: &str,
     remapper: &TextDiffRemapper<'_, str>,
     ops: impl IntoIterator<Item = similar::DiffOp>,
-) -> Result<Vec<DiacRect>, PlaceError> {
+) -> Result<Vec<PlacedDiac>, PlaceError> {
     eprintln!("\tplacing (snip offset {snip_char_offset})...");
 
     let mut ops = ops.into_iter().peekable();
@@ -244,7 +256,7 @@ pub fn place(
                 Err(diac::DiacMiss { top, missing_text })
             }
         };
-        res.push((letter, diacritic, result));
+        res.push(PlacedDiac::new(letter, diacritic, result));
     }
     Ok(res)
 }

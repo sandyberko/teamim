@@ -13,14 +13,14 @@ use {
     image::{ImageFormat, imageops::overlay},
     std::path::PathBuf,
     tap::prelude::*,
-    teamim::test_utils,
+    teamim::{PlacedDiac, test_utils},
 };
 
 #[test]
 fn save() -> eyre::Result<()> {
     let mut renderer = diac_renderer::Renderer::new();
     let mut bottom = test_utils::IMAGE.clone();
-    for (_, diac, pos) in test_utils::POSITIONS {
+    for PlacedDiac { diacritic: diac, place: pos, .. } in test_utils::POSITIONS {
         let Ok(rect) = pos else { continue };
         let top = renderer.render(*diac, FONT_SIZE, test_utils::DIAC_COLOR);
         overlay(&mut bottom, &top, rect.left.into(), rect.top.into());

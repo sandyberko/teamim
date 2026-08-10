@@ -20,7 +20,7 @@ use {
     image::{ImageBuffer, ImageFormat, Rgb, RgbaImage, buffer::ConvertBuffer, imageops::overlay},
     rfd::AsyncFileDialog,
     std::{iter::zip, sync::Arc},
-    teamim::{DiacRect, PositStatus, diac::DiacMiss, tesseract_ext::bounding_box::Rect},
+    teamim::{PlacedDiac, PositStatus, diac::DiacMiss, tesseract_ext::bounding_box::Rect},
     tokio::task::spawn_blocking,
 };
 
@@ -81,14 +81,14 @@ impl Drawn {
     }
 
     pub(crate) fn from_rects(
-        rects: &[DiacRect],
+        rects: &[PlacedDiac],
         opts: DiacPositionOpts,
         diac_color: [u8; 3],
     ) -> Self {
         let mut renderer = diac_renderer::Renderer::new();
         let diacs = rects
             .iter()
-            .map(|&(letter, diac, ref pos)| {
+            .map(|&PlacedDiac { letter, diacritic: diac, place: ref pos }| {
                 // TODO
                 let position = pos.clone().map(|letter_pos| {
                     let diac_pos =
@@ -164,26 +164,28 @@ impl Drawn {
         ]
     }
 
-    pub fn diac_view<'a>(&self, img: &ImgHandle, rects: &[DiacRect]) -> Element<'a, Message> {
-        stage(zip(&self.diacs, rects).map(|(diac, (_, _, rect))| match &diac.position {
-            Ok(pos) => {
-                // TODO
-                let rect = rect.as_ref().ok().copied().unwrap_or(Rect::new(0, 0, 0, 0));
-                #[expect(clippy::cast_precision_loss)]
-                let rect = Rectangle::new(
-                    Point::new(rect.left as _, rect.top as _),
-                    Size::new(rect.width() as _, rect.height() as _),
-                );
-                Overlay::image(rect, pos.diac, diac.img.handle().clone())
-            }
-            Err(miss) =>
-            {
-                #[expect(clippy::cast_precision_loss)]
-                Overlay::text(
-                    Point::new(img.img().width() as f32 + f32::from(PADDING), miss.top as f32),
-                    diac.img.handle().clone(),
-                    miss.missing_text.clone(),
-                )
+    pub fn diac_view<'a>(&self, img: &ImgHandle, rects: &[PlacedDiac]) -> Element<'a, Message> {
+        stage(zip(&self.diacs, rects).map(|(diac, PlacedDiac { place: rect, .. })| {
+            match &diac.position {
+                Ok(pos) => {
+                    // TODO
+                    let rect = rect.as_ref().ok().copied().unwrap_or(Rect::new(0, 0, 0, 0));
+                    #[expect(clippy::cast_precision_loss)]
+                    let rect = Rectangle::new(
+                        Point::new(rect.left as _, rect.top as _),
+                        Size::new(rect.width() as _, rect.height() as _),
+                    );
+                    Overlay::image(rect, pos.diac, diac.img.handle().clone())
+                }
+                Err(miss) =>
+                {
+                    #[expect(clippy::cast_precision_loss)]
+                    Overlay::text(
+                        Point::new(img.img().width() as f32 + f32::from(PADDING), miss.top as f32),
+                        diac.img.handle().clone(),
+                        miss.missing_text.clone(),
+                    )
+                }
             }
         }))
         .handle(img.handle().clone())

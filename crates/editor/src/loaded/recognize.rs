@@ -16,12 +16,12 @@ use {
     editor::stage,
     iced::{Element, Task},
     std::{iter::chain, sync::Arc},
-    teamim::{DiacRect, PositStatus},
+    teamim::{PlacedDiac, PositStatus},
 };
 
 pub(crate) type SuperState = Poll<Result<State, String>, Status>;
 
-pub(crate) type SuperMsg = Poll<Message, Poll<Result<Vec<DiacRect>, String>, Status>>;
+pub(crate) type SuperMsg = Poll<Message, Poll<Result<Vec<PlacedDiac>, String>, Status>>;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Status;
@@ -34,14 +34,14 @@ pub(crate) enum Message {
 }
 
 pub(crate) struct State {
-    rects: Vec<DiacRect>,
+    rects: Vec<PlacedDiac>,
     drawing: Poll<Result<Option<drawn::Drawn>, Arc<eyre::Report>>, PositStatus>,
 
     diac_style: diac_style::State,
 }
 
 impl State {
-    pub(crate) fn new(positions: Vec<DiacRect>) -> Self {
+    pub(crate) fn new(positions: Vec<PlacedDiac>) -> Self {
         Self {
             rects: positions,
             drawing: Poll::Ready(Ok(None)),
