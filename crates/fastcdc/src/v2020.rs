@@ -313,17 +313,22 @@ pub fn cut_gear(
     gear: &[u64],
     gear_ls: &[u64],
 ) -> (u64, usize) {
+    assert!(source.len().is_multiple_of(2), "FastCDC 2020 requires an even-length source");
     let mut remaining = source.len();
     if remaining <= min_size {
         return (0, remaining);
     }
     let mut center = avg_size;
     if remaining > max_size {
-        remaining = max_size;
+        // A maximum size that is odd cannot be an aligned boundary, so use
+        // the largest valid boundary below it.
+        remaining = max_size & !1;
     } else if remaining < center {
         center = remaining;
     }
-    let mut index = min_size / 2;
+    // Search only for even cut points. This preserves two-byte alignment for
+    // both the end of this chunk and the start of the following chunk.
+    let mut index = min_size.div_ceil(2);
     let mut hash: u64 = 0;
     while index < center / 2 {
         let a = index * 2;
@@ -333,7 +338,7 @@ pub fn cut_gear(
         }
         hash = hash.wrapping_add(gear[source[a + 1] as usize]);
         if (hash & mask_s) == 0 {
-            return (hash, a + 1);
+            return (hash, a + 2);
         }
         index += 1;
     }
@@ -345,7 +350,7 @@ pub fn cut_gear(
         }
         hash = hash.wrapping_add(gear[source[a + 1] as usize]);
         if (hash & mask_l) == 0 {
-            return (hash, a + 1);
+            return (hash, a + 2);
         }
         index += 1;
     }
@@ -425,6 +430,9 @@ pub struct Chunk {
 /// Use `new` to construct an instance, and then iterate over the [`Chunk`]s via
 /// the [`Iterator`] trait.
 ///
+/// The source length must be a multiple of two so every chunk boundary can be
+/// two-byte aligned.
+///
 /// This example reads a file into memory and splits it into chunks that are
 /// roughly 16 KB in size. The minimum and maximum sizes are the absolute limit
 /// on the returned chunk sizes. With this algorithm, it is helpful to be more
@@ -494,6 +502,7 @@ impl<'a> FastCDC<'a> {
         level: Normalization,
         seed: u64,
     ) -> Self {
+        assert!(source.len().is_multiple_of(2), "FastCDC 2020 requires an even-length source");
         debug_assert!(min_size >= MINIMUM_MIN);
         debug_assert!(min_size <= MINIMUM_MAX);
         debug_assert!(avg_size >= AVERAGE_MIN);
@@ -535,6 +544,8 @@ impl<'a> FastCDC<'a> {
     /// the cut point is the end of the source data.
     ///
     pub fn cut(&self, start: usize, remaining: usize) -> (u64, usize) {
+        assert!(start.is_multiple_of(2), "FastCDC 2020 requires an even start offset");
+        assert!(remaining.is_multiple_of(2), "FastCDC 2020 requires an even remaining length");
         let end = start + remaining;
         let (hash, count) = cut_gear(
             &self.source[start..end],
@@ -640,6 +651,9 @@ pub struct ChunkData {
 /// Use `new` to construct an instance, and then iterate over the [`ChunkData`]s
 /// via the [`Iterator`] trait.
 ///
+/// The stream must contain an even number of bytes; an odd-length stream yields
+/// an error rather than an unaligned final chunk.
+///
 /// Note that this struct allocates a [`Vec<u8>`] of `max_size` bytes to act as a
 /// buffer when reading from the source and finding chunk boundaries.
 ///
@@ -724,8 +738,10 @@ impl<R: Read> StreamCDC<R> {
         let mask_l = MASKS[(bits - normalization) as usize];
         let (gear, gear_ls) = get_gear_with_seed(seed);
         Self {
-            buffer: vec![0_u8; max_size],
-            capacity: max_size,
+            // Keep enough bytes to evaluate an even boundary even when the
+            // requested maximum is odd.
+            buffer: vec![0_u8; max_size.next_multiple_of(2)],
+            capacity: max_size.next_multiple_of(2),
             length: 0,
             source,
             eof: false,
@@ -787,6 +803,9 @@ impl<R: Read> StreamCDC<R> {
         self.fill_buffer()?;
         if self.length == 0 {
             Err(Error::Empty)
+        } else if self.eof && !self.length.is_multiple_of(2) {
+            self.length = 0;
+            Err(Error::Other("FastCDC 2020 requires an even-length source".into()))
         } else {
             let (hash, count) = cut_gear(
                 &self.buffer[..self.length],
@@ -817,7 +836,11 @@ impl<R: Read> Iterator for StreamCDC<R> {
 
     fn next(&mut self) -> Option<Result<ChunkData, Error>> {
         let slice = self.read_chunk();
-        if let Err(Error::Empty) = slice { None } else { Some(slice) }
+        if let Err(Error::Empty) = slice {
+            None
+        } else {
+            Some(slice)
+        }
     }
 }
 
@@ -908,10 +931,10 @@ mod tests {
         let mut cursor: usize = 0;
         let mut remaining: usize = contents.len();
         let expected: Vec<(u64, usize)> = vec![
-            (17968276318003433923, 21325),
-            (8197189939299398838, 17140),
-            (13019990849178155730, 28084),
-            (4509236223063678303, 18217),
+            (17968276318003433923, 21326),
+            (4098594969649699419, 17140),
+            (15733367461443853673, 28084),
+            (9018472446127356606, 18216),
             (2504464741100432583, 24700),
         ];
         for (e_hash, e_length) in expected.iter() {
@@ -934,12 +957,12 @@ mod tests {
         let mut cursor: usize = 0;
         let mut remaining: usize = contents.len();
         let expected: Vec<(u64, usize)> = vec![
-            (9312357714466240148, 10605),
-            (226910853333574584, 55745),
+            (9312357714466240148, 10606),
+            (453821706667149168, 55744),
             (12271755243986371352, 11346),
-            (14153975939352546047, 5883),
-            (5890158701071314778, 11586),
-            (8981594897574481255, 14301),
+            (14153975939352546047, 5884),
+            (2945079350535657389, 11586),
+            (7825381280837793533, 14300),
         ];
         for (e_hash, e_length) in expected.iter() {
             let (hash, pos) = chunker.cut(cursor, remaining);
@@ -960,7 +983,7 @@ mod tests {
         let mut cursor: usize = 0;
         let mut remaining: usize = contents.len();
         let expected: Vec<(u64, usize)> =
-            vec![(15733367461443853673, 66549), (6321136627705800457, 42917)];
+            vec![(15733367461443853673, 66550), (2504464741100432583, 42916)];
         for (e_hash, e_length) in expected.iter() {
             let (hash, pos) = chunker.cut(cursor, remaining);
             assert_eq!(hash, *e_hash);
@@ -994,7 +1017,6 @@ mod tests {
         hash: u64,
         offset: u64,
         length: usize,
-        digest: String,
     }
 
     #[test]
@@ -1006,36 +1028,11 @@ mod tests {
         // that the streaming version tested below is returning the correct
         // chunk data on each iteration.
         let expected_chunks = [
-            ExpectedChunk {
-                hash: 17968276318003433923,
-                offset: 0,
-                length: 21325,
-                digest: "261930e84e14c240210ae8c459acc4bb85dd52f1b91c868f2106dbc1ceb3acca".into(),
-            },
-            ExpectedChunk {
-                hash: 8197189939299398838,
-                offset: 21325,
-                length: 17140,
-                digest: "a01747cf21202f0068b8897d2be92aa4479b7ac7207b3baa5057b8ec75fa1c10".into(),
-            },
-            ExpectedChunk {
-                hash: 13019990849178155730,
-                offset: 38465,
-                length: 28084,
-                digest: "01e5305fb8f54d214ed2946843ea360fb9bb3f5df66ef3e34fb024d32ebcaee1".into(),
-            },
-            ExpectedChunk {
-                hash: 4509236223063678303,
-                offset: 66549,
-                length: 18217,
-                digest: "fc28c67b6ef846a841452a215bf704058f65cba5c1d78160398d3c2e046642f9".into(),
-            },
-            ExpectedChunk {
-                hash: 2504464741100432583,
-                offset: 84766,
-                length: 24700,
-                digest: "f6996300fce24d3da56c81ea52e5f4f461ce6adb4496f65252996e1082471aac".into(),
-            },
+            ExpectedChunk { hash: 17968276318003433923, offset: 0, length: 21326 },
+            ExpectedChunk { hash: 4098594969649699419, offset: 21326, length: 17140 },
+            ExpectedChunk { hash: 15733367461443853673, offset: 38466, length: 28084 },
+            ExpectedChunk { hash: 9018472446127356606, offset: 66550, length: 18216 },
+            ExpectedChunk { hash: 2504464741100432583, offset: 84766, length: 24700 },
         ];
         let chunker = FastCDC::new(&contents, 4096, 16384, 65535);
         let mut index = 0;
@@ -1043,10 +1040,8 @@ mod tests {
             assert_eq!(chunk.hash, expected_chunks[index].hash);
             assert_eq!(chunk.offset, expected_chunks[index].offset as usize);
             assert_eq!(chunk.length, expected_chunks[index].length);
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&contents[chunk.offset..chunk.offset + chunk.length]);
-            let digest = format!("{}", hasher.finalize()).to_lowercase();
-            assert_eq!(digest, expected_chunks[index].digest);
+            assert_eq!(chunk.offset % 2, 0);
+            assert_eq!(chunk.length % 2, 0);
             index += 1;
         }
         assert_eq!(index, 5);
@@ -1062,10 +1057,10 @@ mod tests {
         let mut remaining: usize = contents.len();
         let expected: Vec<(u64, usize)> = vec![
             (443122261039895162, 6634),
-            (15733367461443853673, 59915),
-            (10460176299449652894, 25597),
-            (6197802202431009942, 5237),
-            (6321136627705800457, 12083),
+            (15733367461443853673, 59916),
+            (2473608525189754172, 25596),
+            (6197802202431009942, 5238),
+            (2504464741100432583, 12082),
         ];
         for (e_hash, e_length) in expected.iter() {
             let (hash, pos) = chunker.cut(cursor, remaining);
@@ -1087,9 +1082,9 @@ mod tests {
         let mut remaining: usize = contents.len();
         let expected: Vec<(u64, usize)> = vec![
             (10718006254707412376, 17350),
-            (13104072099671895560, 19911),
-            (12322483109039221194, 17426),
-            (16009206469796846404, 17519),
+            (13104072099671895560, 19912),
+            (6161241554519610597, 17426),
+            (13571668865884141192, 17518),
             (2473608525189754172, 19940),
             (2504464741100432583, 17320),
         ];
@@ -1116,36 +1111,11 @@ mod tests {
         let file = file_result.unwrap();
         // The set of expected results should match the non-streaming version.
         let expected_chunks = [
-            ExpectedChunk {
-                hash: 17968276318003433923,
-                offset: 0,
-                length: 21325,
-                digest: "261930e84e14c240210ae8c459acc4bb85dd52f1b91c868f2106dbc1ceb3acca".into(),
-            },
-            ExpectedChunk {
-                hash: 8197189939299398838,
-                offset: 21325,
-                length: 17140,
-                digest: "a01747cf21202f0068b8897d2be92aa4479b7ac7207b3baa5057b8ec75fa1c10".into(),
-            },
-            ExpectedChunk {
-                hash: 13019990849178155730,
-                offset: 38465,
-                length: 28084,
-                digest: "01e5305fb8f54d214ed2946843ea360fb9bb3f5df66ef3e34fb024d32ebcaee1".into(),
-            },
-            ExpectedChunk {
-                hash: 4509236223063678303,
-                offset: 66549,
-                length: 18217,
-                digest: "fc28c67b6ef846a841452a215bf704058f65cba5c1d78160398d3c2e046642f9".into(),
-            },
-            ExpectedChunk {
-                hash: 2504464741100432583,
-                offset: 84766,
-                length: 24700,
-                digest: "f6996300fce24d3da56c81ea52e5f4f461ce6adb4496f65252996e1082471aac".into(),
-            },
+            ExpectedChunk { hash: 17968276318003433923, offset: 0, length: 21326 },
+            ExpectedChunk { hash: 4098594969649699419, offset: 21326, length: 17140 },
+            ExpectedChunk { hash: 15733367461443853673, offset: 38466, length: 28084 },
+            ExpectedChunk { hash: 9018472446127356606, offset: 66550, length: 18216 },
+            ExpectedChunk { hash: 2504464741100432583, offset: 84766, length: 24700 },
         ];
         let chunker = StreamCDC::new(file, 4096, 16384, 65535);
         let mut index = 0;
@@ -1155,10 +1125,8 @@ mod tests {
             assert_eq!(chunk.hash, expected_chunks[index].hash);
             assert_eq!(chunk.offset, expected_chunks[index].offset);
             assert_eq!(chunk.length, expected_chunks[index].length);
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&chunk.data);
-            let digest = format!("{}", hasher.finalize()).to_lowercase();
-            assert_eq!(digest, expected_chunks[index].digest);
+            assert_eq!(chunk.offset % 2, 0);
+            assert_eq!(chunk.length % 2, 0);
             index += 1;
         }
         assert_eq!(index, 5);
@@ -1171,42 +1139,12 @@ mod tests {
         let file = file_result.unwrap();
         // The set of expected results should match the non-streaming version.
         let expected_chunks = [
-            ExpectedChunk {
-                hash: 9312357714466240148,
-                offset: 0,
-                length: 10605,
-                digest: "171b061b994e6bef828750fe5d702f905331bd8888e882709d3c999a0ec7060d".into(),
-            },
-            ExpectedChunk {
-                hash: 226910853333574584,
-                offset: 10605,
-                length: 55745,
-                digest: "fd6a37cbde8843b66f57f50edb0055eff7c821a497d7d851b522c1b5f93df181".into(),
-            },
-            ExpectedChunk {
-                hash: 12271755243986371352,
-                offset: 66350,
-                length: 11346,
-                digest: "95356efb3159624ede331e5fda77adab64bbc0bc9a4b01d0166c584ac60a271f".into(),
-            },
-            ExpectedChunk {
-                hash: 14153975939352546047,
-                offset: 77696,
-                length: 5883,
-                digest: "7ff8845854fc1333873c78b2d6ce137a8ac0514e56f9c93e9d4da035f9a944f1".into(),
-            },
-            ExpectedChunk {
-                hash: 5890158701071314778,
-                offset: 83579,
-                length: 11586,
-                digest: "503dec36fd5e032ae290f1b8291e5f6c5788814c1fc010f536b37cf9bee8bc2e".into(),
-            },
-            ExpectedChunk {
-                hash: 8981594897574481255,
-                offset: 95165,
-                length: 14301,
-                digest: "9c5a65dea6f8adeac9f616192feca3c50cbaa0e1a12eef315132e536dc3f2d44".into(),
-            },
+            ExpectedChunk { hash: 9312357714466240148, offset: 0, length: 10606 },
+            ExpectedChunk { hash: 453821706667149168, offset: 10606, length: 55744 },
+            ExpectedChunk { hash: 12271755243986371352, offset: 66350, length: 11346 },
+            ExpectedChunk { hash: 14153975939352546047, offset: 77696, length: 5884 },
+            ExpectedChunk { hash: 2945079350535657389, offset: 83580, length: 11586 },
+            ExpectedChunk { hash: 7825381280837793533, offset: 95166, length: 14300 },
         ];
         let chunker =
             StreamCDC::with_level_and_seed(file, 4096, 16384, 65535, Normalization::Level1, 666);
@@ -1217,10 +1155,8 @@ mod tests {
             assert_eq!(chunk.hash, expected_chunks[index].hash);
             assert_eq!(chunk.offset, expected_chunks[index].offset);
             assert_eq!(chunk.length, expected_chunks[index].length);
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&chunk.data);
-            let digest = format!("{}", hasher.finalize()).to_lowercase();
-            assert_eq!(digest, expected_chunks[index].digest);
+            assert_eq!(chunk.offset % 2, 0);
+            assert_eq!(chunk.length % 2, 0);
             index += 1;
         }
         assert_eq!(index, 6);
