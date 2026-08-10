@@ -86,12 +86,7 @@ fn entire_book() -> eyre::Result<()> {
     let old = search::text();
     let new = text.as_str();
 
-    block_hashing::diff(old, new, &boxes);
-    // let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old, new);
-    // println!("remapping...");
-    // let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
-    // let mut ops = diff.ops().iter().peekable();
-
+    let placed = block_hashing::diff_and_place(old, new, &boxes);
     Ok(())
 }
 

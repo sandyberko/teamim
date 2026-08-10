@@ -41,6 +41,7 @@ search = { version = "0.1.0", path = "crates/search" }
 tesseract-sys = "0.6.3"
 tracing = "0.1.41"
 blake3 = "1.8.5"
+fastcdc = { version = "0.1.0", path = "crates/fastcdc" }
 
 [dev-dependencies]
 image = { workspace = true, default-features = true }
