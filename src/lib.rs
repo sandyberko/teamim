@@ -1,4 +1,5 @@
 pub mod diac;
+pub mod entire_book;
 pub mod fuzzy_find;
 pub mod glyph;
 pub mod tesseract_ext;
