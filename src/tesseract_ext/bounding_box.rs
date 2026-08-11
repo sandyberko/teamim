@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub const LINE_TERMINATOR: char = '\t';
 
-#[cfg_attr(test, derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "test_utils", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// NOTE: origin is at **bottom** left
 pub struct Rect<T = i32> {
@@ -70,7 +70,7 @@ impl Rect<f32> {
     }
 }
 
-#[cfg_attr(test, derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "test_utils", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundingBox<Value> {
     pub value: Value,

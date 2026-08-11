@@ -214,8 +214,6 @@ pub fn place(
     remapper: &TextDiffRemapper<'_, str>,
     ops: impl IntoIterator<Item = similar::DiffOp>,
 ) -> Result<Vec<PlacedDiac>, PlaceError> {
-    eprintln!("\tplacing (snip offset {snip_char_offset})...");
-
     let mut ops = ops.into_iter().peekable();
 
     let mut last_diacrit_top = 0;

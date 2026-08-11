@@ -16,7 +16,20 @@ use {
 
 pub use block_hashing::diff_and_place;
 
-pub fn recognize(book_dir: &Path) -> eyre::Result<(Vec<BoundingBox<char>>, String)> {
+#[cfg_attr(feature = "test_utils", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+pub struct RecognizedPage {
+    pub boxes: Vec<BoundingBox<char>>,
+    pub text: String,
+}
+
+impl RecognizedPage {
+    #[must_use]
+    pub fn new(boxes: Vec<BoundingBox<char>>, text: String) -> Self {
+        Self { boxes, text }
+    }
+}
+
+pub fn recognize(book_dir: &Path) -> eyre::Result<Vec<RecognizedPage>> {
     let range = 1..=248;
 
     let pages_processed_count = AtomicU8::new(0);
@@ -55,16 +68,9 @@ pub fn recognize(book_dir: &Path) -> eyre::Result<(Vec<BoundingBox<char>>, Strin
                     .collect::<Result<Vec<_>, _>>()?;
                 pages_processed_count.fetch_add(1, order);
 
-                Ok(Some((boxes, text)))
+                Ok(Some(RecognizedPage::new(boxes, text)))
             },
         )
         .filter_map(Result::transpose)
-        .try_reduce(
-            || (Vec::new(), String::new()),
-            |(mut boxes, mut text), (page_boxes, page_text)| {
-                boxes.extend(page_boxes);
-                text.push_str(&page_text);
-                Ok((boxes, text))
-            },
-        )
+        .collect::<Result<Vec<_>, _>>()
 }

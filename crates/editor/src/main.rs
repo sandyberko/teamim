@@ -6,6 +6,9 @@ mod loaded;
 mod strs;
 mod task;
 
+#[cfg(test)]
+mod tests;
+
 use {
     crate::{img::ImgHandle, loaded::LoadedImage, task::Poll},
     editor::{GUTTMAN, stage},
