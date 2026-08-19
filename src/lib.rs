@@ -12,6 +12,7 @@ pub mod test_utils;
 mod tests;
 
 use {
+    crate::diac::DiacMiss,
     eyre::{OptionExt, ensure, eyre},
     image::{ImageBuffer, Rgba},
     serde::Serialize,
@@ -128,7 +129,14 @@ impl TeamimCtx {
         let remapper = TextDiffRemapper::from_text_diff(&diff, old, new);
 
         progress_callback(PositStatus::Placing);
-        place(&boxes, snip_char_offset, new, &remapper, diff.ops().iter().copied())
+        place(&boxes, snip_char_offset, new, &remapper, diff.ops().iter().copied()).map(|placed| {
+            placed
+                .into_iter()
+                .map(|(cluster, place)| {
+                    PlacedDiac::new(cluster.letter, cluster.diacritic, place.map(|bb| bb.rect))
+                })
+                .collect()
+        })
     }
 
     pub fn diff_boxes(
@@ -191,6 +199,20 @@ impl TeamimCtx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cluster {
+    pub letter: char,
+    pub diacritic: char,
+}
+
+impl Cluster {
+    pub fn new(letter: char, diacritic: char) -> Self {
+        Self { letter, diacritic }
+    }
+}
+
+pub type PlacedCluster = (Cluster, Result<BoundingBox, DiacMiss>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacedDiac {
     pub letter: char,
     pub diacritic: char,
@@ -213,7 +235,7 @@ pub fn place(
     new: &str,
     remapper: &TextDiffRemapper<'_, str>,
     ops: impl IntoIterator<Item = similar::DiffOp>,
-) -> Result<Vec<PlacedDiac>, PlaceError> {
+) -> Result<Vec<PlacedCluster>, PlaceError> {
     let mut ops = ops.into_iter().peekable();
 
     let mut last_diacrit_top = 0;
@@ -237,9 +259,8 @@ pub fn place(
             DiffTag::Equal => {
                 let char_offset_in_change = char_offset - change.new_range().start;
                 let box_idx = change.old_range().start + char_offset_in_change;
-                let rect = boxes[box_idx].rect;
-                last_diacrit_top = rect.top;
-                Ok(rect)
+                last_diacrit_top = boxes[box_idx].rect.top;
+                Ok(boxes[box_idx].map_value(|_| ()))
             }
             DiffTag::Delete => panic!("  > ⚠️ DELETED this should not happen"),
             DiffTag::Insert | DiffTag::Replace => {
@@ -255,7 +276,7 @@ pub fn place(
                 Err(diac::DiacMiss { top, missing_text })
             }
         };
-        res.push(PlacedDiac::new(letter, diacritic, result));
+        res.push((Cluster::new(letter, diacritic), result));
     }
     Ok(res)
 }

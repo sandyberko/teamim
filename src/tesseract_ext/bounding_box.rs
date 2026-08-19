@@ -72,7 +72,7 @@ impl Rect<f32> {
 
 #[cfg_attr(feature = "test_utils", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BoundingBox<Value> {
+pub struct BoundingBox<Value = ()> {
     pub value: Value,
     pub rect: Rect<u32>,
     pub page: usize,

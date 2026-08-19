@@ -4,7 +4,10 @@ use blake3::Hash;
 use fastcdc::v2020::FastCDC;
 use similar::{Algorithm, TextDiff, utils::TextDiffRemapper};
 
-use crate::{PlacedDiac, place, tesseract_ext::bounding_box::BoundingBox};
+use crate::{
+    Cluster, PlacedCluster, PlacedDiac, diac::DiacMiss, place,
+    tesseract_ext::bounding_box::BoundingBox,
+};
 
 const CHUNK_UNIT: usize = 32;
 const MIN: usize = 4 * CHUNK_UNIT;
@@ -29,7 +32,7 @@ fn chunk(text: &str) -> Vec<Chunk> {
 }
 
 #[must_use]
-pub fn diff_and_place(old: &str, new: &str, boxes: &[BoundingBox<char>]) -> Vec<PlacedDiac> {
+pub fn diff_and_place(old: &str, new: &str, boxes: &[BoundingBox<char>]) -> Vec<PlacedCluster> {
     let old_chunks = chunk(old);
     let new_chunks = chunk(new);
 
