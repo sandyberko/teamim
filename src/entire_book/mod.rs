@@ -59,10 +59,11 @@ pub fn recognize(book_dir: &Path) -> eyre::Result<Vec<RecognizedPage>> {
                     .tess
                     .results_iter(PageIteratorLevel::Symbol)
                     .map(|BoundingBox { value, rect, page }| {
+                        assert_eq!(0, page);
                         eyre::Ok(BoundingBox {
                             value: value.as_str()?.chars().next().ok_or_eyre("empty box")?,
                             rect,
-                            page,
+                            page: page_i,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
